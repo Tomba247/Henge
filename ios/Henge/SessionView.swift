@@ -86,6 +86,12 @@ struct SessionView: View {
             HardwareKeys.releaseAll()
             HardwareMouse.shared.releaseButtons()
         }
+        .onChange(of: showDetails) { showing in
+            if showing { HardwareKeys.releaseAll(); StickyKeys.shared.releaseAll() }
+        }
+        .onChange(of: confirmStop) { showing in
+            if showing { HardwareKeys.releaseAll(); StickyKeys.shared.releaseAll() }
+        }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             HardwareMouse.shared.start()

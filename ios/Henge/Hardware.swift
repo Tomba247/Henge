@@ -16,6 +16,12 @@ enum Device {
         return (1920, min(max(Int((1920 / shape / 8).rounded()) * 8, 1080), 1440))
     }
 
+    /// Preserve the iPad's shape while reducing the virtual GPU's pixel work.
+    static var performanceScreen: (width: Int, height: Int) {
+        let fit = fittingScreen
+        return (1600, Int((Double(fit.height) * 5 / 6 / 8).rounded()) * 8)
+    }
+
     /// How much memory to suggest for a new Mac: what leaves this device room for iOS.
     static var suggestedRAMGB: Int {
         let mb = ProcessInfo.processInfo.physicalMemory >> 20
@@ -49,7 +55,17 @@ enum HardwareKeys {
     /// Sends the presses that are keys, and returns the rest.
     static func send(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
         var rest = Set<UIPress>()
-        for press in presses {
+        // A chord can arrive in one unordered Set. Press modifiers first and
+        // release them last so the guest sees the intended shortcut.
+        let ordered = presses.sorted { a, b in
+            let aCode = a.key?.keyCode.rawValue ?? 0
+            let bCode = b.key?.keyCode.rawValue ?? 0
+            let aModifier = (0xe0...0xe7).contains(aCode)
+            let bModifier = (0xe0...0xe7).contains(bCode)
+            if aModifier != bModifier { return down ? aModifier : !aModifier }
+            return aCode < bCode
+        }
+        for press in ordered {
             guard let raw = press.key?.keyCode.rawValue, raw >= 0x04, raw <= 0xe7 else {
                 rest.insert(press)
                 continue
