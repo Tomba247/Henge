@@ -70,7 +70,7 @@ jobs:
 
       - name: Build and package Henge.ipa
         run: |
-          mkdir -p ~/Desktop
+          mkdir -p ~/Desktop ios/build
           ios/scripts/package_ipa.sh || { tail -n 150 ios/build/DerivedData.buildlog; exit 1; }
           cp ~/Desktop/Henge.ipa "$RUNNER_TEMP/Henge.ipa"
           shasum -a 256 "$RUNNER_TEMP/Henge.ipa"
