@@ -1,0 +1,40 @@
+# Runs Henge's engine tests on a GitHub Mac at the macOS 27 build (macos27) and after
+# each upstream speedup on top of it, to see which commit, if any, a failure starts at.
+name: Engine tests by commit
+
+on:
+  push:
+    branches: [macos27-perf]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        ref:
+          - origin/macos27        # 0.1 + macOS 27 fixes (the build that works on the phone)
+          - 7d180bf               # + software TLB layout
+          - 94d2af9               # + macOS 27 TLBI range flush
+          - e9e1c8e               # + testing knobs
+          - 8503a9e               # + slow-path recheck dropped
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check out ${{ matrix.ref }}
+        run: git checkout -q ${{ matrix.ref }} && git log -1 --format='%h %s'
+      - name: Engine tests
+        run: |
+          rc=0
+          for t in classify jit_region operands jit mem mmu exc devices; do
+            echo "== test_$t"
+            make build/test_$t >/dev/null || { echo "BUILD FAILED"; rc=1; continue; }
+            build/test_$t > out.txt 2>&1; s=$?
+            tail -n 25 out.txt
+            echo "-- test_$t exit $s"
+            [ $s -eq 0 ] || rc=1
+          done
+          exit $rc
