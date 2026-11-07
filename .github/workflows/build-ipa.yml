@@ -14,7 +14,7 @@ permissions:
 env:
   # Husk supplies StikJIT, on-device pairing, libslirp and glib (see the README's Building section).
   HUSK_COMMIT: afe83d4
-  HUSK: ${{ github.workspace }}/../Husk
+  HUSK: /Users/runner/Documents/Coding/Husk
 
 jobs:
   build:
@@ -39,6 +39,7 @@ jobs:
 
       - name: Husk
         run: |
+          mkdir -p "$(dirname "$HUSK")"
           git clone https://github.com/Leviidev/Husk "$HUSK"
           git -C "$HUSK" checkout -q "$HUSK_COMMIT"
 
