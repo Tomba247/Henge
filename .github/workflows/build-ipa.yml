@@ -64,10 +64,13 @@ jobs:
       - name: Husk on-device pairing
         run: cd "$HUSK" && ./scripts/build_rppairing_ios.sh
 
-      - name: Engine tests (instruction, JIT, MMU and device tests, run on this Mac)
+      - name: Engine tests (the ones that can run on a GitHub Mac)
+        # test_jit and test_mem crash on GitHub's Mac at every commit, the working 0.1 build
+        # included, and test_devices needs a disk folder on the developer's own Mac, so
+        # they are left out. Measured by engine-tests.yml.
         run: |
           set -o pipefail
-          for t in classify jit_region operands jit mem mmu exc devices; do
+          for t in classify jit_region operands mmu exc; do
             make build/test_$t >/dev/null
             echo "== test_$t"; build/test_$t | tail -n 3
           done

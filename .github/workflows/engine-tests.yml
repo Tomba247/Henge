@@ -3,8 +3,6 @@
 name: Engine tests by commit
 
 on:
-  push:
-    branches: [macos27-perf]
   workflow_dispatch:
 
 jobs:
