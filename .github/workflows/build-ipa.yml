@@ -1,0 +1,91 @@
+# Builds Henge.ipa (0.1 + the macOS 27 install and Metal fixes from upstream PR #8)
+# on a GitHub-hosted Mac and publishes it as a release, so it can be downloaded on the
+# iPhone and sideloaded with SideStore.
+name: Build Henge IPA
+
+on:
+  push:
+    branches: [macos27]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Husk supplies StikJIT, on-device pairing, libslirp and glib (see the README's Building section).
+  HUSK_COMMIT: afe83d4
+  HUSK: ${{ github.workspace }}/../Husk
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Tools
+        run: |
+          brew install xcodegen meson ninja pkg-config
+          rustup target add aarch64-apple-ios
+          xcodegen --version; meson --version; cargo --version
+
+      - name: Husk
+        run: |
+          git clone https://github.com/Leviidev/Husk "$HUSK"
+          git -C "$HUSK" checkout -q "$HUSK_COMMIT"
+
+      - name: Husk sources (libffi, glib, libslirp)
+        run: |
+          cd "$HUSK"
+          . scripts/sources.sh
+          mkdir -p third_party/sources third_party/build
+          for u in "$FFI_SRC" "$GLIB_SRC" "$SLIRP_SRC"; do
+            f="third_party/sources/$(basename "$u")"
+            curl -fL --retry 3 -o "$f" "$u"
+            tar -xf "$f" -C third_party/build
+          done
+          ls third_party/build
+
+      - name: Husk iOS libraries
+        run: |
+          cd "$HUSK"
+          ./scripts/build_ios.sh libffi glib libslirp || { tail -n 80 build/logs/*.log; exit 1; }
+          ls -la build/ios-arm64/sysroot/lib
+
+      - name: Husk on-device pairing
+        run: cd "$HUSK" && ./scripts/build_rppairing_ios.sh
+
+      - name: Henge dependencies
+        run: |
+          ios/scripts/fetch_deps.sh
+          ls -la ios/deps ios/deps/lib
+
+      - name: Build and package Henge.ipa
+        run: |
+          mkdir -p ~/Desktop
+          ios/scripts/package_ipa.sh || { tail -n 150 ios/build/DerivedData.buildlog; exit 1; }
+          cp ~/Desktop/Henge.ipa "$RUNNER_TEMP/Henge.ipa"
+          shasum -a 256 "$RUNNER_TEMP/Henge.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Henge-ipa
+          path: ${{ runner.temp }}/Henge.ipa
+
+      - name: Publish a release with the IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="0.1-macos27-${GITHUB_RUN_NUMBER}"
+          SHA=$(shasum -a 256 "$RUNNER_TEMP/Henge.ipa" | cut -d' ' -f1)
+          gh release create "$TAG" "$RUNNER_TEMP/Henge.ipa" --target "$GITHUB_SHA" \
+            --title "Henge 0.1 + macOS 27 fixes (build $GITHUB_RUN_NUMBER)" \
+            --notes "Unofficial build: Henge 0.1 with upstream commits f0eec63 and db1fac3 (PR #8, macOS 27.2 install and Metal fixes). Build number 2. SHA-256: $SHA"
