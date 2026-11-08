@@ -169,6 +169,22 @@ Next to measure: the same loop with no exec (`for i in {1..3000}; do :; done`),
 `/usr/bin/time -l /usr/bin/true` (page faults, context switches), and the same loop on the M4
 under `hengevm` and `hengevm-ref` to split translation cost from device and wait cost.
 
+**Main finding (Nov 8, from engine stats in a friend's upstream-based build 0.5.0 (104), iPhone 18 Pro
+Max, macOS 27.2, 6 GB guest, 4 vCPUs, HV_STATS=10, about 10 minutes of normal use):** the **1 GB code
+cache fills and is wiped completely about every 30 s**: `blocks held` climbs to ~3.9M blocks / ~990 MB,
+then a full flush, **17 full flushes in 575 s**. After each one everything is retranslated
+(100K–280K translations/s minutes after boot), and with one global translation lock the CPUs queue:
+`translation lock` waits reached **40–98% of one CPU** during busy stretches. That's the likely cause
+of slow app launches, slow browsing and the "waiting" in the process-start benchmark. Translated code
+is ~16x the guest instructions' size (`16.1x`, ~5.2 host words per guest instruction), which is why
+1 GB fills fast. Note: the `again: va/va+pa` re-translation percentages come from a fixed 2^24-bit
+approximate bitmap (`seen_va` in `core/dispatch.c`), so they saturate and overstate late in a
+session; trust `blocks held`, `full flushes` and the lock-wait figures instead.
+**Fix candidates, in order:** (1) a bigger cache: upstream `2050ec5` adds Settings > Performance >
+Code cache 1.5 GB (experimental), being tested now; (2) partial eviction instead of a full flush
+(drop the oldest region and its chains, keep hot code); (3) denser translated code; (4) finer-grained
+translation locking so CPUs can translate in parallel.
+
 **Repeatable benchmarks** (run inside the guest, same each time):
 - Process start, heavy on TLB and page faults: `time (for i in {1..300}; do /usr/bin/true; done)`
 - Browser: **Speedometer 3** and **JetStream** in Safari (browserbench.org)
