@@ -18,15 +18,6 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "0.6.0",
-          "buildVersion": "200",
-          "date": "2026-11-08T05:45:31Z",
-          "localizedDescription": "[upstream-next] Current upstream Leviidev/Henge main (0.2.0 base: 1.5 GB code cache by default, henge-env.txt, engine stats, Settings > Performance, autopilot, latest TLB speedups). Built with Xcode 26: no iOS 27 external-display accessory.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/upstream-next-14/Henge.ipa",
-          "size": 6761181,
-          "minOSVersion": "17.0"
-        },
-        {
           "version": "0.1.6",
           "buildVersion": "6",
           "date": "2026-11-08T04:30:18Z",
