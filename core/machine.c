@@ -366,7 +366,13 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
     /* Exits from other pages chained into the stale blocks go back to their stub
        (whose next chain finds the new translation). Under the translation lock,
        as chaining them is: one that saw the old generation is done by now. */
-    pthread_mutex_lock(&m->tr_mu);
+    if (pthread_mutex_trylock(&m->tr_mu) != 0) {
+        uint64_t w0 = m->stats_interval ? mach_absolute_time() : 0;
+        pthread_mutex_lock(&m->tr_mu);
+        if (m->stats_interval) m->stats.trw_n[2]++, m->stats.trw_ticks[2] += mach_absolute_time() - w0;
+    }
+    uint64_t h0 = m->stats_interval ? mach_absolute_time() : 0;
+    if (m->stats_interval) m->stats.inval_scanned += m->nxchained;
     uint64_t tpa = (r->pa + (pg << HV_TLB_PAGE_BITS)) | 1;
     for (uint32_t k = 0; k < m->nxchained;) {
         uint32_t idx = m->xchained[k];
@@ -384,6 +390,7 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
         }
         m->xchained[k] = m->xchained[--m->nxchained];
     }
+    if (m->stats_interval) m->stats.trh_n[2]++, m->stats.trh_ticks[2] += mach_absolute_time() - h0;
     pthread_mutex_unlock(&m->tr_mu);
     /* The indirect-branch cache may lead into the stale blocks: start it over,
        here at once and on the other CPUs before they next leave a block (their
