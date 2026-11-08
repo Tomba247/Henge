@@ -5,7 +5,7 @@ name: Build Henge IPA
 
 on:
   push:
-    branches: [macos27, macos27-perf]
+    branches: [macos27, macos27-perf, macos27-lockstats]
   workflow_dispatch:
 
 permissions:
@@ -98,6 +98,7 @@ jobs:
         run: |
           TAG="0.1-${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
           EXTRA=""; [ "$GITHUB_REF_NAME" = macos27-perf ] && EXTRA=", plus upstream engine speedups e43b98c, 6b32fa2, bf5f2a1 and a1e4b82, and henge-env.txt engine settings. Version 0.1.4 (4)"
+          [ "$GITHUB_REF_NAME" = macos27-lockstats ] && EXTRA=", plus upstream engine speedups and henge-env.txt settings (as macos27-perf), and translation-lock and full-flush stats in the log (HV_STATS). Version 0.1.5 (5)"
           SHA=$(shasum -a 256 "$RUNNER_TEMP/Henge.ipa" | cut -d' ' -f1)
           gh release create "$TAG" "$RUNNER_TEMP/Henge.ipa" --target "$GITHUB_SHA" \
             --title "Henge 0.1 + macOS 27 fixes, ${GITHUB_REF_NAME} (build $GITHUB_RUN_NUMBER)" \

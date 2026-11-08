@@ -68,6 +68,13 @@ typedef struct HvStats {
     uint64_t syncs, sync_ticks;        /* TLBI acks waited for, and host ticks spent waiting */
     uint64_t dev_waits, dev_wait_ticks; /* device lock taken while another CPU held it */
     uint64_t tr_waits, tr_wait_ticks;   /* translation lock likewise */
+    /* Who holds the translation lock, and for how long: publishing a block,
+       chaining an exit to another page, invalidating changed code (which scans
+       every cross-page chain). Waits are counted the same way at each site. */
+    uint64_t trh_n[3], trh_ticks[3];
+    uint64_t trw_n[3], trw_ticks[3];    /* [0] is tr_waits above; [1] chain, [2] invalidation */
+    uint64_t inval_scanned;             /* cross-page chains looked at by those scans */
+    uint64_t stw_ticks, stw_wipe_ticks; /* full flushes: CPUs stopped, and the wipe itself */
     uint64_t words_inline, words_ool, words_pool; /* translated code size by part */
     uint64_t refills;
     uint64_t ijc_light;       /* branch-cache misses resolved without the dispatcher (hv_ijc_resolve) */         /* TLB misses filled by the light path (hv_tlb_refill) */

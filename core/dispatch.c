@@ -173,8 +173,10 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
             m->stats.tr_wait_ticks += mach_absolute_time() - w0;
         }
     }
+    uint64_t h0 = m->stats_interval ? mach_absolute_time() : 0;
     b = find(m, h, va, pa, flags, gen); /* another CPU may have just made it: ours is dropped (its space stays used until a flush) */
     if (b) {
+        if (m->stats_interval) m->stats.trh_n[0]++, m->stats.trh_ticks[0] += mach_absolute_time() - h0;
         pthread_mutex_unlock(&m->tr_mu);
         jc[j].va = va, jc[j].b = b;
         return b;
@@ -199,6 +201,7 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     m->nblocks++;
     b->next = m->hash[h];
     __atomic_store_n(&m->hash[h], b, __ATOMIC_RELEASE);
+    if (m->stats_interval) m->stats.trh_n[0]++, m->stats.trh_ticks[0] += mach_absolute_time() - h0;
     pthread_mutex_unlock(&m->tr_mu);
     return b;
 flush_unlocked:
@@ -646,6 +649,18 @@ static void print_stats(HvCpu *cpu, int force) {
         fprintf(stderr, "  new code pages %.0f/s; waits: tlbi acks %.0f/s %.1f%%, device lock %.0f/s %.1f%%, translation lock %.0f/s %.1f%% (of one CPU)\n",
                 RATE(code_protects), RATE(syncs), RATE(sync_ticks) / 240000.0, RATE(dev_waits), RATE(dev_wait_ticks) / 240000.0,
                 RATE(tr_waits), RATE(tr_wait_ticks) / 240000.0);
+        { /* where the translation lock goes: held by, and waited for at, each site */
+            uint64_t nscan = s->trh_n[2] - last.trh_n[2], nflush = s->block_flushes - last.block_flushes;
+            fprintf(stderr, "  translation lock held: publish %.0f/s %.1f%%, cross-page chain %.0f/s %.1f%%, code invalidation %.0f/s %.1f%% "
+                            "(%.0f chains scanned each, %u linked now); waits: chain %.0f/s %.1f%%, invalidation %.0f/s %.1f%%; "
+                            "full flushes %llu, stop %.1f ms each, wipe %.1f ms each\n",
+                    RATE(trh_n[0]), RATE(trh_ticks[0]) / 240000.0, RATE(trh_n[1]), RATE(trh_ticks[1]) / 240000.0,
+                    RATE(trh_n[2]), RATE(trh_ticks[2]) / 240000.0,
+                    nscan ? (double)(s->inval_scanned - last.inval_scanned) / nscan : 0.0, m->nxchained,
+                    RATE(trw_n[1]), RATE(trw_ticks[1]) / 240000.0, RATE(trw_n[2]), RATE(trw_ticks[2]) / 240000.0,
+                    (unsigned long long)nflush, nflush ? (double)(s->stw_ticks - last.stw_ticks) / nflush / 24000.0 : 0.0,
+                    nflush ? (double)(s->stw_wipe_ticks - last.stw_wipe_ticks) / nflush / 24000.0 : 0.0);
+        }
         fprintf(stderr, "  light lookups failed/s: odd %.0f, filters full %.0f, no mapping %.0f, no block yet %.0f; walked %.0fK/s\n",
                 RATE(light_fail[0]), RATE(light_fail[1]), RATE(light_fail[2]), RATE(light_fail[3]), RATE(light_walks) / 1e3);
         fprintf(stderr, "  big user-range TLBIs/s: %.0f TLB only in the range, %.0f with no cached targets to drop; big kernel ranges %.0f\n",
@@ -737,8 +752,15 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
         uint64_t page_pa = b->pa & ~((1ull << HV_TLB_PAGE_BITS) - 1);
         uint64_t host = (uint64_t)(uintptr_t)(b->ram->host + (page_pa - b->ram->pa));
         if (host - (b->va & ~((1ull << HV_TLB_PAGE_BITS) - 1)) != xa) return;
-        pthread_mutex_lock(&m->tr_mu);
+        uint64_t h0 = 0;
+        if (pthread_mutex_trylock(&m->tr_mu) != 0) {
+            uint64_t w0 = m->stats_interval ? mach_absolute_time() : 0;
+            pthread_mutex_lock(&m->tr_mu);
+            if (m->stats_interval) m->stats.trw_n[1]++, m->stats.trw_ticks[1] += mach_absolute_time() - w0;
+        }
+        if (m->stats_interval) h0 = mach_absolute_time();
         if (__atomic_load_n(&b->ram->page_gen[b->pg], __ATOMIC_ACQUIRE) != b->gen || m->slot_xpa[idx]) {
+            if (m->stats_interval) m->stats.trh_n[1]++, m->stats.trh_ticks[1] += mach_absolute_time() - h0;
             pthread_mutex_unlock(&m->tr_mu);
             return;
         }
@@ -753,7 +775,10 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
             hv_jit_finish(&m->jit, site, 1);
         }
         m->stats.chained++;
-        if (m->stats_interval) m->stats.xchained++;
+        if (m->stats_interval) {
+            m->stats.xchained++;
+            m->stats.trh_n[1]++, m->stats.trh_ticks[1] += mach_absolute_time() - h0;
+        }
         pthread_mutex_unlock(&m->tr_mu);
         return;
     }
@@ -811,6 +836,7 @@ static void stop_the_world(HvCpu *cpu) {
     HvMachine *m = cpu->m;
     pthread_mutex_lock(&m->stw_mu);
     if (__atomic_load_n(&m->flush_pending, __ATOMIC_SEQ_CST) && !m->stw_active) {
+        uint64_t s0 = mach_absolute_time();
         __atomic_store_n(&m->stw_active, 1, __ATOMIC_SEQ_CST);
         __atomic_store_n(&m->flush_pending, 0, __ATOMIC_SEQ_CST);
         pthread_mutex_unlock(&m->stw_mu);
@@ -825,9 +851,13 @@ static void stop_the_world(HvCpu *cpu) {
         }
         if (m->gen_checks) for (int i = 0; i < m->ncpus; i++) if (m->cpus[i] && m->cpus[i] != cpu && m->cpus[i]->pc_state->active) fprintf(stderr, "hengevm: flush while cpu %d is active\n", i);
         pthread_mutex_lock(&m->tr_mu);
+        uint64_t f0 = mach_absolute_time();
         hv_flush_blocks(m);
+        uint64_t f1 = mach_absolute_time();
+        m->stats.stw_wipe_ticks += f1 - f0;
         pthread_mutex_unlock(&m->tr_mu);
         pthread_mutex_lock(&m->stw_mu);
+        m->stats.stw_ticks += mach_absolute_time() - s0;
         __atomic_store_n(&m->stw_active, 0, __ATOMIC_SEQ_CST);
         pthread_cond_broadcast(&m->stw_cv);
         pthread_mutex_unlock(&m->stw_mu);
