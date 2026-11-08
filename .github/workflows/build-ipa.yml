@@ -5,7 +5,7 @@ name: Build Henge IPA
 
 on:
   push:
-    branches: [macos27, macos27-perf, upstream-next]
+    branches: [macos27, macos27-perf, upstream-next, combined]
   workflow_dispatch:
 
 permissions:
@@ -102,6 +102,7 @@ jobs:
           TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
           SHA=$(shasum -a 256 "$RUNNER_TEMP/Henge.ipa" | cut -d' ' -f1)
           case "$GITHUB_REF_NAME" in
+            combined)      NOTES="Upstream Leviidev/Henge main + Tomba247's engine fixes (translation-lock and full-flush stats; cross-page chains indexed by target page) (${GITHUB_SHA::7}). Numbered just above 0.5.4 (108) so newer 0.5.x builds replace it.";;
             upstream-next) NOTES="Unofficial build of current upstream Leviidev/Henge main (${GITHUB_SHA::7}) with this fork's CI; version 0.6.0 (200).";;
             macos27-perf)  NOTES="Unofficial build: Henge 0.1 + upstream commits f0eec63 and db1fac3 (PR #8, macOS 27.2 fixes), upstream engine speedups e43b98c, 6b32fa2, bf5f2a1, a1e4b82, henge-env.txt engine settings and upstream input fixes.";;
             *)             NOTES="Unofficial build: Henge 0.1 + upstream commits f0eec63 and db1fac3 (PR #8, macOS 27.2 install and Metal fixes).";;
