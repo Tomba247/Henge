@@ -158,6 +158,17 @@ Measure before changing anything. 0.1 already has a profiler: `HV_PROF_FN`, `HV_
 (`host/prof_ios.c`, `7fb10f9`) and stats in the log (`35d3f6c`). Set these on the Mac
 (Option C), or on iOS through upstream's `Documents/henge-env.txt` (`35d3f6c`; not in 0.1).
 
+**First measurement (iPhone 18 Pro Max, `macos27-perf` build 3, macOS 27.2, 4 vCPUs, 4 GB guest
+RAM, Nov 7 2026):** `time (for i in {1..300}; do /usr/bin/true; done)` took **9.6 s, 37.2 s,
+9.3 s** (the middle run had something else busy in the guest). That's about **31 ms per
+process start**, roughly 15–30x a real Apple silicon Mac (estimate; measure the M4 itself for the
+real baseline). Only **0.6–0.8 s** of each run was user+sys CPU time, so over 90% of the wall
+time the shell was **waiting**: on other processes (e.g. code-signature checks through amfid),
+on disk I/O, or on memory setup. It wasn't CPU-bound translation of the shell itself.
+Next to measure: the same loop with no exec (`for i in {1..3000}; do :; done`),
+`/usr/bin/time -l /usr/bin/true` (page faults, context switches), and the same loop on the M4
+under `hengevm` and `hengevm-ref` to split translation cost from device and wait cost.
+
 **Repeatable benchmarks** (run inside the guest, same each time):
 - Process start, heavy on TLB and page faults: `time (for i in {1..300}; do /usr/bin/true; done)`
 - Browser: **Speedometer 3** and **JetStream** in Safari (browserbench.org)
