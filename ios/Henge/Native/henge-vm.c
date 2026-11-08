@@ -28,8 +28,41 @@ static void on_exit(int reason) {
     fprintf(stderr, "henge: the machine stopped (%s)\n", hv_vm_reason_name(reason));
 }
 
+/* Engine settings without a rebuild: KEY=VALUE lines from henge-env.txt in the Shared folder (the Mac
+   sees it as ~/Henge/henge-env.txt) or in Documents, set in the environment before the machine is made,
+   where the engine reads them (HV_STATS, HV_WFI_SPIN, HV_SUPERBLOCKS, ...). '#' starts a comment. */
+static void load_env_file(void) {
+    const char *home = getenv("HOME");
+    if (!home) return;
+    static const char *const names[] = {"Documents/henge-env.txt", "Documents/Shared/henge-env.txt"};
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        char path[1024];
+        snprintf(path, sizeof path, "%s/%s", home, names[i]);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        char line[512];
+        while (fgets(line, sizeof line, f)) {
+            char *s = line;
+            while (*s == ' ' || *s == '\t') s++;
+            s[strcspn(s, "#\r\n")] = 0;
+            char *eq = strchr(s, '=');
+            if (!eq || eq == s) continue;
+            *eq = 0;
+            char *key = s, *value = eq + 1;
+            for (char *e = key + strlen(key); e > key && (e[-1] == ' ' || e[-1] == '\t');) *--e = 0;
+            while (*value == ' ' || *value == '\t') value++;
+            for (char *e = value + strlen(value); e > value && (e[-1] == ' ' || e[-1] == '\t');) *--e = 0;
+            if (strncmp(key, "HV_", 3) != 0) continue; /* only engine settings */
+            setenv(key, value, 1);
+            fprintf(stderr, "henge-env: %s=%s (from %s)\n", key, value, names[i]);
+        }
+        fclose(f);
+    }
+}
+
 int henge_vm_boot(const char *rom, const char *disk, const char *aux, uint64_t ecid, uint64_t seed, uint64_t ram_mb,
                   int cpus, char *err, size_t errlen) {
+    if (!state) load_env_file();
     if (state) {
         snprintf(err, errlen, "A machine has already run in this session. Quit Henge and open it again to start another.");
         return -1;

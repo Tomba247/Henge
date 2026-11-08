@@ -220,6 +220,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
     int r = c->jit_rx ? hv_machine_init_jit(&m, c->jit_rx, c->jit_rw, jit) : hv_machine_init(&m, jit);
     if (r != 0) return fail(err, errlen, "Cannot set up the JIT region.");
     m.log = c->log;
+    if (getenv("HV_STATS")) m.stats_interval = atoi(getenv("HV_STATS")); /* seconds between engine stats lines in the log */
     m.gen_checks = getenv("HV_JIT_POISON") != NULL;
     if (getenv("HV_SLOW_MEM")) m.slow_mem = 1; /* debugging: every load and store through the helper */
     ncpus = c->ncpus < 1 ? 1 : c->ncpus > HV_MAX_CPUS ? HV_MAX_CPUS : c->ncpus;
