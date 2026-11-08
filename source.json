@@ -1,0 +1,89 @@
+{
+  "name": "Henge (Tomba247 test builds)",
+  "identifier": "com.tomba247.henge.source",
+  "subtitle": "Unofficial Henge builds for testing",
+  "description": "Test builds of Henge, macOS on iPhone and iPad, from github.com/Tomba247/Henge (a fork of Leviidev/Henge, GPL-2.0-or-later). Each build says which branch it came from. Henge needs JIT (StikJIT or StikDebug) and the increased-memory and extended-addressing entitlements, so sign it with a development certificate.",
+  "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
+  "website": "https://github.com/Tomba247/Henge",
+  "tintColor": "#5B6CFF",
+  "apps": [
+    {
+      "name": "Henge",
+      "bundleIdentifier": "com.henge.app",
+      "developerName": "Leviidev (unofficial build by Tomba247)",
+      "subtitle": "macOS on your iPhone and iPad",
+      "localizedDescription": "Henge runs macOS on iPhone and iPad: a virtual machine with its own arm64 translator, emulated devices and Metal graphics. These are unofficial test builds; the branch name is at the start of each version's notes. Upstream: github.com/Leviidev/Henge.",
+      "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
+      "tintColor": "#5B6CFF",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "0.6.0",
+          "buildVersion": "200",
+          "date": "2026-11-08T05:45:31Z",
+          "localizedDescription": "[upstream-next] Current upstream Leviidev/Henge main (0.2.0 base: 1.5 GB code cache by default, henge-env.txt, engine stats, Settings > Performance, autopilot, latest TLB speedups). Built with Xcode 26: no iOS 27 external-display accessory.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/upstream-next-14/Henge.ipa",
+          "size": 6761181,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.1.6",
+          "buildVersion": "6",
+          "date": "2026-11-08T04:30:18Z",
+          "localizedDescription": "[macos27-xchain] Cross-page chains indexed by target page: code invalidation no longer scans every chain under the translation lock (that scan was 92% of lock time).",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-xchain-11/Henge.ipa",
+          "size": 6619088,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.1.5",
+          "buildVersion": "5",
+          "date": "2026-11-08T03:34:18Z",
+          "localizedDescription": "[macos27-lockstats] Plus translation-lock and full-flush stats in the engine log.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-lockstats-10/Henge.ipa",
+          "size": 6618604,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.1.4",
+          "buildVersion": "4",
+          "date": "2026-11-08T01:20:49Z",
+          "localizedDescription": "[macos27-perf] Plus engine settings from henge-env.txt and HV_STATS engine stats in the log.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-perf-9/Henge.ipa",
+          "size": 6610979,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.1",
+          "buildVersion": "3",
+          "date": "2026-11-07T20:15:30Z",
+          "localizedDescription": "[macos27-perf] Plus four upstream engine speedups (TLB layout, macOS 27 TLBI range flush, slow-path recheck).",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-perf-7/Henge.ipa",
+          "size": 6609921,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.1",
+          "buildVersion": "2",
+          "date": "2026-11-07T19:00:01Z",
+          "localizedDescription": "[macos27] Henge 0.1 + macOS 27.2 install and graphics fixes (upstream PR #8).",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-3/Henge.ipa",
+          "size": 6611135,
+          "minOSVersion": "17.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [
+          "get-task-allow",
+          "dynamic-codesigning",
+          "com.apple.developer.kernel.increased-memory-limit",
+          "com.apple.developer.kernel.extended-virtual-addressing"
+        ],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Henge uses the local network to pair with this iPhone for JIT, without a computer."
+        }
+      }
+    }
+  ],
+  "news": []
+}
