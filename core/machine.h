@@ -57,6 +57,9 @@ typedef struct HvBlock {
 #define HV_MAX_BLOCKS (3 << 20) /* a macOS boot runs well over a million distinct blocks; a full flush retranslates them all */
 #define HV_PROF_RING (1 << 16)
 #define HV_MAX_SLOTS (6 << 20)  /* chainable exits: about two per block */
+#define HV_XBUCKETS (1u << 20)  /* cross-page chain lists, by target page: one per 16 KB page for the first 16 GB, shared above */
+#define HV_XNONE 0xffffffffu
+#define HV_XBUCKET(pa) ((uint32_t)((pa) >> HV_TLB_PAGE_BITS) & (HV_XBUCKETS - 1))
 
 /* Counters for --stats: where the time goes. */
 typedef struct HvStats {
@@ -235,9 +238,13 @@ typedef struct HvMachine {
     /* Exits to another page (see put_branch_exit): the host addend the target
        page's TLB entry must hold for the exit to go straight to the chained
        block (0: a same-page exit), and once chained, the target's physical page
-       (| 1) so that invalidating its code can unchain it. xchained lists them. */
+       (| 1) so that invalidating its code can unchain it. */
     uint64_t *slot_xa, *slot_xpa;
-    uint32_t *xchained, nxchained;
+    /* The chained ones, listed by the page they lead into, so invalidating a
+       page's code visits only the chains into it (not every one): xhead[HV_XBUCKET(page)]
+       starts a list through xnext (slot indexes; HV_XNONE ends it). A slot is on
+       a list exactly when its slot_xpa is set. nxchained counts them. */
+    uint32_t *xhead, *xnext, nxchained;
     uint32_t nslots;
     HvCpu *cpu;              /* CPU 0: the one that polls devices */
     HvCpu *cpus[HV_MAX_CPUS]; /* every CPU, so device and invalidation code can ask them to leave */

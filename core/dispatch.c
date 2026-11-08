@@ -35,6 +35,7 @@ void hv_flush_blocks(HvMachine *m) {
     m->nblocks = 0;
     m->nslots = 0;
     m->nxchained = 0;
+    memset(m->xhead, 0xff, HV_XBUCKETS * sizeof *m->xhead); /* slots start over from 0: every chain list empty */
     hv_jit_reset(&m->jit);
     m->jit.limit = hv_knob[HV_K_JITCAP] > 0 ? ((size_t)hv_knob[HV_K_JITCAP] << 20) / sizeof(uint32_t) : 0; /* MB of it to use (testing) */
     /* HV_JIT_POISON: nothing old is left to run, so a stale pointer faults where it is used. */
@@ -765,7 +766,10 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
             return;
         }
         m->slot_xpa[idx] = page_pa | 1;
-        m->xchained[m->nxchained++] = idx;
+        uint32_t bk = HV_XBUCKET(page_pa); /* onto the list for its target page */
+        m->xnext[idx] = m->xhead[bk];
+        m->xhead[bk] = idx;
+        m->nxchained++;
         __atomic_store_n(slot, (uint64_t)(uintptr_t)b->code, __ATOMIC_RELEASE);
         uint32_t *site = m->slot_site[idx];
         int64_t off = site ? b->code - site : 0;

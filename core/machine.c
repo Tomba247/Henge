@@ -72,8 +72,10 @@ static int init_rest(HvMachine *m) {
     m->slot_cond = calloc(m->max_slots, sizeof *m->slot_cond);
     m->slot_xa = calloc(m->max_slots, sizeof *m->slot_xa);
     m->slot_xpa = calloc(m->max_slots, sizeof *m->slot_xpa);
-    m->xchained = calloc(m->max_slots, sizeof *m->xchained);
-    if (!m->slots || !m->slot_site || !m->slot_stub || !m->slot_cond || !m->slot_xa || !m->slot_xpa || !m->xchained) return -1;
+    m->xhead = malloc(HV_XBUCKETS * sizeof *m->xhead);
+    m->xnext = calloc(m->max_slots, sizeof *m->xnext);
+    if (!m->slots || !m->slot_site || !m->slot_stub || !m->slot_cond || !m->slot_xa || !m->slot_xpa || !m->xhead || !m->xnext) return -1;
+    memset(m->xhead, 0xff, HV_XBUCKETS * sizeof *m->xhead); /* every list empty (HV_XNONE) */
     pthread_mutex_init(&m->big_mu, NULL);
     pthread_cond_init(&m->big_cv, NULL);
     pthread_mutexattr_t ra;
@@ -270,7 +272,8 @@ void hv_machine_free(HvMachine *m) {
     free(m->slot_cond);
     free(m->slot_xa);
     free(m->slot_xpa);
-    free(m->xchained);
+    free(m->xhead);
+    free(m->xnext);
 }
 
 int hv_machine_add_ram(HvMachine *m, uint64_t pa, uint64_t size, void *host, int readonly) {
@@ -338,14 +341,20 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
         if (m->stats_interval) m->stats.trw_n[2]++, m->stats.trw_ticks[2] += mach_absolute_time() - w0;
     }
     uint64_t h0 = m->stats_interval ? mach_absolute_time() : 0;
-    if (m->stats_interval) m->stats.inval_scanned += m->nxchained;
     uint64_t tpa = (r->pa + (pg << HV_TLB_PAGE_BITS)) | 1;
-    for (uint32_t k = 0; k < m->nxchained;) {
-        uint32_t idx = m->xchained[k];
+    /* Only the list for this page's bucket: chains into this page, and the odd
+       one into another page that shares the bucket (left where it is). */
+    uint32_t *pp = &m->xhead[HV_XBUCKET(tpa)];
+    uint64_t scanned = 0;
+    while (*pp != HV_XNONE) {
+        uint32_t idx = *pp;
+        scanned++;
         if (m->slot_xpa[idx] != tpa) {
-            k++;
+            pp = &m->xnext[idx];
             continue;
         }
+        *pp = m->xnext[idx]; /* off the list; pp now names the next one */
+        m->nxchained--;
         m->slot_xpa[idx] = 0;
         __atomic_store_n(&m->slots[idx], 0, __ATOMIC_RELEASE);
         uint32_t *site = m->slot_site[idx];
@@ -354,9 +363,11 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
             hv_jit_write(&m->jit, site, &insn, 4);
             hv_jit_finish(&m->jit, site, 1);
         }
-        m->xchained[k] = m->xchained[--m->nxchained];
     }
-    if (m->stats_interval) m->stats.trh_n[2]++, m->stats.trh_ticks[2] += mach_absolute_time() - h0;
+    if (m->stats_interval) {
+        m->stats.inval_scanned += scanned;
+        m->stats.trh_n[2]++, m->stats.trh_ticks[2] += mach_absolute_time() - h0;
+    }
     pthread_mutex_unlock(&m->tr_mu);
     /* The indirect-branch cache may lead into the stale blocks: start it over,
        here at once and on the other CPUs before they next leave a block (their
