@@ -109,3 +109,26 @@ jobs:
           gh release create "$TAG" "$RUNNER_TEMP/Henge.ipa" --target "$GITHUB_SHA" \
             --title "Henge build from ${GITHUB_REF_NAME} (build $GITHUB_RUN_NUMBER)" \
             --notes "$NOTES SHA-256: $SHA"
+
+      - name: Add this build to the app source (FlareStore, SideStore, AltStore, Feather)
+        run: |
+          VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' ios/Henge/Info.plist)
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' ios/Henge/Info.plist)
+          TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/Henge.ipa"
+          SIZE=$(stat -f%z "$RUNNER_TEMP/Henge.ipa")
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          NOTES=$(git log -1 --format=%s)
+          git fetch -q origin source
+          git worktree add -q --detach "$RUNNER_TEMP/source" origin/source
+          cd "$RUNNER_TEMP/source"
+          for attempt in 1 2 3; do
+            git reset -q --hard origin/source
+            python3 update_source.py --version "$VER" --build "$BUILD" --branch "$GITHUB_REF_NAME" \
+              --url "$URL" --size "$SIZE" --date "$DATE" --notes "$NOTES"
+            git -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" \
+              commit -qam "Add $GITHUB_REF_NAME $VER ($BUILD)"
+            git push -q origin HEAD:source && exit 0
+            sleep 5; git fetch -q origin source  # another build updated it first: redo on top
+          done
+          exit 1
