@@ -83,6 +83,9 @@ jobs:
       - name: Build and package Henge.ipa
         run: |
           mkdir -p ~/Desktop ios/build
+          # An iOS SDK before 27 (Xcode 26 here) lacks iOS 27's external-display scene API: leave that out.
+          SDKV=$(xcrun --sdk iphoneos --show-sdk-version); echo "iOS SDK $SDKV"
+          if [ "${SDKV%%.*}" -lt 27 ]; then export HENGE_XCODEBUILD_ARGS="OTHER_SWIFT_FLAGS=-DHENGE_OLD_SDK"; echo "building with $HENGE_XCODEBUILD_ARGS"; fi
           ios/scripts/package_ipa.sh || { tail -n 150 ios/build/DerivedData.buildlog; exit 1; }
           cp ~/Desktop/Henge.ipa "$RUNNER_TEMP/Henge.ipa"
           shasum -a 256 "$RUNNER_TEMP/Henge.ipa"
