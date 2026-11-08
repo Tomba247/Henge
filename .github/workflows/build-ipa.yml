@@ -1,0 +1,108 @@
+# Builds Henge.ipa (macos27*: 0.1 + the macOS 27 fixes from upstream PR #8; upstream-next: current upstream main)
+# on a GitHub-hosted Mac and publishes it as a release, so it can be downloaded on the
+# iPhone and sideloaded with SideStore.
+name: Build Henge IPA
+
+on:
+  push:
+    branches: [macos27, macos27-perf, upstream-next]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Husk supplies StikJIT, on-device pairing, libslirp and glib (see the README's Building section).
+  HUSK_COMMIT: afe83d4
+  HUSK: /Users/runner/Documents/Coding/Husk
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Tools
+        run: |
+          brew install xcodegen meson ninja pkg-config
+          rustup target add aarch64-apple-ios
+          xcodegen --version; meson --version; cargo --version
+
+      - name: Husk
+        run: |
+          mkdir -p "$(dirname "$HUSK")"
+          git clone https://github.com/Leviidev/Husk "$HUSK"
+          git -C "$HUSK" checkout -q "$HUSK_COMMIT"
+
+      - name: Husk sources (libffi, glib, libslirp)
+        run: |
+          cd "$HUSK"
+          . scripts/sources.sh
+          mkdir -p third_party/sources third_party/build
+          for u in "$FFI_SRC" "$GLIB_SRC" "$SLIRP_SRC"; do
+            f="third_party/sources/$(basename "$u")"
+            curl -fL --retry 3 -o "$f" "$u"
+            tar -xf "$f" -C third_party/build
+          done
+          ls third_party/build
+
+      - name: Husk iOS libraries
+        run: |
+          cd "$HUSK"
+          ./scripts/build_ios.sh libffi glib libslirp || { tail -n 80 build/logs/*.log; exit 1; }
+          ls -la build/ios-arm64/sysroot/lib
+
+      - name: Husk on-device pairing
+        run: cd "$HUSK" && ./scripts/build_rppairing_ios.sh
+
+      - name: Engine tests (the ones that can run on a GitHub Mac)
+        # test_jit and test_mem crash on GitHub's Mac at every commit, the working 0.1 build
+        # included, and test_devices needs a disk folder on the developer's own Mac, so
+        # they are left out. Measured by engine-tests.yml.
+        run: |
+          set -o pipefail
+          for t in classify jit_region operands mmu exc; do
+            make build/test_$t >/dev/null
+            echo "== test_$t"; build/test_$t | tail -n 3
+          done
+
+      - name: Henge dependencies
+        run: |
+          ios/scripts/fetch_deps.sh
+          ls -la ios/deps ios/deps/lib
+
+      - name: Build and package Henge.ipa
+        run: |
+          mkdir -p ~/Desktop ios/build
+          ios/scripts/package_ipa.sh || { tail -n 150 ios/build/DerivedData.buildlog; exit 1; }
+          cp ~/Desktop/Henge.ipa "$RUNNER_TEMP/Henge.ipa"
+          shasum -a 256 "$RUNNER_TEMP/Henge.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Henge-ipa
+          path: ${{ runner.temp }}/Henge.ipa
+
+      - name: Publish a release with the IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
+          SHA=$(shasum -a 256 "$RUNNER_TEMP/Henge.ipa" | cut -d' ' -f1)
+          case "$GITHUB_REF_NAME" in
+            upstream-next) NOTES="Unofficial build of current upstream Leviidev/Henge main ($(git log -1 --format=%h HEAD~1)) with this fork's CI; version 0.6.0 (200).";;
+            macos27-perf)  NOTES="Unofficial build: Henge 0.1 + upstream commits f0eec63 and db1fac3 (PR #8, macOS 27.2 fixes), upstream engine speedups e43b98c, 6b32fa2, bf5f2a1, a1e4b82, henge-env.txt engine settings and upstream input fixes.";;
+            *)             NOTES="Unofficial build: Henge 0.1 + upstream commits f0eec63 and db1fac3 (PR #8, macOS 27.2 install and Metal fixes).";;
+          esac
+          gh release create "$TAG" "$RUNNER_TEMP/Henge.ipa" --target "$GITHUB_SHA" \
+            --title "Henge build from ${GITHUB_REF_NAME} (build $GITHUB_RUN_NUMBER)" \
+            --notes "$NOTES SHA-256: $SHA"
