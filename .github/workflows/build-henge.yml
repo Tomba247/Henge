@@ -117,6 +117,12 @@ jobs:
           echo "symbols from $BIN"
           nm -n "$BIN" | grep -i " [tT] " > /Users/runner/Desktop/Henge.symbols.txt
           wc -l /Users/runner/Desktop/Henge.symbols.txt
+          # Also in this step's log, between markers: a session that cannot download artifacts reads it from here.
+          echo "::group::symbol map"
+          echo "SYMBOLS-BEGIN"
+          cat /Users/runner/Desktop/Henge.symbols.txt
+          echo "SYMBOLS-END"
+          echo "::endgroup::"
 
       - name: Upload the symbol map
         uses: actions/upload-artifact@v4
