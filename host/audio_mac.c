@@ -27,6 +27,7 @@ static unsigned cur_channels, cur_format, cur_rate;
 static AudioComponentInstance in_unit;
 static unsigned in_frame_bytes, in_channels;
 static uint8_t in_buf[1 << 16];
+static int in_logged_first, in_logged_fail;
 
 static OSStatus capture(void *ref, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *ts, UInt32 bus,
                         UInt32 frames, AudioBufferList *io) {
@@ -39,8 +40,17 @@ static OSStatus capture(void *ref, AudioUnitRenderActionFlags *flags, const Audi
     bl.mBuffers[0].mNumberChannels = in_channels;
     bl.mBuffers[0].mDataByteSize = bytes;
     bl.mBuffers[0].mData = in_buf;
-    if (AudioUnitRender(in_unit, flags, ts, bus, frames, &bl) == noErr)
-        hv_virtio_snd_push(d, in_buf, bl.mBuffers[0].mDataByteSize);
+    OSStatus st = AudioUnitRender(in_unit, flags, ts, bus, frames, &bl);
+    if (st == noErr) hv_virtio_snd_push(d, in_buf, bl.mBuffers[0].mDataByteSize);
+    /* The first callback of a recording and the first failure, for the log (once each: this is the audio thread). */
+    if (!in_logged_first) {
+        in_logged_first = 1;
+        fprintf(stderr, "hengevm: sound: microphone delivering, %u frames a callback (status %d)\n", (unsigned)frames, (int)st);
+    }
+    if (st != noErr && !in_logged_fail) {
+        in_logged_fail = 1;
+        fprintf(stderr, "hengevm: sound: reading the microphone failed (status %d, %u frames)\n", (int)st, (unsigned)frames);
+    }
     return noErr;
 }
 
@@ -85,6 +95,7 @@ static int in_start(void *opaque, unsigned channels, unsigned format, unsigned r
     }
     in_frame_bytes = bytes * channels;
     in_channels = channels;
+    in_logged_first = in_logged_fail = 0;
     in_unit = u;
     if ((st = AudioOutputUnitStart(u)) != noErr) {
         fprintf(stderr, "hengevm: sound: the microphone did not start (status %d)\n", (int)st);

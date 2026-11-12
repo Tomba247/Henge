@@ -25,6 +25,28 @@ enum Microphone {
             HengeLog.log("audio", "audio session category failed: \(error.localizedDescription)")
         }
         HengeLog.log("audio", "microphone \(isOn ? "on" : "off"); permission \(permissionName)")
+        watchSession()
+    }
+
+    private static var watching = false
+    /// What iOS does to the audio session while a Mac records, in the log: an interruption or a route change stops the input.
+    private static func watchSession() {
+        guard !watching else { return }
+        watching = true
+        let session = AVAudioSession.sharedInstance()
+        let center = NotificationCenter.default
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { note in
+            let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99
+            HengeLog.log("audio", "session interruption \(type == 1 ? "began" : type == 0 ? "ended" : "?")")
+        }
+        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { note in
+            let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 99
+            let route = session.currentRoute
+            HengeLog.log("audio", "route change (reason \(reason)): in \(route.inputs.map(\.portType.rawValue)), out \(route.outputs.map(\.portType.rawValue)), \(Int(session.sampleRate)) Hz, category \(session.category.rawValue)")
+        }
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { _ in
+            HengeLog.log("audio", "media services were reset")
+        }
     }
 
     /// Ask iOS for the microphone (it asks the user once; later calls answer at once).

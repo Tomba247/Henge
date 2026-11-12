@@ -107,6 +107,7 @@ static int fill_rx(HvVirtioSnd *d) {
         give_rx(d, e, S_OK, cap, (uint32_t)(wr - c - need));
         d->in_head++;
         d->in_xfers++;
+        d->in_last_cap = cap;
         any = 1;
     }
     return any;
@@ -124,6 +125,7 @@ static int take_rx(HvVirtioSnd *d) {
         hv_virtq_read(v, e, 0, &stream, 4);
         if (stream != 1 || !d->in_prepared) {
             give_rx(d, e, S_BAD_MSG, 0, 0);
+            d->in_bad_rx++;
             any = 1;
             continue;
         }
@@ -133,6 +135,12 @@ static int take_rx(HvVirtioSnd *d) {
 }
 
 static void in_halt(HvVirtioSnd *d) {
+    if (d->in_running)
+        fprintf(stderr, "hengevm: sound: microphone stopped by the Mac after %llu ms: %llu bytes recorded, %llu buffers of %u bytes "
+                        "to the Mac, %u still waiting, %llu chunks lost, %llu refused\n",
+                (unsigned long long)((now_ns() - d->in_start_ns) / 1000000), (unsigned long long)(atomic_load(&d->in_written) - d->in_start_written),
+                (unsigned long long)(d->in_xfers - d->in_start_xfers), d->in_last_cap, d->in_tail - d->in_head,
+                (unsigned long long)(d->in_dropped - d->in_start_dropped), (unsigned long long)d->in_bad_rx);
     if (d->in_running && d->in_live && d->backend.in_stop) d->backend.in_stop(d->backend.opaque);
     d->in_live = 0;
     d->in_running = 0;
@@ -165,6 +173,8 @@ static uint32_t control_in(HvVirtioSnd *d, uint32_t code, const uint8_t *req) {
                          d->backend.in_start(d->backend.opaque, d->in_channels, d->in_format, d->in_rate_hz) == 0;
             d->in_clock_ns = now_ns();
             d->in_running = 1;
+            d->in_start_ns = d->in_clock_ns, d->in_start_written = atomic_load(&d->in_written);
+            d->in_start_xfers = d->in_xfers, d->in_start_dropped = d->in_dropped, d->in_bad_rx = 0;
             fprintf(stderr, "hengevm: sound: microphone %s (%u ch, format %u, %u Hz)\n",
                     d->in_live ? "recording" : "not available, the Mac hears silence", d->in_channels, d->in_format, d->in_rate_hz);
         }
