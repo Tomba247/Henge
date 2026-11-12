@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.fastFlushKey) private var fastFlush = true
     @AppStorage(EngineTuning.wfiSpinKey) private var wfiSpin = false
     @AppStorage(EngineTuning.superblocksKey) private var superblocks = false
+    @AppStorage(EngineTuning.profileKey) private var profile = false
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB
     @AppStorage(DeskAppearance.key) private var appearance = DeskAppearance.system
@@ -127,6 +128,7 @@ struct SettingsView: View {
                     Toggle("Faster disk writes", isOn: $fastFlush)
                     Toggle("Quicker wake from idle", isOn: $wfiSpin)
                     Toggle("Superblocks (experimental)", isOn: $superblocks)
+                    Toggle("Engine profile in the log (diagnosis)", isOn: $profile)
                     Picker("Code cache", selection: $codeCacheMB) {
                         Text("512 MB").tag(512)
                         Text("1 GB").tag(1024)

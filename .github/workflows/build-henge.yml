@@ -108,6 +108,23 @@ jobs:
           path: /Users/runner/Desktop/Henge.ipa
           if-no-files-found: error
 
+      - name: Symbol map for the engine profiler
+        working-directory: Henge
+        run: |
+          APP=ios/build/DerivedData/Build/Products/Release-iphoneos
+          BIN="$APP/Henge.app.dSYM/Contents/Resources/DWARF/Henge"
+          [ -f "$BIN" ] || BIN="$APP/Henge.app/Henge"
+          echo "symbols from $BIN"
+          nm -n "$BIN" | grep -i " [tT] " > /Users/runner/Desktop/Henge.symbols.txt
+          wc -l /Users/runner/Desktop/Henge.symbols.txt
+
+      - name: Upload the symbol map
+        uses: actions/upload-artifact@v4
+        with:
+          name: Henge-symbols-${{ github.sha }}
+          path: /Users/runner/Desktop/Henge.symbols.txt
+          if-no-files-found: warn
+
       - name: Package Henge.tipa
         working-directory: Henge
         run: zsh ios/scripts/package_ipa.sh --trollstore
