@@ -70,6 +70,8 @@ typedef struct HvVirtioSnd {
     uint64_t in_xfers, in_dropped;
     uint64_t in_start_written, in_start_xfers, in_start_dropped, in_start_ns, in_bad_rx; /* since the last start, for the log */
     uint32_t in_last_cap;
+    uint64_t in_take_ns[16], in_give_ns[16]; /* when the first capture buffers came and went back, for the log */
+    uint32_t in_takes, in_gives;
 } HvVirtioSnd;
 
 HvVirtioSnd *hv_virtio_snd_create(HvMachine *m, HvPcie *bus);

@@ -108,6 +108,8 @@ static int fill_rx(HvVirtioSnd *d) {
         d->in_head++;
         d->in_xfers++;
         d->in_last_cap = cap;
+        if (d->in_gives < 16) d->in_give_ns[d->in_gives] = now_ns();
+        d->in_gives++;
         any = 1;
     }
     return any;
@@ -129,6 +131,8 @@ static int take_rx(HvVirtioSnd *d) {
             any = 1;
             continue;
         }
+        if (d->in_takes < 16) d->in_take_ns[d->in_takes] = now_ns();
+        d->in_takes++;
         d->in_tail++;
     }
     return any | fill_rx(d);
@@ -141,6 +145,17 @@ static void in_halt(HvVirtioSnd *d) {
                 (unsigned long long)((now_ns() - d->in_start_ns) / 1000000), (unsigned long long)(atomic_load(&d->in_written) - d->in_start_written),
                 (unsigned long long)(d->in_xfers - d->in_start_xfers), d->in_last_cap, d->in_tail - d->in_head,
                 (unsigned long long)(d->in_dropped - d->in_start_dropped), (unsigned long long)d->in_bad_rx);
+    if (d->in_running) { /* when the Mac offered its first buffers and when each went back, in ms from the start */
+        char line[400];
+        int n = snprintf(line, sizeof line, "hengevm: sound: microphone buffers: %u offered at", d->in_takes);
+        for (uint32_t i = 0; i < d->in_takes && i < 16 && n < (int)sizeof line - 16; i++)
+            n += snprintf(line + n, sizeof line - n, " %lld", (long long)(d->in_take_ns[i] - d->in_start_ns) / 1000000);
+        if (n < (int)sizeof line - 40) n += snprintf(line + n, sizeof line - n, "; %u returned at", d->in_gives);
+        for (uint32_t i = 0; i < d->in_gives && i < 16 && n < (int)sizeof line - 16; i++)
+            n += snprintf(line + n, sizeof line - n, " %lld", (long long)(d->in_give_ns[i] - d->in_start_ns) / 1000000);
+        fprintf(stderr, "%s\n", line);
+    }
+    d->in_takes = d->in_gives = 0;
     if (d->in_running && d->in_live && d->backend.in_stop) d->backend.in_stop(d->backend.opaque);
     d->in_live = 0;
     d->in_running = 0;
