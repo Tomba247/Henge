@@ -131,6 +131,7 @@ struct SettingsView: View {
                         Text("512 MB").tag(512)
                         Text("1 GB").tag(1024)
                         Text("1.5 GB").tag(1536)
+                        if Entitlements.memoryLimitAtLaunch >= 5_500 << 20 { Text("2 GB (experimental)").tag(2048) }
                     }
                     Text("A bigger code cache empties less often and takes more memory (about 1.75 times its size); Henge picks one by its memory limit: 1.5 GB where there is plenty, 512 MB where there is little. Applies the next time Henge opens. If JIT stops turning on, or a Mac closes Henge during setup, choose a smaller one.")
                         .font(.footnote).foregroundStyle(.secondary)
