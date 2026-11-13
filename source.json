@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.34",
+          "date": "2026-11-13T15:39:31Z",
+          "localizedDescription": "[league-el0] Merge branch 'league' into league-el0",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-34/Henge.ipa",
+          "size": 9703257,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.32",
           "date": "2026-11-13T15:38:41Z",
           "localizedDescription": "[league-el0] Trackpad: a held still press then moved drags (as Moonlight's trackpad mode); held still and lifted, it right-clicks",
