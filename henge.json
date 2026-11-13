@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.31",
+          "date": "2026-11-13T14:33:02Z",
+          "localizedDescription": "[league] The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-31/Henge.ipa",
+          "size": 9647565,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.28",
           "date": "2026-11-13T06:30:59Z",
           "localizedDescription": "[league] Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)",
@@ -48,11 +57,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.28",
-      "versionDate": "2026-11-13T06:30:59Z",
-      "versionDescription": "[league] Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-28/Henge.ipa",
-      "size": 9649632,
+      "buildVersion": "101.31",
+      "versionDate": "2026-11-13T14:33:02Z",
+      "versionDescription": "[league] The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-31/Henge.ipa",
+      "size": 9647565,
       "minOSVersion": "17.0"
     }
   ],
