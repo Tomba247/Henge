@@ -88,8 +88,10 @@ static int fill_rx(HvVirtioSnd *d) {
        nothing left to come back and the recording is dead (3 of 4 recordings on the phone, 2026-11-13). So when a
        returned buffer was not answered with a new one (its room is used up), the last two are held: one goes back
        after 1.5 s and the other 4 s after that, each a chance for the reader to have started. HV_MIC_NO_HOLD: as before. */
+    /* Off unless HV_MIC_HOLD is set, 2026-11-13: on the phone the reader did not start in the 6 s the held buffers gave
+       it, and the two recordings that worked had started only as their 12th buffer went back, which holding prevents. */
     static int no_hold = -1;
-    if (no_hold < 0) no_hold = getenv("HV_MIC_NO_HOLD") != NULL;
+    if (no_hold < 0) no_hold = getenv("HV_MIC_HOLD") == NULL;
     while (d->in_running && d->in_head != d->in_tail) {
         uint32_t waiting = d->in_tail - d->in_head;
         if (!no_hold && !d->in_answered && waiting <= 2) {
