@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.33",
+          "date": "2026-11-13T15:42:14Z",
+          "localizedDescription": "[league] Merge upstream PR #126: Scan for the OpenGL personality only on TTBR1 writes with the MMU off",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-33/Henge.ipa",
+          "size": 9650854,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.34",
           "date": "2026-11-13T15:39:31Z",
           "localizedDescription": "[league-el0] Merge branch 'league' into league-el0",
