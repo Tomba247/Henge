@@ -368,7 +368,13 @@ static uint32_t wfe(HvCpu *cpu) {
         __asm__ volatile("wfe" ::: "memory");
         sleep_ok = mach_absolute_time() - t0 < 24 * 20;
     }
-    uint64_t deadline = mach_absolute_time() + 24 * 50; /* 50 us at 24 MHz */
+    /* A lock still held after the whole wait: its holder is likely a CPU whose host thread lost its core (the phone
+       has as many cores as the Mac may have CPUs, and other threads want them). Give this core away once, so the
+       holder can run and let go, instead of waiting for it from a core it needs. HV_WFE_NO_YIELD: as before. */
+    static int no_yield = -1;
+    if (no_yield < 0) no_yield = getenv("HV_WFE_NO_YIELD") != NULL;
+    uint64_t t0 = mach_absolute_time();
+    uint64_t deadline = t0 + 24 * 50; /* 50 us at 24 MHz */
     if (cpu->m->stats_interval) cpu->m->stats.wfe_waits++;
     for (;;) {
         uint64_t v;
@@ -381,12 +387,16 @@ static uint32_t wfe(HvCpu *cpu) {
         if (v != want || __atomic_load_n(&cpu->exit_req, __ATOMIC_RELAXED)) break;
         if (mach_absolute_time() >= deadline) {
             __atomic_store_n(&cpu->exit_req, 1, __ATOMIC_RELAXED);
+            __asm__ volatile("clrex" ::: "memory");
+            if (cpu->m->stats_interval) cpu->m->stats.wfe_timeouts++;
+            if (!no_yield) sched_yield();
             break;
         }
         if (sleep_ok) __asm__ volatile("wfe" ::: "memory");
         else __asm__ volatile("yield" ::: "memory");
     }
     __asm__ volatile("clrex" ::: "memory");
+    if (cpu->m->stats_interval) cpu->m->stats.wfe_ticks += mach_absolute_time() - t0;
     return 0;
 }
 
@@ -817,8 +827,8 @@ static void print_stats(HvCpu *cpu, int force) {
                 RATE(protect_kind[1]), RATE(protect_kind[2]));
         fprintf(stderr, "  fast resume refused/s: state %.0f, exit request %.0f, interrupt %.0f, timer %.0f, not cached %.0f\n", RATE(fr_fail[0]),
                 RATE(fr_fail[1]), RATE(fr_fail[2]), RATE(fr_fail[3]), RATE(fr_fail[4]));
-        fprintf(stderr, "  WFE waits in place %.0f/s; exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s\n", RATE(wfe_waits),
-                RATE(chained_early), RATE(fast_resumes));
+        fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s\n", RATE(wfe_waits),
+                RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes));
         fprintf(stderr, "  exit requests/s: TLBI posts %.0f, wakes %.0f (of them device work %.0f), kick all %.0f, own %.0f\n",
                 RATE(kick_src[0]), RATE(kick_src[1]), RATE(kick_src[3]), RATE(kick_src[2]), RATE(kick_src[4]));
         fprintf(stderr, "  light refills %.0fK/s, light branch-cache fills %.0fK/s, chained to other pages %.0f/s\n", RATE(refills) / 1e3,

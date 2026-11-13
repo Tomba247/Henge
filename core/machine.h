@@ -103,6 +103,7 @@ typedef struct HvStats {
     uint64_t light_region[2]; /* user light fills: in the shared region (0x18..0x28 << 28), elsewhere */
     uint64_t chained_early;   /* exits chained as their block was placed */
     uint64_t wfe_waits;       /* WFEs that waited on the monitored word in place */
+    uint64_t wfe_timeouts, wfe_ticks; /* of them, waits that ran their whole 50 us; time in all of them */
     uint64_t kind_insns[16], kind_words[16]; /* --stats: inline words by instruction kind (HvInsnKind), as translated */
     uint64_t posted_kind[4];
     uint64_t race_kind[3];    /* remote drops that raced: walk under way, cache fill under way, either during the drop */

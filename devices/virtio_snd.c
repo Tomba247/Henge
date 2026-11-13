@@ -110,6 +110,11 @@ static int fill_rx(HvVirtioSnd *d) {
         d->in_last_cap = cap;
         if (d->in_gives < 16) d->in_give_ns[d->in_gives] = now_ns();
         d->in_gives++;
+        d->in_last_give_ns = now_ns();
+        if (d->in_stall_logged) {
+            d->in_stall_logged = 0;
+            fprintf(stderr, "hengevm: sound: the Mac is collecting from the microphone again (%u buffers so far)\n", d->in_gives);
+        }
         any = 1;
     }
     return any;
@@ -189,6 +194,7 @@ static uint32_t control_in(HvVirtioSnd *d, uint32_t code, const uint8_t *req) {
             d->in_clock_ns = now_ns();
             d->in_running = 1;
             d->in_start_ns = d->in_clock_ns, d->in_start_written = atomic_load(&d->in_written);
+            d->in_last_give_ns = d->in_clock_ns, d->in_stall_logged = 0;
             d->in_start_xfers = d->in_xfers, d->in_start_dropped = d->in_dropped, d->in_bad_rx = 0;
             fprintf(stderr, "hengevm: sound: microphone %s (%u ch, format %u, %u Hz)\n",
                     d->in_live ? "recording" : "not available, the Mac hears silence", d->in_channels, d->in_format, d->in_rate_hz);
@@ -419,6 +425,14 @@ void hv_virtio_snd_poll(HvVirtioSnd *d) {
                 d->in_clock_ns += frames * 1000000000ull / d->in_rate_hz;
                 atomic_store(&d->in_written, w);
             }
+        }
+        /* Recording, and the Mac has taken nothing for 2 s: say so once, with where its buffers are. */
+        if (!d->in_stall_logged && now_ns() - d->in_last_give_ns > 2000000000ull) {
+            d->in_stall_logged = 1;
+            fprintf(stderr, "hengevm: sound: the Mac has collected nothing from the microphone for 2 s, %llu ms into the recording: %u buffers offered, "
+                            "%u returned, %u waiting, %llu bytes ready, RX queue %s\n",
+                    (unsigned long long)((now_ns() - d->in_start_ns) / 1000000), d->in_takes, d->in_gives, d->in_tail - d->in_head,
+                    (unsigned long long)(w - c), d->vio.q[RXQ].enabled ? "on" : "off");
         }
         /* The guest has no buffer waiting: keep a tenth of a second at most, so what it records next is not old. */
         uint64_t keep = (uint64_t)d->in_rate_hz / 10 * d->in_frame_bytes;
