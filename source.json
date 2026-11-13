@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.26",
+          "date": "2026-11-13T05:54:12Z",
+          "localizedDescription": "[league-el0] Experimental: direct app memory tries smaller windows when 16 GB a CPU does not fit (the phone refused the fourth)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-26/Henge.ipa",
+          "size": 9656362,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.25",
           "date": "2026-11-13T05:36:52Z",
           "localizedDescription": "[league-el0] Experimental: direct app memory (upstream #157 prototype), boot crash fixed",
