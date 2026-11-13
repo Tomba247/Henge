@@ -83,7 +83,26 @@ static void put_zero(HvVirtio *v, const HvVirtqElem *e, uint32_t off, uint32_t l
 static int fill_rx(HvVirtioSnd *d) {
     HvVirtio *v = &d->vio;
     int any = 0;
+    /* The Mac's driver has room for 12 periods (a second). It offers a buffer when one comes back, if it has room, and
+       at no other time: handed all 12 before its reader starts, which takes over a second on a busy phone, it has
+       nothing left to come back and the recording is dead (3 of 4 recordings on the phone, 2026-11-13). So when a
+       returned buffer was not answered with a new one (its room is used up), the last two are held: one goes back
+       after 1.5 s and the other 4 s after that, each a chance for the reader to have started. HV_MIC_NO_HOLD: as before. */
+    static int no_hold = -1;
+    if (no_hold < 0) no_hold = getenv("HV_MIC_NO_HOLD") != NULL;
     while (d->in_running && d->in_head != d->in_tail) {
+        uint32_t waiting = d->in_tail - d->in_head;
+        if (!no_hold && !d->in_answered && waiting <= 2) {
+            uint64_t since = now_ns() - d->in_last_give_ns;
+            if (since < (waiting == 2 ? 1500000000ull : 4000000000ull)) {
+                if (since > 300000000ull && !d->in_held) { /* not just the Mac taking a moment to answer */
+                    d->in_held = 1;
+                    fprintf(stderr, "hengevm: sound: the Mac's recording buffer is full %llu ms into the recording (its reader has not started): holding %u buffers for it\n",
+                            (unsigned long long)((now_ns() - d->in_start_ns) / 1000000), waiting);
+                }
+                break;
+            }
+        }
         HvVirtqElem *e = &d->in_pending[d->in_head % HV_VSND_PENDING];
         uint32_t w = hv_virtq_writable(e), cap = w > 8 ? w - 8 : 0;
         if (d->in_frame_bytes) cap -= cap % d->in_frame_bytes;
@@ -111,6 +130,7 @@ static int fill_rx(HvVirtioSnd *d) {
         if (d->in_gives < 16) d->in_give_ns[d->in_gives] = now_ns();
         d->in_gives++;
         d->in_last_give_ns = now_ns();
+        d->in_answered = 0;
         if (d->in_stall_logged) {
             d->in_stall_logged = 0;
             fprintf(stderr, "hengevm: sound: the Mac is collecting from the microphone again (%u buffers so far)\n", d->in_gives);
@@ -136,6 +156,11 @@ static int take_rx(HvVirtioSnd *d) {
             any = 1;
             continue;
         }
+        if (d->in_held && d->in_running) {
+            d->in_held = 0;
+            fprintf(stderr, "hengevm: sound: the Mac's reader is taking the recording, %llu ms into it\n", (unsigned long long)((now_ns() - d->in_start_ns) / 1000000));
+        }
+        d->in_answered = 1;
         if (d->in_takes < 16) d->in_take_ns[d->in_takes] = now_ns();
         d->in_takes++;
         d->in_tail++;
@@ -202,6 +227,7 @@ static uint32_t control_in(HvVirtioSnd *d, uint32_t code, const uint8_t *req) {
             d->in_start_ns = d->in_clock_ns, d->in_start_written = atomic_load(&d->in_written);
             d->in_last_give_ns = d->in_clock_ns, d->in_stall_logged = 0;
             d->in_start_out_consumed = atomic_load(&d->consumed);
+            d->in_answered = 1, d->in_held = 0;
             d->in_start_xfers = d->in_xfers, d->in_start_dropped = d->in_dropped, d->in_bad_rx = 0;
             fprintf(stderr, "hengevm: sound: microphone %s (%u ch, format %u, %u Hz)\n",
                     d->in_live ? "recording" : "not available, the Mac hears silence", d->in_channels, d->in_format, d->in_rate_hz);
@@ -446,7 +472,10 @@ void hv_virtio_snd_poll(HvVirtioSnd *d) {
         }
         /* The guest has no buffer waiting: keep a tenth of a second at most, so what it records next is not old. */
         uint64_t keep = (uint64_t)d->in_rate_hz / 10 * d->in_frame_bytes;
-        if (d->in_head == d->in_tail && w - c > keep) atomic_store(&d->in_consumed, w - keep);
+        /* (Up to two buffers may be held back for the Mac's reader, in fill_rx: what they get when released is recent too.) */
+        uint32_t waiting = d->in_tail - d->in_head;
+        uint64_t held = (uint64_t)waiting * d->in_last_cap;
+        if (waiting <= 2 && w - c > keep + held) atomic_store(&d->in_consumed, w - keep - held);
     }
     if (take_rx(d)) hv_virtio_interrupt(v);
 }

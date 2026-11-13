@@ -368,11 +368,10 @@ static uint32_t wfe(HvCpu *cpu) {
         __asm__ volatile("wfe" ::: "memory");
         sleep_ok = mach_absolute_time() - t0 < 24 * 20;
     }
-    /* A lock still held after the whole wait: its holder is likely a CPU whose host thread lost its core (the phone
-       has as many cores as the Mac may have CPUs, and other threads want them). Give this core away once, so the
-       holder can run and let go, instead of waiting for it from a core it needs. HV_WFE_NO_YIELD: as before. */
+    /* HV_WFE_YIELD=1 (testing): a CPU that waited the whole slice gives its core away once. Off: on the phone it put a
+       quarter of the busy CPU time into the yield itself (swtch_pri), 2026-11-13. */
     static int no_yield = -1;
-    if (no_yield < 0) no_yield = getenv("HV_WFE_NO_YIELD") != NULL;
+    if (no_yield < 0) no_yield = getenv("HV_WFE_YIELD") == NULL;
     uint64_t t0 = mach_absolute_time();
     uint64_t deadline = t0 + 24 * 50; /* 50 us at 24 MHz */
     if (cpu->m->stats_interval) cpu->m->stats.wfe_waits++;

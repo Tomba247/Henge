@@ -74,6 +74,7 @@ typedef struct HvVirtioSnd {
     uint32_t in_takes, in_gives;
     uint64_t in_last_give_ns; /* the last capture buffer went back then (or the recording started) */
     int in_stall_logged;
+    int in_answered, in_held; /* the Mac offered a buffer after the last one went back; the last buffers are being held */
     uint64_t in_start_out_consumed; /* the output's bytes played when the recording began, for the log */
 } HvVirtioSnd;
 
