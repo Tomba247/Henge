@@ -727,10 +727,23 @@ static void vblank(HvPvgLite *p) {
     }
     if (!on || !p->display_pa) return;
     uint8_t *d = hv_phys_ptr(p->m, p->display_pa, 0x4000);
-    if (!d || !(__atomic_load_n((uint32_t *)(d + 0x104), __ATOMIC_ACQUIRE) & 8)) return;
+    if (!d) return;
     uint64_t now = mach_absolute_time();
     if (now < next) return;
     next = now + period;
+    /* The last refresh's time on the Mac's own clock, 64 bits at +68 of the display page: AppleParavirtDisplay's vblank
+       query reads it there (found in macOS 15.6.1's kernelcache, 2026-11-13: ldr x8, [page, #0x68]). Left 0, WindowServer
+       times its frames from 0 and logs "Timer delayed by <uptime>s" over and over. Written at every refresh, asked for or
+       not, before the event. HV_PVG_VSYNC_TS=0: not written (as before); another hex offset: there instead. */
+    static int ts_off = -1;
+    if (ts_off < 0) {
+        const char *e = getenv("HV_PVG_VSYNC_TS");
+        ts_off = e ? (int)strtol(e, NULL, 16) : 0x68;
+        if (ts_off < 0 || ts_off > 0xff8 || (ts_off & 7)) ts_off = 0;
+        fprintf(stderr, "hengevm: pvg: refresh time written at %s%x of the display page\n", ts_off ? "+" : "(off) ", ts_off);
+    }
+    if (ts_off) __atomic_store_n((uint64_t *)(d + ts_off), now - p->m->cntvoff, __ATOMIC_RELEASE);
+    if (!(__atomic_load_n((uint32_t *)(d + 0x104), __ATOMIC_ACQUIRE) & 8)) return;
     __atomic_fetch_or((uint32_t *)(d + 0x100), 8, __ATOMIC_RELEASE);
     p->vblanks++;
     /* In the log: the first one, then the count once a minute or so (it says whether the Mac is asking for them). */
