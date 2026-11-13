@@ -118,26 +118,32 @@ int hv_window_reserve(HvMachine *m, int ncpus) {
     if (!bits) return 0;
     /* An HvCpu is megabytes (its TLB tables): on the heap, not the stack, which on iOS is a 512 KB thread stack
        (a stack one killed the app here without a word, 2026-11-13). Only its pc_state is used. */
-    fprintf(stderr, "henge: user-memory windows: reserving %d x %d bits\n", ncpus, bits);
     HvCpu *probe = calloc(1, sizeof *probe);
     if (!probe) { hv_knob[HV_K_EL0WINDOW] = 0; return -1; }
-    for (int i = 0; i < ncpus && i < HV_MAX_CPUS; i++) {
-        probe->pc_state = &m->percpu[i];
-        fprintf(stderr, "henge: user-memory windows: CPU %d\n", i);
-        if (hv_window_attach(probe) != 0) {
-            fprintf(stderr, "henge: no room for %d CPUs' user-memory windows of %d bits; running without them\n", ncpus, bits);
-            for (int j = 0; j < HV_MAX_CPUS; j++) {
-                probe->pc_state = &m->percpu[j];
-                hv_window_detach(probe);
-            }
-            hv_knob[HV_K_EL0WINDOW] = 0;
+    /* The phone gave three 16 GB windows and refused the fourth (2026-11-13): when they do not all fit, try again
+       a size down, to 4 GB, before going without. Nothing is translated yet, so the size can still change. */
+    for (; bits >= 32; bits--) {
+        hv_knob[HV_K_EL0WINDOW] = bits;
+        int i = 0;
+        for (; i < ncpus && i < HV_MAX_CPUS; i++) {
+            probe->pc_state = &m->percpu[i];
+            if (hv_window_attach(probe) != 0) break;
+        }
+        if (i >= ncpus || i >= HV_MAX_CPUS) {
             free(probe);
-            return -1;
+            fprintf(stderr, "henge: user-memory windows: %d CPUs x %llu GB\n", ncpus, (unsigned long long)(1ull << bits) >> 30);
+            return 0;
+        }
+        fprintf(stderr, "henge: no room for %d CPUs' user-memory windows of %d bits (CPU %d's was refused)\n", ncpus, bits, i);
+        for (int j = 0; j < HV_MAX_CPUS; j++) {
+            probe->pc_state = &m->percpu[j];
+            hv_window_detach(probe);
         }
     }
     free(probe);
-    fprintf(stderr, "henge: user-memory windows: %d CPUs x %llu GB\n", ncpus, (unsigned long long)(1ull << bits) >> 30);
-    return 0;
+    fprintf(stderr, "henge: running without user-memory windows\n");
+    hv_knob[HV_K_EL0WINDOW] = 0;
+    return -1;
 }
 
 void hv_window_detach(HvCpu *cpu) {
