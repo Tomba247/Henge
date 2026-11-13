@@ -31,12 +31,23 @@ jobs:
     # runner. Table: https://github.com/actions/runner-images#available-images
     runs-on: xcode-27
     timeout-minutes: 120
+    permissions:
+      contents: write # the release and the app source branch (the last step)
 
     steps:
       - name: Check out Henge (this fork)
         uses: actions/checkout@v4
         with:
           path: Henge
+
+      # Each build gets its own build number, a small step past upstream's: 101 becomes 101.<run number>. The version
+      # itself is left alone, so upstream's next release (a higher version or build) still installs over these.
+      - name: Number this build
+        working-directory: Henge
+        run: |
+          BASE=$(plutil -extract CFBundleVersion raw ios/Henge/Info.plist)
+          plutil -replace CFBundleVersion -string "${BASE%%.*}.${GITHUB_RUN_NUMBER}" ios/Henge/Info.plist
+          echo "build $(plutil -extract CFBundleShortVersionString raw ios/Henge/Info.plist) ($(plutil -extract CFBundleVersion raw ios/Henge/Info.plist))"
 
       # fetch_deps.sh copies prebuilt pieces out of a BUILT Husk checkout:
       # StikJIT.xcframework (vendored in Husk's repo, comes with checkout),
@@ -141,3 +152,28 @@ jobs:
           name: Henge-tipa-${{ github.sha }}
           path: /Users/runner/Desktop/Henge.tipa
           if-no-files-found: error
+
+      # A public release holding the IPA, and an entry for it in the app source on the `source` branch
+      # (https://raw.githubusercontent.com/<this fork>/source/source.json: FlareStore, SideStore, AltStore, Feather).
+      - name: Publish the release and list it in the app source
+        working-directory: Henge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(plutil -extract CFBundleShortVersionString raw ios/Henge/Info.plist)
+          BUILD=$(plutil -extract CFBundleVersion raw ios/Henge/Info.plist)
+          TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
+          git log -1 --format=%s | cut -c1-300 > /tmp/notes.txt
+          gh release create "$TAG" /Users/runner/Desktop/Henge.ipa /Users/runner/Desktop/Henge.tipa --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "Henge $VERSION ($BUILD) from $GITHUB_REF_NAME" --notes-file /tmp/notes.txt --prerelease
+          SIZE=$(stat -f %z /Users/runner/Desktop/Henge.ipa)
+          git clone --depth 1 --branch source "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/source
+          cd /tmp/source
+          python3 update_source.py --version "$VERSION" --build "$BUILD" --branch "$GITHUB_REF_NAME" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Henge.ipa" --size "$SIZE" \
+            --date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --notes "$(cat /tmp/notes.txt)"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qam "Add $GITHUB_REF_NAME $VERSION ($BUILD)"
+          git push -q origin source
+          echo "source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/source/source.json"
