@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.profileKey) private var profile = false
     @AppStorage(EngineTuning.syncWaitKey) private var syncWait = true
     @AppStorage(EngineTuning.vblankKey) private var vblank = true
+    @AppStorage(EngineTuning.windowKey) private var el0window = true
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB
     @AppStorage(DeskAppearance.key) private var appearance = DeskAppearance.system
@@ -132,6 +133,7 @@ struct SettingsView: View {
                     Toggle("Superblocks (experimental)", isOn: $superblocks)
                     Toggle("CPUs sleep while waiting for each other", isOn: $syncWait)
                     Toggle("Display refresh events (experimental)", isOn: $vblank)
+                    Toggle("Direct app memory (prototype, may crash)", isOn: $el0window)
                     Toggle("Engine profile in the log (diagnosis)", isOn: $profile)
                     Picker("Code cache", selection: $codeCacheMB) {
                         Text("512 MB").tag(512)

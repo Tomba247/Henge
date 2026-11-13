@@ -11,6 +11,7 @@ enum EngineTuning {
     static let profileKey = "henge.perf.profile"
     static let syncWaitKey = "henge.perf.syncWait"
     static let vblankKey = "henge.perf.vblank"
+    static let windowKey = "henge.perf.el0window"
 
     static let defaults: [String: String] = [
         // 60, not 120: every frame macOS draws is emulated and replayed, so 120 Hz
@@ -38,6 +39,9 @@ enum EngineTuning {
         // The display's refresh event, sent while macOS asks for it (devices/pvg_lite.c, HV_PVG_VBLANK). Without it WindowServer
         // times its frames with a timer that it finds late every time and re-arms at once: tens of thousands of wakeups a second.
         if d.object(forKey: vblankKey) as? Bool == false { unsetenv("HV_PVG_VBLANK") } else { env["HV_PVG_VBLANK"] = "1" }
+        // Prototype (upstream PR #157, untested on a device): the Mac's user memory mapped straight into Henge, 16 GB a CPU,
+        // so app code reads and writes it without the software TLB (core/window.c). On in this experimental build unless switched off.
+        if d.object(forKey: windowKey) as? Bool == false { unsetenv("HV_EL0_WINDOW") } else { env["HV_EL0_WINDOW"] = "34" }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         // GPU command trace: on while Documents/trace-on exists (it is checked every frame, so it can be toggled live).
         env["HV_PVG_TRACE_FILE"] = docs.appendingPathComponent("trace-on").path
