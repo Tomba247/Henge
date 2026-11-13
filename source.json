@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.37",
+          "date": "2026-11-13T17:49:23Z",
+          "localizedDescription": "[league-el0] SCTLR_EL1 writes at EL1 inline when M, WXN, E0E and EE stay as they are (xnu writes it on every kernel entry and exit of a process with other PAC keys: 586K a second with League running)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-37/Henge.ipa",
+          "size": 9720501,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.36",
           "date": "2026-11-13T16:36:42Z",
           "localizedDescription": "[league-el0] Merge upstream PR #155: the control pill tucks into a handle at the top when there is no room beside the Mac",
