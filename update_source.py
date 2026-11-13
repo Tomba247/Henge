@@ -43,7 +43,33 @@ versions.append(entry)
 versions.sort(key=lambda v: v["date"], reverse=True)
 app["versions"] = versions[:40]
 
-with open(SOURCE, "w") as f:
+
+def write(path, name, identifier, keep):
+    """One source file listing the builds `keep` accepts, newest first. The newest is also written in the
+    older single-version fields (version, versionDate, downloadURL, size), which some stores read instead."""
+    out = json.loads(json.dumps(source))
+    out["name"], out["identifier"] = name, identifier
+    out_app = out["apps"][0]
+    out_app["versions"] = [v for v in app["versions"] if keep(v)]
+    for k in ("version", "buildVersion", "versionDate", "versionDescription", "downloadURL", "size", "minOSVersion"):
+        out_app.pop(k, None)
+    if out_app["versions"]:
+        top = out_app["versions"][0]
+        out_app.update(version=top["version"], buildVersion=top["buildVersion"], versionDate=top["date"],
+                       versionDescription=top["localizedDescription"], downloadURL=top["downloadURL"], size=top["size"],
+                       minOSVersion=top["minOSVersion"])
+    with open(os.path.join(HERE, path), "w") as f:
+        json.dump(out, f, indent=2)
+        f.write("\n")
+
+
+def experimental(v):
+    return v["localizedDescription"].startswith("[league-el0]")
+
+
+with open(SOURCE, "w") as f:  # every build, the record the two below are cut from
     json.dump(source, f, indent=2)
     f.write("\n")
+write("henge.json", "Henge (Tomba247 builds)", "com.tomba247.henge.builds", lambda v: not experimental(v))
+write("henge-experimental.json", "Henge experimental (Tomba247)", "com.tomba247.henge.experimental", experimental)
 print(f"source.json: {a.version} ({a.build}) from {a.branch}, {len(app['versions'])} builds listed")

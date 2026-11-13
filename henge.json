@@ -1,0 +1,51 @@
+{
+  "name": "Henge (Tomba247 builds)",
+  "identifier": "com.tomba247.henge.builds",
+  "subtitle": "Unofficial Henge builds for testing",
+  "description": "Test builds of Henge, macOS on iPhone and iPad, from github.com/Tomba247/Henge (a fork of Leviidev/Henge, GPL-2.0-or-later). Each build says which branch it came from. Henge needs JIT (StikJIT or StikDebug) and the increased-memory and extended-addressing entitlements, so sign it with a development certificate.",
+  "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
+  "website": "https://github.com/Tomba247/Henge",
+  "tintColor": "#5B6CFF",
+  "apps": [
+    {
+      "name": "Henge",
+      "bundleIdentifier": "com.henge.app",
+      "developerName": "Leviidev (unofficial build by Tomba247)",
+      "subtitle": "macOS on your iPhone and iPad",
+      "localizedDescription": "Henge runs macOS on iPhone and iPad: a virtual machine with its own arm64 translator, emulated devices and Metal graphics. These are unofficial test builds; the branch name is at the start of each version's notes. Upstream: github.com/Leviidev/Henge.",
+      "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
+      "tintColor": "#5B6CFF",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "0.3.0",
+          "buildVersion": "101.24",
+          "date": "2026-11-13T05:36:26Z",
+          "localizedDescription": "[league] Each build is numbered a small step past upstream's, released, and listed in the app source",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-24/Henge.ipa",
+          "size": 9652769,
+          "minOSVersion": "17.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [
+          "get-task-allow",
+          "dynamic-codesigning",
+          "com.apple.developer.kernel.increased-memory-limit",
+          "com.apple.developer.kernel.extended-virtual-addressing"
+        ],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Henge uses the local network to pair with this iPhone for JIT, without a computer."
+        }
+      },
+      "version": "0.3.0",
+      "buildVersion": "101.24",
+      "versionDate": "2026-11-13T05:36:26Z",
+      "versionDescription": "[league] Each build is numbered a small step past upstream's, released, and listed in the app source",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-24/Henge.ipa",
+      "size": 9652769,
+      "minOSVersion": "17.0"
+    }
+  ],
+  "news": []
+}

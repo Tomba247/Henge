@@ -21,7 +21,7 @@
           "version": "0.3.0",
           "buildVersion": "101.25",
           "date": "2026-11-13T05:36:52Z",
-          "localizedDescription": "[league-el0] Merge branch 'league' into league-el0",
+          "localizedDescription": "[league-el0] Experimental: direct app memory (upstream #157 prototype), boot crash fixed",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-25/Henge.ipa",
           "size": 9656058,
           "minOSVersion": "17.0"
