@@ -733,6 +733,9 @@ static void vblank(HvPvgLite *p) {
     next = now + period;
     __atomic_fetch_or((uint32_t *)(d + 0x100), 8, __ATOMIC_RELEASE);
     p->vblanks++;
+    /* In the log: the first one, then the count once a minute or so (it says whether the Mac is asking for them). */
+    if (p->vblanks == 1 || p->vblanks % 4096 == 0)
+        fprintf(stderr, "hengevm: pvg: display refresh events sent to the Mac: %llu\n", (unsigned long long)p->vblanks);
     hv_gicv3_pend(p->gic, p->gfx_irq);
 }
 

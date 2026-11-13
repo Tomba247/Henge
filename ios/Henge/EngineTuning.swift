@@ -10,6 +10,7 @@ enum EngineTuning {
     static let fastFlushKey = "henge.perf.fastFlush"
     static let profileKey = "henge.perf.profile"
     static let syncWaitKey = "henge.perf.syncWait"
+    static let vblankKey = "henge.perf.vblank"
 
     static let defaults: [String: String] = [
         // 60, not 120: every frame macOS draws is emulated and replayed, so 120 Hz
@@ -34,6 +35,9 @@ enum EngineTuning {
         // A Mac CPU waiting for another's answer to a TLB flush sleeps instead of spinning, so the one it waits for gets the core
         // (core/machine.c, HV_SYNC_WAIT). On unless switched off: the phone has fewer fast cores than the Mac has CPUs.
         if d.object(forKey: syncWaitKey) as? Bool == false { unsetenv("HV_SYNC_WAIT") } else { env["HV_SYNC_WAIT"] = "1" }
+        // The display's refresh event, sent while macOS asks for it (devices/pvg_lite.c, HV_PVG_VBLANK). Without it WindowServer
+        // times its frames with a timer that it finds late every time and re-arms at once: tens of thousands of wakeups a second.
+        if d.object(forKey: vblankKey) as? Bool == false { unsetenv("HV_PVG_VBLANK") } else { env["HV_PVG_VBLANK"] = "1" }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         // GPU command trace: on while Documents/trace-on exists (it is checked every frame, so it can be toggled live).
         env["HV_PVG_TRACE_FILE"] = docs.appendingPathComponent("trace-on").path
