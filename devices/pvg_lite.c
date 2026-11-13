@@ -731,6 +731,19 @@ static void vblank(HvPvgLite *p) {
     uint64_t now = mach_absolute_time();
     if (now < next) return;
     next = now + period;
+    {   /* Experiment (HV_PVG_VSYNC_TS=offset in hex, default 108 in this build; 0: off): the refresh's time on the Mac's
+           own clock, 64 bits at that offset of the display page, written before the event. WindowServer's display timer
+           reports itself late by exactly the Mac's uptime, as if it read the last refresh's time as 0; the Mac never
+           writes +108..+11f (logged 2026-11-13), so a time the device gives would sit there or near. */
+        static int ts_off = -1;
+        if (ts_off < 0) {
+            const char *e = getenv("HV_PVG_VSYNC_TS");
+            ts_off = e ? (int)strtol(e, NULL, 16) : 0x108;
+            if (ts_off < 0x108 || ts_off > 0x1f8 || (ts_off & 7)) ts_off = 0;
+            fprintf(stderr, "hengevm: pvg: refresh time written at %s%x of the display page\n", ts_off ? "+" : "(off) ", ts_off);
+        }
+        if (ts_off) __atomic_store_n((uint64_t *)(d + ts_off), now - p->m->cntvoff, __ATOMIC_RELEASE);
+    }
     __atomic_fetch_or((uint32_t *)(d + 0x100), 8, __ATOMIC_RELEASE);
     p->vblanks++;
     /* In the log: the first one, then the count once a minute or so (it says whether the Mac is asking for them). */
