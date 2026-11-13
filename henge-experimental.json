@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.36",
+          "date": "2026-11-13T16:36:42Z",
+          "localizedDescription": "[league-el0] Merge upstream PR #155: the control pill tucks into a handle at the top when there is no room beside the Mac",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-36/Henge.ipa",
+          "size": 9719844,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.35",
           "date": "2026-11-13T16:10:36Z",
           "localizedDescription": "[league-el0] Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw",
@@ -102,11 +111,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.35",
-      "versionDate": "2026-11-13T16:10:36Z",
-      "versionDescription": "[league-el0] Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-35/Henge.ipa",
-      "size": 9703626,
+      "buildVersion": "101.36",
+      "versionDate": "2026-11-13T16:36:42Z",
+      "versionDescription": "[league-el0] Merge upstream PR #155: the control pill tucks into a handle at the top when there is no room beside the Mac",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-36/Henge.ipa",
+      "size": 9719844,
       "minOSVersion": "17.0"
     }
   ],
