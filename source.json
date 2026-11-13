@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.3.0",
+          "buildVersion": "101.24",
+          "date": "2026-11-13T05:36:26Z",
+          "localizedDescription": "[league] Each build is numbered a small step past upstream's, released, and listed in the app source",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-24/Henge.ipa",
+          "size": 9652769,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.1.6",
           "buildVersion": "6",
           "date": "2026-11-08T04:30:18Z",
