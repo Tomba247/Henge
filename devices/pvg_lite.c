@@ -734,6 +734,28 @@ static void vblank(HvPvgLite *p) {
     __atomic_fetch_or((uint32_t *)(d + 0x100), 8, __ATOMIC_RELEASE);
     p->vblanks++;
     /* In the log: the first one, then the count once a minute or so (it says whether the Mac is asking for them). */
+    {   /* What the Mac keeps in the display page, for finding the refresh event's timestamp: WindowServer's display
+           timer reports itself late by exactly the Mac's uptime, as if the time of the last refresh it reads were 0.
+           The words that changed since the last look, every 4096 events (about a minute), the first 8 times. */
+        static uint32_t seen[0x4000 / 4];
+        static int looks;
+        if ((p->vblanks == 1 || p->vblanks % 4096 == 0) && looks < 8) {
+            looks++;
+            int shown = 0;
+            for (uint32_t off = 0; off < 0x4000 && shown < 48; off += 4) {
+                uint32_t v = *(const uint32_t *)(d + off);
+                if (v != seen[off / 4] || looks == 1) {
+                    if (v || seen[off / 4]) {
+                        fprintf(stderr, "hengevm: pvg: display page +%03x %08x (was %08x)\n", off, v, seen[off / 4]);
+                        shown++;
+                    }
+                    seen[off / 4] = v;
+                }
+            }
+            fprintf(stderr, "hengevm: pvg: display page look %d at %llu events, guest counter %llu\n", looks,
+                    (unsigned long long)p->vblanks, (unsigned long long)(mach_absolute_time()));
+        }
+    }
     if (p->vblanks == 1 || p->vblanks % 4096 == 0)
         fprintf(stderr, "hengevm: pvg: display refresh events sent to the Mac: %llu\n", (unsigned long long)p->vblanks);
     hv_gicv3_pend(p->gic, p->gfx_irq);
