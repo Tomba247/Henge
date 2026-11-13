@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.28",
+          "date": "2026-11-13T06:30:59Z",
+          "localizedDescription": "[league] Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-28/Henge.ipa",
+          "size": 9649632,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.24",
           "date": "2026-11-13T05:36:26Z",
           "localizedDescription": "[league] Each build is numbered a small step past upstream's, released, and listed in the app source",
@@ -39,11 +48,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.24",
-      "versionDate": "2026-11-13T05:36:26Z",
-      "versionDescription": "[league] Each build is numbered a small step past upstream's, released, and listed in the app source",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-24/Henge.ipa",
-      "size": 9652769,
+      "buildVersion": "101.28",
+      "versionDate": "2026-11-13T06:30:59Z",
+      "versionDescription": "[league] Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-28/Henge.ipa",
+      "size": 9649632,
       "minOSVersion": "17.0"
     }
   ],

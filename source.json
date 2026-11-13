@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.28",
+          "date": "2026-11-13T06:30:59Z",
+          "localizedDescription": "[league] Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-28/Henge.ipa",
+          "size": 9649632,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.27",
           "date": "2026-11-13T06:24:57Z",
           "localizedDescription": "[league-el0] Experimental: direct app memory off by default (on the phone it made the Mac 5-10x slower: 60% of the time in page faults)",
