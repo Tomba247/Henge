@@ -17,7 +17,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.profileKey) private var profile = false
     @AppStorage(EngineTuning.syncWaitKey) private var syncWait = true
     @AppStorage(EngineTuning.vblankKey) private var vblank = true
-    @AppStorage(EngineTuning.windowKey) private var el0window = true
+    @AppStorage(EngineTuning.windowKey) private var el0window = false
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB
     @AppStorage(DeskAppearance.key) private var appearance = DeskAppearance.system

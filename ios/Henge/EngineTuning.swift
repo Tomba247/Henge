@@ -40,8 +40,8 @@ enum EngineTuning {
         // times its frames with a timer that it finds late every time and re-arms at once: tens of thousands of wakeups a second.
         if d.object(forKey: vblankKey) as? Bool == false { unsetenv("HV_PVG_VBLANK") } else { env["HV_PVG_VBLANK"] = "1" }
         // Prototype (upstream PR #157, untested on a device): the Mac's user memory mapped straight into Henge, 16 GB a CPU,
-        // so app code reads and writes it without the software TLB (core/window.c). On in this experimental build unless switched off.
-        if d.object(forKey: windowKey) as? Bool == false { unsetenv("HV_EL0_WINDOW") } else { env["HV_EL0_WINDOW"] = "34" }
+        // so app code reads and writes it without the software TLB (core/window.c). Off unless switched on: on the phone (2026-11-13) its page faults took 60% of the CPU time and the Mac ran 5-10x slower.
+        if d.bool(forKey: windowKey) { env["HV_EL0_WINDOW"] = "34" } else { unsetenv("HV_EL0_WINDOW") }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         // GPU command trace: on while Documents/trace-on exists (it is checked every frame, so it can be toggled live).
         env["HV_PVG_TRACE_FILE"] = docs.appendingPathComponent("trace-on").path
