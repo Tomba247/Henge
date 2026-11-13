@@ -118,10 +118,12 @@ int hv_window_reserve(HvMachine *m, int ncpus) {
     if (!bits) return 0;
     /* An HvCpu is megabytes (its TLB tables): on the heap, not the stack, which on iOS is a 512 KB thread stack
        (a stack one killed the app here without a word, 2026-11-13). Only its pc_state is used. */
+    fprintf(stderr, "henge: user-memory windows: reserving %d x %d bits\n", ncpus, bits);
     HvCpu *probe = calloc(1, sizeof *probe);
     if (!probe) { hv_knob[HV_K_EL0WINDOW] = 0; return -1; }
     for (int i = 0; i < ncpus && i < HV_MAX_CPUS; i++) {
         probe->pc_state = &m->percpu[i];
+        fprintf(stderr, "henge: user-memory windows: CPU %d\n", i);
         if (hv_window_attach(probe) != 0) {
             fprintf(stderr, "henge: no room for %d CPUs' user-memory windows of %d bits; running without them\n", ncpus, bits);
             for (int j = 0; j < HV_MAX_CPUS; j++) {
