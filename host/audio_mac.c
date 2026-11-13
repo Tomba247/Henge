@@ -37,6 +37,8 @@ static AudioComponentInstance in_unit;
 static unsigned in_frame_bytes, in_channels;
 static uint8_t in_buf[1 << 16];
 static int in_logged_first, in_logged_fail;
+static FILE *in_dump;
+static uint64_t in_dumped, in_dump_max;
 
 static OSStatus capture(void *ref, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *ts, UInt32 bus,
                         UInt32 frames, AudioBufferList *io) {
@@ -51,6 +53,14 @@ static OSStatus capture(void *ref, AudioUnitRenderActionFlags *flags, const Audi
     bl.mBuffers[0].mData = in_buf;
     OSStatus st = AudioUnitRender(in_unit, flags, ts, bus, frames, &bl);
     if (st == noErr) hv_virtio_snd_push(d, in_buf, bl.mBuffers[0].mDataByteSize);
+    /* The first 15 s of each recording as the phone's microphone gave it, in Documents/mic-capture.raw (the Mac's
+       format: see the log line), to tell static made here from static made on the way to the Mac. HV_MIC_DUMP=0: none. */
+    if (st == noErr && in_dump) {
+        UInt32 n = bl.mBuffers[0].mDataByteSize;
+        if (in_dumped + n > in_dump_max) n = in_dump_max > in_dumped ? (UInt32)(in_dump_max - in_dumped) : 0;
+        if (n) fwrite(in_buf, 1, n, in_dump), in_dumped += n;
+        if (in_dumped >= in_dump_max) fclose(in_dump), in_dump = NULL;
+    }
     /* The first callback of a recording and the first failure, for the log (once each: this is the audio thread). */
     if (!in_logged_first) {
         in_logged_first = 1;
@@ -67,6 +77,7 @@ static void in_stop(void *opaque) {
     (void)opaque;
     if (!in_unit) return;
     AudioOutputUnitStop(in_unit); /* waits for the capture callback to finish */
+    if (in_dump) fclose(in_dump), in_dump = NULL;
     AudioUnitUninitialize(in_unit);
     AudioComponentInstanceDispose(in_unit);
     in_unit = NULL;
@@ -104,6 +115,15 @@ static int in_start(void *opaque, unsigned channels, unsigned format, unsigned r
     }
     in_frame_bytes = bytes * channels;
     in_channels = channels;
+    if (in_dump) fclose(in_dump), in_dump = NULL;
+    if (!getenv("HV_MIC_DUMP") || atoi(getenv("HV_MIC_DUMP"))) {
+        char path[1024];
+        snprintf(path, sizeof path, "%s/Documents/mic-capture.raw", getenv("HOME") ? getenv("HOME") : ".");
+        in_dump = fopen(path, "wb");
+        in_dumped = 0, in_dump_max = (uint64_t)rate_hz * in_frame_bytes * 15;
+        fprintf(stderr, "hengevm: sound: the microphone's first 15 s go to Documents/mic-capture.raw (%u ch, %s, %u Hz)%s\n", channels,
+                format == HV_VSND_FMT_FLOAT ? "32-bit float" : format == HV_VSND_FMT_S16 ? "16-bit" : "32-bit integer", rate_hz, in_dump ? "" : ": could not open it");
+    }
     in_logged_first = in_logged_fail = 0;
     in_unit = u;
     if ((st = AudioOutputUnitStart(u)) != noErr) {

@@ -68,6 +68,7 @@ typedef struct HvVirtioSnd {
     HvVirtqElem in_pending[HV_VSND_PENDING]; /* capture buffers waiting for audio, in order */
     uint32_t in_head, in_tail;
     uint64_t in_xfers, in_dropped;
+    uint64_t in_trimmed, in_trims; /* bytes skipped (and times) because the Mac had no buffer waiting, since the recording began */
     uint64_t in_start_written, in_start_xfers, in_start_dropped, in_start_ns, in_bad_rx; /* since the last start, for the log */
     uint32_t in_last_cap;
     uint64_t in_take_ns[16], in_give_ns[16]; /* when the first capture buffers came and went back, for the log */

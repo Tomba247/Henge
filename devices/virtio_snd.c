@@ -177,6 +177,10 @@ static void in_halt(HvVirtioSnd *d) {
                 (unsigned long long)((now_ns() - d->in_start_ns) / 1000000), (unsigned long long)(atomic_load(&d->in_written) - d->in_start_written),
                 (unsigned long long)(d->in_xfers - d->in_start_xfers), d->in_last_cap, d->in_tail - d->in_head,
                 (unsigned long long)(d->in_dropped - d->in_start_dropped), (unsigned long long)d->in_bad_rx);
+    if (d->in_running)
+        fprintf(stderr, "hengevm: sound: microphone gaps: %llu times the Mac had no buffer waiting and %llu ms of sound was skipped\n",
+                (unsigned long long)d->in_trims,
+                d->in_rate_hz && d->in_frame_bytes ? (unsigned long long)(d->in_trimmed / d->in_frame_bytes * 1000 / d->in_rate_hz) : 0ull);
     if (d->in_running) { /* when the Mac offered its first buffers and when each went back, in ms from the start */
         char line[400];
         int n = snprintf(line, sizeof line, "hengevm: sound: microphone buffers: %u offered at", d->in_takes);
@@ -229,6 +233,7 @@ static uint32_t control_in(HvVirtioSnd *d, uint32_t code, const uint8_t *req) {
             d->in_start_ns = d->in_clock_ns, d->in_start_written = atomic_load(&d->in_written);
             d->in_last_give_ns = d->in_clock_ns, d->in_stall_logged = 0;
             d->in_start_out_consumed = atomic_load(&d->consumed);
+            d->in_trimmed = d->in_trims = 0;
             d->in_answered = 1, d->in_held = 0;
             d->in_start_xfers = d->in_xfers, d->in_start_dropped = d->in_dropped, d->in_bad_rx = 0;
             fprintf(stderr, "hengevm: sound: microphone %s (%u ch, format %u, %u Hz)\n",
@@ -472,12 +477,20 @@ void hv_virtio_snd_poll(HvVirtioSnd *d) {
                     (unsigned long long)(atomic_load(&d->consumed) - d->in_start_out_consumed), d->ptail - d->phead,
                     (unsigned long long)(atomic_load(&d->written) - atomic_load(&d->consumed)));
         }
-        /* The guest has no buffer waiting: keep a tenth of a second at most, so what it records next is not old. */
-        uint64_t keep = (uint64_t)d->in_rate_hz / 10 * d->in_frame_bytes;
+        /* The guest has no buffer waiting: keep half a second at most, so what it records next is not old. A tenth (before
+           2026-11-13) cut the recording whenever a busy Mac was a little late offering its next buffer: each cut is a jump
+           in the sound, a click, and a recording with many of them is all static. HV_MIC_KEEP_MS: another length. */
+        static uint64_t keep_ms;
+        if (!keep_ms) keep_ms = getenv("HV_MIC_KEEP_MS") && atoi(getenv("HV_MIC_KEEP_MS")) > 0 ? (uint64_t)atoi(getenv("HV_MIC_KEEP_MS")) : 500;
+        uint64_t keep = (uint64_t)d->in_rate_hz * keep_ms / 1000 * d->in_frame_bytes;
         /* (Up to two buffers may be held back for the Mac's reader, in fill_rx: what they get when released is recent too.) */
         uint32_t waiting = d->in_tail - d->in_head;
         uint64_t held = (uint64_t)waiting * d->in_last_cap;
-        if (waiting <= 2 && w - c > keep + held) atomic_store(&d->in_consumed, w - keep - held);
+        if (waiting <= 2 && w - c > keep + held) {
+            d->in_trimmed += w - c - keep - held;
+            d->in_trims++;
+            atomic_store(&d->in_consumed, w - keep - held);
+        }
     }
     if (take_rx(d)) hv_virtio_interrupt(v);
 }
