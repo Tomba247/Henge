@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.35",
+          "date": "2026-11-13T16:10:36Z",
+          "localizedDescription": "[league-el0] Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-35/Henge.ipa",
+          "size": 9703626,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.34",
           "date": "2026-11-13T15:39:31Z",
           "localizedDescription": "[league-el0] Merge branch 'league' into league-el0",
@@ -93,11 +102,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.34",
-      "versionDate": "2026-11-13T15:39:31Z",
-      "versionDescription": "[league-el0] Merge branch 'league' into league-el0",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-34/Henge.ipa",
-      "size": 9703257,
+      "buildVersion": "101.35",
+      "versionDate": "2026-11-13T16:10:36Z",
+      "versionDescription": "[league-el0] Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-35/Henge.ipa",
+      "size": 9703626,
       "minOSVersion": "17.0"
     }
   ],
