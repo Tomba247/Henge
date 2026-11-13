@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.32",
+          "date": "2026-11-13T15:38:41Z",
+          "localizedDescription": "[league-el0] Trackpad: a held still press then moved drags (as Moonlight's trackpad mode); held still and lifted, it right-clicks",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-32/Henge.ipa",
+          "size": 9702752,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.30",
           "date": "2026-11-13T14:15:02Z",
           "localizedDescription": "[league-el0] The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)",
@@ -75,11 +84,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.30",
-      "versionDate": "2026-11-13T14:15:02Z",
-      "versionDescription": "[league-el0] The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-30/Henge.ipa",
-      "size": 9655980,
+      "buildVersion": "101.32",
+      "versionDate": "2026-11-13T15:38:41Z",
+      "versionDescription": "[league-el0] Trackpad: a held still press then moved drags (as Moonlight's trackpad mode); held still and lifted, it right-clicks",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-32/Henge.ipa",
+      "size": 9702752,
       "minOSVersion": "17.0"
     }
   ],
