@@ -27,7 +27,7 @@ struct SettingsView: View {
     /// The second footer paragraph: how you click, given the selected input mode.
     private var inputDescription: String {
         if inputMode == .touchscreen {
-            return "Tap to click once. Tap then hold to begin dragging. Quickly tap with two fingers to right-click."
+            return "Tap to click. Hold until the phone ticks, then move to drag (windows, selections). Hold and lift without moving to right-click. Tap, then tap and hold, also drags."
         }
         switch volumeMode {
         case .delayHold:

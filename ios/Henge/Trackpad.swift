@@ -10,8 +10,8 @@ import UIKit
 /// Clicking depends on the input mode (Settings > Trackpad):
 ///  - Touchscreen: the surface itself clicks, through the click language in
 ///    GestureEngine (GestureEngine.swift). A quick tap is a left click. A press
-///    held still is a right click: the secondary button goes down when the hold
-///    threshold passes and up when the finger lifts. A double tap whose second
+///    held still until the phone ticks, then moved, drags (the left button is
+///    held until the finger lifts); held still and lifted, it is a right click. A double tap whose second
 ///    press is held is a grab: the primary button goes down on the second press
 ///    itself and up at lift, so moving drags. These go out as mouse buttons
 ///    alongside the forwarded contacts; the contacts keep owning pointer motion,
@@ -213,6 +213,8 @@ struct Trackpad: UIViewRepresentable {
                     henge_vm_mouse_button(b, 0)
                 case .click(let b, _):
                     click(b)
+                case .feedback:
+                    buzz.impactOccurred()
                 case .moveAbs, .moveRel, .ended:
                     break
                 }

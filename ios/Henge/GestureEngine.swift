@@ -96,6 +96,8 @@ enum GestureAction: Equatable {
     case buttonUp(Int32)
     /// A complete click (down+up) at a point: a tap.
     case click(Int32, at: CGPoint?)
+    /// A haptic tick: the hold time passed (pad mode: move now to drag, lift to right-click).
+    case feedback
     /// The contact finished as this outcome; always the last
     /// action a contact produces.
     case ended(GestureOutcome)
@@ -119,6 +121,7 @@ final class GestureEngine {
         case deciding   // inside the decision window
         case dragging   // slop committed: primary down, moving
         case rightHeld  // hold fired: secondary down until lift
+        case holdArmed  // pad mode: a still press passed the hold time; moving drags, lifting right-clicks
         case grabbing   // grab press: primary down since the press
         case leftover   // remainder finger after a multi-finger gesture: moves only
         case suspended  // a multi-finger gesture owns the surface
@@ -196,6 +199,15 @@ final class GestureEngine {
                 actions.append(positionAction(to: point))
             }
             lastPoint = point
+        case .holdArmed:
+            // Held still, then moved: a drag, as in Moonlight's trackpad mode (press the button, let the finger carry it).
+            pathLength += hypot(point.x - lastPoint.x, point.y - lastPoint.y)
+            if pathLength >= slop(for: kind) {
+                state = .dragging
+                actions.append(.buttonDown(0, at: direct ? lastPoint : nil))
+            }
+            actions.append(positionAction(to: point))
+            lastPoint = point
         case .dragging, .grabbing, .rightHeld, .leftover:
             actions.append(positionAction(to: point))
             lastPoint = point
@@ -211,6 +223,12 @@ final class GestureEngine {
         guard state == .deciding,
               time - startTime >= holdThreshold,
               pathLength < slop(for: kind) else { return [] }
+        if !direct {
+            // Pad mode: the hold only arms. Moving from here drags (left button), lifting still is the right click.
+            state = .holdArmed
+            pathLength = 0
+            return [.feedback]
+        }
         state = .rightHeld
         return [.buttonDown(1, at: direct ? lastPoint : nil)]
     }
@@ -238,6 +256,9 @@ final class GestureEngine {
             actions.append(.ended(.grab))
         case .rightHeld:
             actions.append(.buttonUp(1))
+            actions.append(.ended(.right))
+        case .holdArmed:
+            actions.append(.click(1, at: direct ? lastPoint : nil))
             actions.append(.ended(.right))
         case .leftover:
             actions.append(.ended(.none))
