@@ -1407,6 +1407,41 @@ static void put_pstate_bit(Emit *e, int rt, int bit, int read) {
    the new flags' branch cache. PAN: the bit, then likewise. Returns 0 if not
    handled, 1 if the block carries on, 2 if it ended. */
 static int translate_msr_inline(Emit *e, uint32_t insn, uint64_t pc) {
+    /* MSR SCTLR_EL1, Xt at EL1: xnu writes it on every kernel entry and exit of a process whose PAC keys differ (its
+       EnIA/IB/DA/DB bits), which a busy app does hundreds of thousands of times a second (League of Legends on the
+       phone, 2026-11-13: 586K a second, each through the helper). Only M, WXN, E0E and EE change what translations
+       mean (hv_sysreg_msr flushes for them): when none of those changes, the store is the whole write, done here; when
+       one does, the helper as before. The value is fixed up as hv_sysreg_msr does (ITD and SED set, CP15BEN clear).
+       HV_SCTLR_HELPER=1: always the helper. */
+    if ((e->flags & HV_BLOCK_EL1) && ((insn >> 19) & 3) && !((insn >> 21) & 1) &&
+        ((insn >> 5) & 0xffff) == (3u << 14 | 0u << 11 | 1u << 7 | 0u << 3 | 0u)) {
+        static int helper_only = -1;
+        if (helper_only < 0) helper_only = getenv("HV_SCTLR_HELPER") != NULL;
+        if (!helper_only) {
+            int rt = insn & 0x1f;
+            if (rt == 31) put(e, 0xd2800006u);                                       /* movz x6, #0 */
+            else if (is_stolen(rt)) put(e, LDR_X(6, 28, slot_of(rt)));
+            else put(e, MOV_X(6, rt));
+            put(e, 0xb27904c6u);                                                     /* orr x6, x6, #0x180 */
+            put(e, 0x927af8c6u);                                                     /* and x6, x6, #~0x20 */
+            put(e, LDR_X(7, 28, HV_CPU_SCTLR_EL1));
+            put(e, 0xca0600e7u);                                                     /* eor x7, x7, x6 */
+            static const uint32_t bits[4] = {0, 19, 24, 25};
+            uint32_t at[4];
+            for (int i = 0; i < 4; i++) {
+                at[i] = e->n;
+                put(e, 0x37000007u | bits[i] << 19);                                 /* tbnz x7, #bit, helper */
+            }
+            put(e, STR_X(6, 28, HV_CPU_SCTLR_EL1));
+            uint32_t skip = e->n;
+            put(e, B_OP);                                                            /* b done */
+            for (int i = 0; i < 4; i++)
+                if (at[i] < MAX_WORDS) patch_branch(&e->w[at[i]], (int64_t)e->n - at[i]);
+            put_helper(e, pc, insn, HV_OP_MSR);
+            if (skip < MAX_WORDS) patch_branch(&e->w[skip], (int64_t)e->n - skip);
+            return 1;
+        }
+    }
     if (!(e->flags & HV_BLOCK_EL1) || e->no_ijc) return 0;
     int imm_form = ((insn >> 19) & 3) == 0;
     uint32_t field = ((insn >> 16) & 7) << 3 | ((insn >> 5) & 7), imm = (insn >> 8) & 0xf;
