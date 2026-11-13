@@ -34,51 +34,6 @@
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-24/Henge.ipa",
           "size": 9652769,
           "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.1.6",
-          "buildVersion": "6",
-          "date": "2026-11-08T04:30:18Z",
-          "localizedDescription": "[macos27-xchain] Cross-page chains indexed by target page: code invalidation no longer scans every chain under the translation lock (that scan was 92% of lock time).",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-xchain-11/Henge.ipa",
-          "size": 6619088,
-          "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.1.5",
-          "buildVersion": "5",
-          "date": "2026-11-08T03:34:18Z",
-          "localizedDescription": "[macos27-lockstats] Plus translation-lock and full-flush stats in the engine log.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-lockstats-10/Henge.ipa",
-          "size": 6618604,
-          "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.1.4",
-          "buildVersion": "4",
-          "date": "2026-11-08T01:20:49Z",
-          "localizedDescription": "[macos27-perf] Plus engine settings from henge-env.txt and HV_STATS engine stats in the log.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-perf-9/Henge.ipa",
-          "size": 6610979,
-          "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.1",
-          "buildVersion": "3",
-          "date": "2026-11-07T20:15:30Z",
-          "localizedDescription": "[macos27-perf] Plus four upstream engine speedups (TLB layout, macOS 27 TLBI range flush, slow-path recheck).",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-perf-7/Henge.ipa",
-          "size": 6609921,
-          "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.1",
-          "buildVersion": "2",
-          "date": "2026-11-07T19:00:01Z",
-          "localizedDescription": "[macos27] Henge 0.1 + macOS 27.2 install and graphics fixes (upstream PR #8).",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/0.1-macos27-3/Henge.ipa",
-          "size": 6611135,
-          "minOSVersion": "17.0"
         }
       ],
       "appPermissions": {
