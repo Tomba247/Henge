@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.29",
+          "date": "2026-11-13T06:52:47Z",
+          "localizedDescription": "[league-el0] Experimental: the refresh event's time on the Mac's clock at +108 of the display page (HV_PVG_VSYNC_TS)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-29/Henge.ipa",
+          "size": 9655982,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.27",
           "date": "2026-11-13T06:24:57Z",
           "localizedDescription": "[league-el0] Experimental: direct app memory off by default (on the phone it made the Mac 5-10x slower: 60% of the time in page faults)",
@@ -57,11 +66,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.27",
-      "versionDate": "2026-11-13T06:24:57Z",
-      "versionDescription": "[league-el0] Experimental: direct app memory off by default (on the phone it made the Mac 5-10x slower: 60% of the time in page faults)",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-27/Henge.ipa",
-      "size": 9656266,
+      "buildVersion": "101.29",
+      "versionDate": "2026-11-13T06:52:47Z",
+      "versionDescription": "[league-el0] Experimental: the refresh event's time on the Mac's clock at +108 of the display page (HV_PVG_VSYNC_TS)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-29/Henge.ipa",
+      "size": 9655982,
       "minOSVersion": "17.0"
     }
   ],

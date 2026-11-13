@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.29",
+          "date": "2026-11-13T06:52:47Z",
+          "localizedDescription": "[league-el0] Experimental: the refresh event's time on the Mac's clock at +108 of the display page (HV_PVG_VSYNC_TS)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-29/Henge.ipa",
+          "size": 9655982,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.28",
           "date": "2026-11-13T06:30:59Z",
           "localizedDescription": "[league] Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)",
