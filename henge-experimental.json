@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.27",
+          "date": "2026-11-13T06:24:57Z",
+          "localizedDescription": "[league-el0] Experimental: direct app memory off by default (on the phone it made the Mac 5-10x slower: 60% of the time in page faults)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-27/Henge.ipa",
+          "size": 9656266,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.26",
           "date": "2026-11-13T05:54:12Z",
           "localizedDescription": "[league-el0] Experimental: direct app memory tries smaller windows when 16 GB a CPU does not fit (the phone refused the fourth)",
@@ -48,11 +57,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.26",
-      "versionDate": "2026-11-13T05:54:12Z",
-      "versionDescription": "[league-el0] Experimental: direct app memory tries smaller windows when 16 GB a CPU does not fit (the phone refused the fourth)",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-26/Henge.ipa",
-      "size": 9656362,
+      "buildVersion": "101.27",
+      "versionDate": "2026-11-13T06:24:57Z",
+      "versionDescription": "[league-el0] Experimental: direct app memory off by default (on the phone it made the Mac 5-10x slower: 60% of the time in page faults)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-27/Henge.ipa",
+      "size": 9656266,
       "minOSVersion": "17.0"
     }
   ],
