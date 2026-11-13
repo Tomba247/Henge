@@ -178,6 +178,12 @@ static uint32_t control_in(HvVirtioSnd *d, uint32_t code, const uint8_t *req) {
         d->in_format = fmt;
         d->in_rate_hz = rate == HV_VSND_RATE_44100 ? 44100 : 48000;
         d->in_frame_bytes = ch * format_bytes(fmt);
+        {
+            uint32_t buffer_bytes, period_bytes;
+            memcpy(&buffer_bytes, req + 8, 4);
+            memcpy(&period_bytes, req + 12, 4);
+            fprintf(stderr, "hengevm: sound: the Mac's recording buffer is %u bytes in periods of %u\n", buffer_bytes, period_bytes);
+        }
         return S_OK;
     }
     case R_PCM_PREPARE:
@@ -195,6 +201,7 @@ static uint32_t control_in(HvVirtioSnd *d, uint32_t code, const uint8_t *req) {
             d->in_running = 1;
             d->in_start_ns = d->in_clock_ns, d->in_start_written = atomic_load(&d->in_written);
             d->in_last_give_ns = d->in_clock_ns, d->in_stall_logged = 0;
+            d->in_start_out_consumed = atomic_load(&d->consumed);
             d->in_start_xfers = d->in_xfers, d->in_start_dropped = d->in_dropped, d->in_bad_rx = 0;
             fprintf(stderr, "hengevm: sound: microphone %s (%u ch, format %u, %u Hz)\n",
                     d->in_live ? "recording" : "not available, the Mac hears silence", d->in_channels, d->in_format, d->in_rate_hz);
@@ -430,9 +437,12 @@ void hv_virtio_snd_poll(HvVirtioSnd *d) {
         if (!d->in_stall_logged && now_ns() - d->in_last_give_ns > 2000000000ull) {
             d->in_stall_logged = 1;
             fprintf(stderr, "hengevm: sound: the Mac has collected nothing from the microphone for 2 s, %llu ms into the recording: %u buffers offered, "
-                            "%u returned, %u waiting, %llu bytes ready, RX queue %s\n",
+                            "%u returned, %u waiting, %llu bytes ready, RX queue %s; the output is %s, %llu bytes played since the recording began, "
+                            "%u of its buffers waiting, %llu bytes in its ring\n",
                     (unsigned long long)((now_ns() - d->in_start_ns) / 1000000), d->in_takes, d->in_gives, d->in_tail - d->in_head,
-                    (unsigned long long)(w - c), d->vio.q[RXQ].enabled ? "on" : "off");
+                    (unsigned long long)(w - c), d->vio.q[RXQ].enabled ? "on" : "off", d->running ? "playing" : "stopped",
+                    (unsigned long long)(atomic_load(&d->consumed) - d->in_start_out_consumed), d->ptail - d->phead,
+                    (unsigned long long)(atomic_load(&d->written) - atomic_load(&d->consumed)));
         }
         /* The guest has no buffer waiting: keep a tenth of a second at most, so what it records next is not old. */
         uint64_t keep = (uint64_t)d->in_rate_hz / 10 * d->in_frame_bytes;

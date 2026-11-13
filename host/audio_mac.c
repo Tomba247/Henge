@@ -14,12 +14,21 @@
 #define HV_OUTPUT_UNIT kAudioUnitSubType_DefaultOutput
 #endif
 #include <stdio.h>
+#include <stdlib.h>
 
 static AudioComponentInstance unit;
 static int unit_running;
 static unsigned cur_channels, cur_format, cur_rate;
 
 #if TARGET_OS_IPHONE
+/* Stop and start the playing output unit. Returns 1 if it was playing. */
+static int out_unit_restart(void) {
+    if (!unit || !unit_running || getenv("HV_MIC_NO_RESTART")) return 0;
+    AudioOutputUnitStop(unit);
+    unit_running = AudioOutputUnitStart(unit) == noErr;
+    return 1;
+}
+
 /* The microphone: a second RemoteIO unit with only its input bus on, set to the guest's capture
    format, so the unit converts from the hardware's. The app puts its audio session in
    play-and-record and asks for permission first (Microphone.swift); without them this fails or
@@ -102,6 +111,11 @@ static int in_start(void *opaque, unsigned channels, unsigned format, unsigned r
         in_stop(opaque);
         return -1;
     }
+    /* The input coming on changes the audio session's route (a route change is logged at this moment), and the
+       output unit, running since before it, can be left without callbacks: the Mac's one sound device then stops
+       its whole I/O cycle, input included. Start the output again on the new route. HV_MIC_NO_RESTART: leave it. */
+    if (out_unit_restart() && !getenv("HV_MIC_NO_RESTART"))
+        fprintf(stderr, "hengevm: sound: the output was restarted for the microphone's route\n");
     return 0;
 }
 #endif
