@@ -1,5 +1,6 @@
 #include "translate.h"
 
+#include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -1323,6 +1324,31 @@ static void put_store_field(Emit *e, int rt, uint32_t off) {
     unspill(e, &s, 1);
 }
 
+/* Guest rt to or from an HvCpu field past one load's reach (the fields only C touched, after the TLB and the return
+   tables): x15 = x28 + the offset's upper bits, then the access with the low 12. x15 and x6 are free scratch. */
+static void put_far_field(Emit *e, int rt, uint32_t off, int read) {
+    put(e, 0x91400000u | (off >> 12) << 10 | 28u << 5 | 15u);          /* add x15, x28, #off >> 12, lsl #12 */
+    uint32_t lo = off & 0xfff;
+    if (read) {
+        if (rt == 31) return;
+        if (!is_stolen(rt)) {
+            put(e, LDR_X(rt, 15, lo));
+            return;
+        }
+        put(e, LDR_X(15, 15, lo));
+        put(e, STR_X(15, 28, slot_of(rt)));
+        return;
+    }
+    if (!is_stolen(rt)) {
+        put(e, STR_X(rt, 15, lo)); /* 31 stores XZR */
+        return;
+    }
+    put(e, LDR_X(6, 28, slot_of(rt)));
+    put(e, STR_X(6, 15, lo));
+}
+#define FAR_FIELD_OK(f) (offsetof(HvCpu, f) % 8 == 0 && offsetof(HvCpu, f) >> 12 < 4096)
+_Static_assert(FAR_FIELD_OK(ttbr0_el1) && FAR_FIELD_OK(contextidr_el1), "put_far_field reaches 16 MB, 8-byte aligned");
+
 /* MRS/MSR of NZCV, FPCR, FPSR: the host registers are the guest's. */
 static void put_native_sysreg(Emit *e, uint32_t insn, int read) {
     int rt = insn & 0x1f;
@@ -1541,6 +1567,21 @@ static int translate_sysreg_inline(Emit *e, uint32_t insn, uint64_t pc) {
     case SR(3, 0, 7, 4, 0):
         if (!read || !el1) return 0;
         put_load_field(e, rt, reg == SR(3, 0, 2, 0, 2) ? HV_CPU_TCR_EL1 : HV_CPU_PAR_EL1);
+        return 1;
+    /* Plain storage in hv_sysreg too (read_reg / write_reg), seen often in a phone's --stats (macOS 27.2, per second):
+       TTBR0_EL1 reads 8.4K (its writes switch address spaces and stay in the helper), CONTEXTIDR_EL1 writes 7.4K
+       (each also ended its block), DCZID_EL0 reads 2.4K, a constant (64-byte DC ZVA; EL0 may read it). */
+    case SR(3, 0, 2, 0, 0): /* TTBR0_EL1: reads */
+        if (!read || !el1) return 0;
+        put_far_field(e, rt, (uint32_t)offsetof(HvCpu, ttbr0_el1), 1);
+        return 1;
+    case SR(3, 0, 13, 0, 1): /* CONTEXTIDR_EL1 */
+        if (!el1) return 0;
+        put_far_field(e, rt, (uint32_t)offsetof(HvCpu, contextidr_el1), read);
+        return 1;
+    case SR(3, 3, 0, 0, 7): /* DCZID_EL0 */
+        if (!read) return 0;
+        put_const_to(e, rt, 4);
         return 1;
     case SR(3, 0, 4, 2, 3): /* PAN: a block is translated for one PAN state (HV_BLOCK_PAN) and every write ends it */
         if (!read || !el1) return 0;
