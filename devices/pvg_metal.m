@@ -892,6 +892,57 @@ static unsigned long long archive_cap(void) {
     if (!o->object) [self complain:[NSString stringWithFormat:@"texture format %lu %lux%lu failed", (unsigned long)t.pixelFormat, (unsigned long)t.width, (unsigned long)t.height]];
 }
 
+/* Object type 12, seen when League of Legends renders (2026-11-14): laid out as a type 2 texture, {length, word,
+   layout {mips, slices, base, stride}, a 36-byte table entry per mip {offset, size, row, width, height, depth}}, then
+   a description at a place not yet known. Its passes were skipped ("2 of its 3 attachments were never made"), so the
+   game drew nothing. The description is found by looking for one whose size is the first mip's (both forms tried),
+   and the texture is the GPU's own, as a heap's is: nothing is copied from the guest's pages into it. The whole
+   record goes to the log the first times, to learn its layout. HV_PVG_TYPE12=0: left out, as before. */
+- (void)makeType12Texture:(HvObject *)o at:(uint64_t)at size:(uint32_t)size task:(uint32_t)task {
+    static int off_ = -1;
+    if (off_ < 0) off_ = getenv("HV_PVG_TYPE12") && !atoi(getenv("HV_PVG_TYPE12"));
+    if (off_ || size < 84 || size > 4096) return;
+    NSMutableData *all = [NSMutableData dataWithLength:size];
+    if (hv_pvg_lite_task_read(lite, task, at, all.mutableBytes, size)) return;
+    const uint8_t *d = all.bytes;
+    static int dumped;
+    if (dumped++ < 6) {
+        NSMutableString *m = [NSMutableString stringWithFormat:@"type 12 record, %u bytes:", size];
+        for (uint32_t i = 0; i + 4 <= size && i < 512; i += 4) [m appendFormat:@" %08x", *(const uint32_t *)(d + i)];
+        fprintf(stderr, "hengevm: pvg-metal: %s\n", m.UTF8String);
+    }
+    uint16_t mips = *(const uint16_t *)(d + 12) & 0x3fff;
+    if (!mips || 12 + 0x18 + (uint32_t)mips * 36 > size) return;
+    const uint8_t *mip0 = d + 12 + 0x18;
+    uint32_t w = *(const uint32_t *)(mip0 + 24), h = *(const uint32_t *)(mip0 + 28);
+    if (!w || !h || w > 16384 || h > 16384) return;
+    MTLTextureDescriptor *t = nil;
+    uint32_t found = 0;
+    for (uint32_t k = 12 + 0x18 + (uint32_t)mips * 36; k + 0x28 <= size && !t; k += 1) {
+        uint32_t w2, h2;
+        memcpy(&w2, d + k + 7, 4), memcpy(&h2, d + k + 11, 4);
+        uint16_t fmt2 = (uint16_t)(d[k + 1] | d[k + 2] << 8);
+        if (w2 == w && h2 == h && fmt2 && fmt2 < 700 && (d[k] & 0xf) <= 9) t = descriptor_v2(d + k), found = k;
+        else {
+            uint32_t w1, h1;
+            memcpy(&w1, d + k + 4, 4), memcpy(&h1, d + k + 8, 4);
+            uint16_t fmt1 = (uint16_t)(d[k + 2] | d[k + 3] << 8);
+            if (w1 == w && h1 == h && fmt1 && fmt1 < 700 && (d[k] & 0xf) <= 9) t = descriptor_v1(d + k), found = k;
+        }
+    }
+    static int told;
+    if (!t) {
+        if (told++ < 10) fprintf(stderr, "hengevm: pvg-metal: type 12 texture %ux%u: no description found\n", w, h);
+        return;
+    }
+    t.storageMode = MTLStorageModePrivate;
+    t.usage |= MTLTextureUsageShaderRead;
+    o->object = [device newTextureWithDescriptor:t];
+    if (told++ < 10)
+        fprintf(stderr, "hengevm: pvg-metal: type 12 texture %lux%lu format %lu samples %lu usage %lx (description at +%u)%s\n", (unsigned long)t.width,
+                (unsigned long)t.height, (unsigned long)t.pixelFormat, (unsigned long)t.sampleCount, (unsigned long)t.usage, found, o->object ? "" : ": FAILED");
+}
+
 /* A texture over a buffer: {tag 9, size, ref, buffer ref, offset, bytes per row, description}. */
 - (void)makeLinearTexture:(HvObject *)o at:(uint64_t)at size:(uint32_t)size task:(uint32_t)task {
     struct __attribute__((packed)) { uint32_t tag, size, ref, buffer; uint64_t offset, row; uint8_t d[64]; } h;
@@ -1428,6 +1479,7 @@ static void sync_iosurface(HvObject *s) {
     case OBJ_FUNCTION: o->object = [self makeFunction:at task:task]; break;
     case OBJ_SERIALIZED: o->object = [self makeSerialized:at length:size task:task]; break;
     case OBJ_LINEAR_TEXTURE: case 9: [self makeLinearTexture:o at:at size:size task:task]; break;
+    case 12: [self makeType12Texture:o at:at size:size task:task]; break;
     case 13: [self makeHeap:o at:at task:task]; break;
     case 14: [self makeHeapBuffer:o at:at task:task]; break;
     case 19: /* macOS 27: a buffer, with the same {length, page, flags} entry as type 1 (16 KB ones seen). The guest
