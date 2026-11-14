@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.45",
+          "date": "2026-11-14T21:43:32Z",
+          "localizedDescription": "[henge-perf] Merge remote-tracking branch 'origin/perf-night' into merge-test",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-45/Henge.ipa",
+          "size": 9721901,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.33",
           "date": "2026-11-13T15:42:14Z",
           "localizedDescription": "[league] Merge upstream PR #126: Scan for the OpenGL personality only on TTBR1 writes with the MMU off",
@@ -66,11 +75,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.33",
-      "versionDate": "2026-11-13T15:42:14Z",
-      "versionDescription": "[league] Merge upstream PR #126: Scan for the OpenGL personality only on TTBR1 writes with the MMU off",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-33/Henge.ipa",
-      "size": 9650854,
+      "buildVersion": "101.45",
+      "versionDate": "2026-11-14T21:43:32Z",
+      "versionDescription": "[henge-perf] Merge remote-tracking branch 'origin/perf-night' into merge-test",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-45/Henge.ipa",
+      "size": 9721901,
       "minOSVersion": "17.0"
     }
   ],

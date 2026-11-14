@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.45",
+          "date": "2026-11-14T21:43:32Z",
+          "localizedDescription": "[henge-perf] Merge remote-tracking branch 'origin/perf-night' into merge-test",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-45/Henge.ipa",
+          "size": 9721901,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.43",
           "date": "2026-11-14T21:05:33Z",
           "localizedDescription": "[league-el0] The profile setting also counts the translated instructions under each sample (HV_PROF_IOS=2, Documents/hvprof-words.txt)",
