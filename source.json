@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.50",
+          "date": "2026-11-14T22:48:33Z",
+          "localizedDescription": "[henge-perf] Shared folder: henge.log and henge-prev.log linked into it when a Mac starts",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-50/Henge.ipa",
+          "size": 9749760,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.49",
           "date": "2026-11-14T22:43:03Z",
           "localizedDescription": "[henge-perf] translate: an exit stub holds only its slot's address; the target lives in the slot",
