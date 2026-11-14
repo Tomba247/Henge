@@ -262,6 +262,10 @@ static void gl_personality_hook(HvMachine *m) {
     if (r != HV_GL_NOT_FOUND) scans = 0, m->ttbr1_hook = NULL;
 }
 
+static uint64_t timer_tick(HvMachine *m, HvCpu *cpu) {
+    return hv_timer_update(((HvVmapple *)m->tick_opaque)->gic, cpu);
+}
+
 int hv_vmapple_create(HvVmapple *b, HvMachine *m, HvCpu *cpu, uint64_t ram_size, HvDisk *root, HvDisk *aux,
                       const HvCfgParams *cfg, const uint8_t mac[6]) {
     memset(b, 0, sizeof *b);
@@ -349,6 +353,7 @@ int hv_vmapple_create(HvVmapple *b, HvMachine *m, HvCpu *cpu, uint64_t ram_size,
     }
 
     m->tick = tick;
+    m->timer_tick = timer_tick;
     m->tick_opaque = b;
     cpu->m = m;
     return 0;
