@@ -32,7 +32,7 @@ enum EngineTuning {
         if Microphone.isOn { env["HV_MIC"] = "1" } else { unsetenv("HV_MIC") }
         if d.object(forKey: fastFlushKey) as? Bool == false { env["HV_FLUSH"] = "0" }
         // The engine's sampling profiler (host/prof_ios.c): where the CPU threads spend their time, in the log every 30 s.
-        if d.bool(forKey: profileKey) { env["HV_PROF_IOS"] = "1" } else { unsetenv("HV_PROF_IOS") }
+        if d.bool(forKey: profileKey) { env["HV_PROF_IOS"] = "2" } else { unsetenv("HV_PROF_IOS") }
         // A Mac CPU waiting for another's answer to a TLB flush sleeps instead of spinning, so the one it waits for gets the core
         // (core/machine.c, HV_SYNC_WAIT). On unless switched off: the phone has fewer fast cores than the Mac has CPUs.
         if d.object(forKey: syncWaitKey) as? Bool == false { unsetenv("HV_SYNC_WAIT") } else { env["HV_SYNC_WAIT"] = "1" }
