@@ -147,7 +147,7 @@ void hv_evict_blocks(HvMachine *m) {
         uint32_t idx = ss[i];
         if (m->slot_tseg[idx]) hv_slot_tlist_unlink(m, idx);
         if (m->slot_xpa[idx]) hv_slot_xlist_unlink(m, idx);
-        m->slots[idx] = 0;
+        *HV_SLOT(m, idx) = 0;
         m->slot_site[idx] = 0;
         m->slot_stub[idx] = 0;
         m->slot_cond[idx] = 0;
@@ -161,7 +161,7 @@ void hv_evict_blocks(HvMachine *m) {
         m->slot_tnext[idx] = 0;
         m->slot_tprev[idx] = 0;
         m->slot_tseg[idx] = 0;
-        m->slots[idx] = 0;
+        *HV_SLOT(m, idx) = 0;
         if (m->slot_xpa[idx]) hv_slot_xlist_unlink(m, idx);
         uint32_t *site = hv_slot_dec(m, m->slot_site[idx]);
         uint32_t *stub = hv_slot_dec(m, m->slot_stub[idx]);
@@ -978,7 +978,7 @@ static void print_stats(HvCpu *cpu, int force) {
    only reachable from each other, and the exit_req check before every chained
    jump gets a block that just wrote its own page back to the dispatcher. */
 static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
-    uint32_t idx = (uint32_t)(slot - m->slots);
+    uint32_t idx = HV_SLOT_INDEX(m, slot);
     uint32_t *site = hv_slot_dec(m, m->slot_site[idx]);
     if (m->gen_checks && (b->jit_gen != m->jit_gen || (site && (uint64_t)(site - m->jit.base) >= hv_jit_extent(&m->jit))))
         fprintf(stderr, "hengevm: chain slot %u site %p to rx+%llx va %llx: block gen %u now %u\n", idx, (void *)site, (unsigned long long)(b->code - m->jit.base) * 4, (unsigned long long)b->va, b->jit_gen, m->jit_gen);
@@ -991,7 +991,7 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
         if (host - (b->va & ~((1ull << HV_TLB_PAGE_BITS) - 1)) != xa) return;
     }
     tr_lock(m);
-    if (__atomic_load_n(&b->ram->page_gen[b->pg], __ATOMIC_ACQUIRE) != b->gen || m->slot_tseg[idx] || m->slots[idx] || (xa && m->slot_xpa[idx])) {
+    if (__atomic_load_n(&b->ram->page_gen[b->pg], __ATOMIC_ACQUIRE) != b->gen || m->slot_tseg[idx] || *HV_SLOT(m, idx) || (xa && m->slot_xpa[idx])) {
         pthread_mutex_unlock(&m->tr_mu);
         return;
     }

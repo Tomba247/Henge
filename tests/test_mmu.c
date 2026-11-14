@@ -361,7 +361,7 @@ int main(void) {
         uint32_t base = m.nslots + 16, pages[4] = {10, 11, 10, 10}, n0 = m.nxchained;
         for (uint32_t i = 0; i < 4; i++) {
             uint32_t idx = base + i, pg = pages[i];
-            m.slots[idx] = 0x1000 + i;
+            *HV_SLOT(&m, idx) = 0x1000 + i;
             m.slot_site[idx] = 0;
             m.slot_xpa[idx] = (r->pa + ((uint64_t)pg << 14)) | 1;
             m.slot_xnext[idx] = r->xhead[pg];
@@ -371,7 +371,7 @@ int main(void) {
         r->code_pages[10] = 1;
         hv_invalidate_code(&m, r->pa + (10ull << 14) + 0x40);
         for (uint32_t i = 0; i < 4; i++) {
-            int gone = m.slots[base + i] == 0 && m.slot_xpa[base + i] == 0;
+            int gone = *HV_SLOT(&m, base + i) == 0 && m.slot_xpa[base + i] == 0;
             checks++;
             if (gone != (pages[i] == 10)) printf("  FAIL code change %s an exit chained into page %u\n", gone ? "unchained" : "kept", pages[i]), failures++;
         }
@@ -382,7 +382,7 @@ int main(void) {
         r->code_pages[11] = 1;
         hv_invalidate_code(&m, r->pa + (11ull << 14));
         checks++;
-        if (m.slots[base + 1] || r->xhead[11] || m.nxchained != n0) printf("  FAIL the second page's exit stayed chained\n"), failures++;
+        if (*HV_SLOT(&m, base + 1) || r->xhead[11] || m.nxchained != n0) printf("  FAIL the second page's exit stayed chained\n"), failures++;
     }
 
     /* Another CPU's big range TLBI (64 user pages of ASID 5: over the 32 done from here by default). With HV_RANGE_DROP it is done from here in one pass:

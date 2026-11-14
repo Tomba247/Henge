@@ -122,7 +122,7 @@ static int init_rest(HvMachine *m) {
     m->stop_pc = ~0ull;
     m->stop_pc2 = ~0ull;
     m->chain = 1;
-    m->slots = calloc(m->max_slots, sizeof *m->slots);
+    m->slots = calloc((size_t)m->max_slots * 2, sizeof *m->slots);
     m->slot_site = calloc(m->max_slots, sizeof *m->slot_site);
     m->slot_stub = calloc(m->max_slots, sizeof *m->slot_stub);
     m->slot_cond = calloc(m->max_slots, sizeof *m->slot_cond);
@@ -551,7 +551,7 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
         m->slot_xprev[idx] = 0;
         m->slot_xpa[idx] = 0;
         if (m->slot_tseg[idx]) hv_slot_tlist_unlink(m, idx);
-        __atomic_store_n(&m->slots[idx], 0, __ATOMIC_RELEASE);
+        __atomic_store_n(HV_SLOT(m, idx), 0, __ATOMIC_RELEASE);
         uint32_t *site = hv_slot_dec(m, m->slot_site[idx]);
         if (site) {
             uint32_t insn = 0x14000000u | (uint32_t)((hv_slot_dec(m, m->slot_stub[idx]) - site) & 0x3ffffff); /* back to its stub */

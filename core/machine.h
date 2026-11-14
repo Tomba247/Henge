@@ -266,7 +266,7 @@ typedef struct HvMachine {
     uint64_t watch_pa;   /* debugging: the same by physical address */
     HvStats stats;
     int chain;               /* block chaining and the indirect-branch cache are enabled */
-    uint64_t *slots;         /* chainable exits' targets (0: not chained) */
+    uint64_t *slots;         /* chainable exits, two words each (HV_SLOT): the block chained to (0: not chained), then the exit's guest target */
     uint32_t *slot_site;     /* JIT word offset + 1 (0: NULL) of the B chaining rewrites */
     uint32_t *slot_stub;     /* JIT word offset + 1 (0: NULL) of that B's stub while unchained */
     uint32_t *slot_cond;     /* JIT word offset + 1 (0: NULL) of conditional branch retargeted by chaining */
@@ -421,6 +421,10 @@ static inline void hv_slot_trash_push(HvMachine *m, uint32_t idx) {
 
 /* Drop the translations made from the RAM page holding pa (it was written, or the guest invalidated it). */
 void hv_invalidate_code(HvMachine *m, uint64_t pa);
+/* A chainable exit's slot: {the block it is chained to (0: none), its guest target}. Its stub names the slot, and
+   hv_chain_thunk reads the target 8 bytes on (an unchained exit's way to the dispatcher), so the stub need not hold it. */
+#define HV_SLOT(m, i) (&(m)->slots[2 * (size_t)(i)])
+#define HV_SLOT_INDEX(m, p) ((uint32_t)(((p) - (m)->slots) / 2))
 void hv_ret_clear(HvCpu *cpu);
 int hv_ic_ivau_drops(void);
 /* Settings that say how to translate or wait, to compare ways of doing it in one running guest

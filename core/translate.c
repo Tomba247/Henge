@@ -437,8 +437,9 @@ static void put_branch_exit(Emit *e, uint64_t target, int plain) {
         }
         return;
     }
-    uint64_t *slot = &e->m->slots[slot_index];
+    uint64_t *slot = HV_SLOT(e->m, slot_index);
     *slot = 0;
+    slot[1] = target; /* hv_chain_thunk reads it there, so the stub holds only the slot's address */
     e->m->slot_site[slot_index] = 0; /* until placed: what it held is a dropped block's */
     e->m->slot_stub[slot_index] = 0;
     e->m->slot_cond[slot_index] = 0;
@@ -488,12 +489,11 @@ static void put_branch_exit(Emit *e, uint64_t target, int plain) {
     if (check) link_here(e, to_exit, p0);
     put(e, STR_X(30, 28, HV_CPU_X(30)));
     put(e, LDR_X(15, 28, HV_CPU_CHAIN_THUNK));
-    if ((e->n & 1) == 0) put(e, 0xd503201f);                         /* nop: the data starts 8-byte aligned */
     put(e, BLR_X(15));
+    /* The slot's address after the BLR, where hv_chain_thunk finds it (an unaligned 8-byte load is fine there); the
+       target is in the slot. Was the slot and the target, 8-byte aligned: 5 words a stub instead of 7 to 8. */
     put(e, (uint32_t)(uintptr_t)slot);
     put(e, (uint32_t)((uintptr_t)slot >> 32));
-    put(e, (uint32_t)target);
-    put(e, (uint32_t)(target >> 32));
     if (xa) {
         link_here(e, to_miss, p0);
         if (use_xjump()) put_xjump(e, target, 0); /* exit_req was checked above if it had to be */
@@ -2383,7 +2383,7 @@ int hv_translate_place(HvMachine *m, HvBlock *b) {
             if (tb && tb->maker == b->maker) code = tb->code;
         }
         if (!code) continue;
-        m->slots[slot] = (uint64_t)(uintptr_t)code;
+        *HV_SLOT(m, slot) = (uint64_t)(uintptr_t)code;
         uint32_t at = e->site[k].at;
         int64_t off = code - ((e->site[k].cold ? cold : dst) + at);
         if (off >= -(1 << 25) && off < (1 << 25)) (e->site[k].cold ? e->cold : e->hot)[at] = 0x14000000u | (uint32_t)(off & 0x3ffffff);
@@ -2414,7 +2414,7 @@ void hv_translate_discard_slots(HvMachine *m) {
     Emit *e = &E;
     for (uint32_t k = 0; k < e->nsite; k++) {
         uint32_t idx = e->site[k].slot;
-        m->slots[idx] = 0;
+        *HV_SLOT(m, idx) = 0;
         m->slot_site[idx] = 0;
         m->slot_stub[idx] = 0;
         m->slot_cond[idx] = 0;
@@ -2441,8 +2441,8 @@ int hv_translate_commit_slots(HvMachine *m) {
     for (uint32_t k = 0; k < e->nsite; k++) {
         uint32_t idx = e->site[k].slot;
         m->seg_slots[seg][m->seg_slots_len[seg]++] = idx;
-        if (m->slots[idx]) {
-            uint32_t tseg = hv_jit_seg_of(m, (const uint32_t *)(uintptr_t)m->slots[idx]);
+        if (*HV_SLOT(m, idx)) {
+            uint32_t tseg = hv_jit_seg_of(m, (const uint32_t *)(uintptr_t)*HV_SLOT(m, idx));
             hv_slot_tlist_insert(m, tseg, idx);
         }
     }
