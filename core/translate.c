@@ -320,11 +320,25 @@ static void put_xjump(Emit *e, uint64_t target, int check) {
         put_ijc_jump(e, 1);
         return;
     }
+    uint32_t data = (e->flags & 0x7fffffffu) | (check ? 1u << 31 : 0);
+    if (e->npool + 2 <= MAX_LITS && e->nfix < MAX_LITS) {
+        /* The site's 16 bytes go in the literal pool, with the cold code: the thunk only reads them
+           (flags at [x7], the target at [x7, #8]), so the hot part keeps just the three instructions. */
+        uint32_t info = e->npool;
+        e->pool[info] = data;
+        e->pool[info + 1] = target;
+        e->npool += 2;
+        e->fix[e->nfix++] = (LitFix){e->n, FIX_ADR, info, (uint8_t)(e->in_cold && !e->flat)};
+        put(e, 0x10000007u);             /* adr x7, data */
+        put(e, LDR_X(15, 28, HV_CPU_XJUMP_THUNK));
+        put(e, BR_X(15));
+        return;
+    }
     if (!(e->n & 1)) put(e, 0xd503201f); /* nop: the data after the br starts 8-byte aligned */
     put(e, 0x10000007u | 3u << 5);       /* adr x7, data */
     put(e, LDR_X(15, 28, HV_CPU_XJUMP_THUNK));
     put(e, BR_X(15));
-    put(e, (e->flags & 0x7fffffffu) | (check ? 1u << 31 : 0));
+    put(e, data);
     put(e, 0);
     put(e, (uint32_t)target);
     put(e, (uint32_t)(target >> 32));
