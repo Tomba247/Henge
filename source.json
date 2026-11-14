@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.48",
+          "date": "2026-11-14T22:04:53Z",
+          "localizedDescription": "[henge-perf] ios: drop the RemotePairingChoice.swift entry #176's project.yml brought in",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-48/Henge.ipa",
+          "size": 9749086,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.45",
           "date": "2026-11-14T21:43:32Z",
           "localizedDescription": "[henge-perf] Merge remote-tracking branch 'origin/perf-night' into merge-test",
