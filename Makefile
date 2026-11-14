@@ -90,6 +90,10 @@ $(B)/test_operands: tests/test_operands.c tests/operand_cases.s $(B)/operands.o
 $(B)/test_mmu: tests/test_mmu.c $(ENGINE)
 	$(CC) $(CFLAGS) tests/test_mmu.c $(ENGINE) -o $@
 
+# Translated-code density on real arm64 binaries (nothing runs): build/density <mach-o>...
+$(B)/density: tests/density.c $(ENGINE)
+	$(CC) $(CFLAGS) tests/density.c $(ENGINE) -o $@
+
 $(B)/test_shutdown: tests/test_shutdown.c $(ENGINE)
 	$(CC) $(CFLAGS) $^ -o $@
 
