@@ -243,5 +243,28 @@ PROGRAM p_smc_nomaint
 5:
 END p_smc_nomaint
 
+// TTBR0_EL1 read back after a write, CONTEXTIDR_EL1 both ways (also through the stolen x18 and XZR),
+// DCZID_EL0: the registers translated MRS / MSR reach in the HvCpu beyond one load's reach.
+PROGRAM p_farregs
+    SETUP
+    movz x1, #0x1234, lsl #16
+    movk x1, #5, lsl #48
+    msr ttbr0_el1, x1
+    mrs x2, ttbr0_el1
+    mov x3, #0x77
+    msr contextidr_el1, x3
+    mrs x4, contextidr_el1
+    mov x18, #0x99
+    msr contextidr_el1, x18
+    mov x18, #0
+    mrs x18, contextidr_el1
+    mov x5, x18
+    mrs x6, dczid_el0
+    msr contextidr_el1, xzr
+    mrs x7, contextidr_el1
+    mov x8, #0x2a
+    msr contextidr_el1, x8
+END p_farregs
+
     .p2align 14
 _exc_programs_finish:

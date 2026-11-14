@@ -13,6 +13,7 @@ DECLARE_PROGRAM(p_fptrap);
 DECLARE_PROGRAM(p_psci);
 DECLARE_PROGRAM(p_smc);
 DECLARE_PROGRAM(p_smc_nomaint);
+DECLARE_PROGRAM(p_farregs);
 extern const char exc_programs_begin[], exc_programs_finish[];
 
 #define ACK_PA 0x20000000ull
@@ -152,6 +153,17 @@ int main(void) {
     if (!run(&ps, &c, 0)) {
         check("psci", "PSCI_VERSION", c.x[3], 0x10000);
         check("psci", "PSCI_FEATURES(CPU_ON)", c.x[2], 0);
+    }
+
+    static const TestProgram fr = TEST_PROGRAM(p_farregs);
+    if (!run(&fr, &c, 0)) {
+        check("farregs", "TTBR0_EL1 read back", c.x[2], 0x0005000012340000ull);
+        check("farregs", "TTBR0_EL1 in the HvCpu", c.ttbr0_el1, 0x0005000012340000ull);
+        check("farregs", "CONTEXTIDR_EL1", c.x[4], 0x77);
+        check("farregs", "CONTEXTIDR_EL1 through x18", c.x[5], 0x99);
+        check("farregs", "DCZID_EL0", c.x[6], 4);
+        check("farregs", "CONTEXTIDR_EL1 from XZR", c.x[7], 0);
+        check("farregs", "CONTEXTIDR_EL1 in the HvCpu", c.contextidr_el1, 0x2a);
     }
 
     /* Self-modifying code runs from a writable copy. */

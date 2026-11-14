@@ -14,12 +14,14 @@ DECLARE_PROGRAM(long_block);
 DECLARE_PROGRAM(pstate_bits);
 DECLARE_PROGRAM(pac);
 DECLARE_PROGRAM(hop);
+DECLARE_PROGRAM(xpage);
 extern const char jit_programs_begin[], jit_programs_finish[];
 
 static const TestProgram programs[] = {
     TEST_PROGRAM(arith),   TEST_PROGRAM(loop),   TEST_PROGRAM(condbr),
     TEST_PROGRAM(csel_ops), TEST_PROGRAM(bl_sub), TEST_PROGRAM(simd_fp),
     TEST_PROGRAM(stolen),  TEST_PROGRAM(pcrel),  TEST_PROGRAM(long_block), TEST_PROGRAM(pstate_bits), TEST_PROGRAM(hop),
+    TEST_PROGRAM(xpage),
 };
 
 int main(void) {
@@ -63,7 +65,8 @@ int main(void) {
         seed_cpu(&init, 99, sp);
         for (int r = 0; r < 31; r++) init.x[r] = r & 1 ? 0xfffffe0007123450ull + r * 8 : 0x100004000ull + r * 8;
         int bad = run_jit(&m, &pac_prog, &init, &jit, NULL);
-        HvCpu want = init;
+        static HvCpu want; /* 4.8 MB: not on the stack */
+        want = init;
         want.x[4] = 0;
         want.x[9] = init.x[30];  /* RETAB came back here, so x30 was restored */
         want.x[10] = init.x[30];
