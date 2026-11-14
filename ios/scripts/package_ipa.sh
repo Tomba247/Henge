@@ -20,6 +20,9 @@ xcodebuild -project Henge.xcodeproj -scheme Henge -configuration Release -sdk ip
     -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > "$DD.buildlog" 2>&1 || {
     # Never package what an older build left behind.
     grep -E "error:|BUILD" "$DD.buildlog" | sort -u
+    # Where each error came from: the compile step and include chain before it.
+    echo "==> context of the first errors:" >&2
+    grep -n -B 30 -m 3 "error:" "$DD.buildlog" | grep -E "CompileC|CompileSwift|SwiftCompile|EmitSwiftModule|In file included|error:|\.(m|mm|c|swift|h):[0-9]+" | cut -c1-400 >&2
     echo "==> the build failed; nothing packaged" >&2
     exit 1
 }
