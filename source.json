@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.51",
+          "date": "2026-11-15T01:45:09Z",
+          "localizedDescription": "[league-el0] Experiment: an 8192-entry software TLB (HV_TLB_BITS=13), half the cache footprint",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-51/Henge.ipa",
+          "size": 9750201,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.50",
           "date": "2026-11-14T22:48:33Z",
           "localizedDescription": "[henge-perf] Shared folder: henge.log and henge-prev.log linked into it when a Mac starts",
