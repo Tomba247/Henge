@@ -1,7 +1,7 @@
 # Light build: one clang call per file, no parallel jobs needed.
 CC = clang
 # ENGINE_DEFS: build-time engine settings for experiments, such as ENGINE_DEFS=-DHV_TLB_BITS=12 (core/cpu.h).
-ENGINE_DEFS ?=
+ENGINE_DEFS ?= -DHV_TLB_BITS=13
 CFLAGS = -std=c11 -Wall -Wextra -O3 -g -Icore -Ihost -Idevices $(ENGINE_DEFS)
 B = build
 
