@@ -174,7 +174,8 @@ struct SessionView: View {
                 // own channel (a Logitech mouse). Give that channel time to open before saying so.
                 guard !Device.isPad else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                    guard !UIAccessibility.isAssistiveTouchRunning, !HardwareMouse.shared.hasVendorChannel else { return }
+                    // Not UIAccessibility.isAssistiveTouchRunning (false on iOS 27 with it on): a mouse that has moved is through.
+                    guard !AbsolutePointer.deltaSeen, !UIAccessibility.isAssistiveTouchRunning, !HardwareMouse.shared.hasVendorChannel else { return }
                     mouseNeedsAssistiveTouch = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 6) { mouseNeedsAssistiveTouch = false }
                 }

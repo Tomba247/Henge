@@ -377,6 +377,7 @@ final class HardwareMouse {
     /// While iPadOS won't lock the pointer, the Mac's pointer follows the iPad's (AbsolutePointer) instead.
     private func moved(_ dx: Float, _ dy: Float) {
         AbsolutePointer.mouseUsed(button: false)
+        if AbsolutePointer.phoneMouse { AbsolutePointer.phoneMoved(dx * speed, -dy * speed); return }
         guard !AbsolutePointer.inUse else { return }
         restX += dx * speed
         restY -= dy * speed
@@ -461,7 +462,9 @@ enum AbsolutePointer {
     /// clicks are kept from the trackpad (Trackpad.Surface). Settings > Trackpad turns it off ("henge.mouse.followAT").
     static let followKey = "henge.mouse.followAT"
     static var phoneMouse: Bool {
-        guard !Device.isPad, screen != nil, UIAccessibility.isAssistiveTouchRunning, HardwareMouse.shared.hasMouse,
+        // Not UIAccessibility.isAssistiveTouchRunning: on iOS 27 it says false with AssistiveTouch on. On iPhone, a mouse
+        // that moves at all is coming through AssistiveTouch.
+        guard !Device.isPad, screen != nil, deltaSeen, HardwareMouse.shared.hasMouse,
               !HardwareMouse.shared.hasVendorChannel else { return false }
         return UserDefaults.standard.object(forKey: followKey) as? Bool ?? true
     }
@@ -473,7 +476,43 @@ enum AbsolutePointer {
 
     /// The Mac's own pointer is hidden while an iPhone mouse is in use, and shown again when a finger takes over.
     private static var cursorHidden = false
+    /// The mouse has moved at least once (an iPhone only gets a mouse's motion through AssistiveTouch).
+    static var deltaSeen = false
+
+    /// Where AssistiveTouch's pointer is reckoned to be, in the window's points (Madeira's way: the mouse's own motion,
+    /// one to one, with no acceleration added, so the Mac's pointer keeps pace with AssistiveTouch's). Clamped to the
+    /// phone's screen as AssistiveTouch's pointer is, so the two meet again at the edges. A hover or a tap from
+    /// AssistiveTouch, when iOS sends one, says exactly where it is.
+    static var reckoned: CGPoint?
+    private static var phoneMovesLogged = 0
+    private static var rawX: Float = 0, rawY: Float = 0
+    static func phoneMoved(_ dx: Float, _ dy: Float) {
+        guard let screen else { return }
+        let bounds = UIScreen.main.bounds
+        var p = reckoned ?? CGPoint(x: screen.midX, y: screen.midY)
+        p.x = min(max(p.x + CGFloat(dx), bounds.minX), bounds.maxX - 1)
+        p.y = min(max(p.y + CGFloat(dy), bounds.minY), bounds.maxY - 1)
+        reckoned = p
+        rawX += abs(dx); rawY += abs(dy)
+        if phoneMovesLogged < 6 || (phoneMovesLogged < 40 && phoneMovesLogged % 8 == 0) {
+            HengeLog.log("input", "iPhone mouse: moved \(dx), \(dy) -> \(Int(p.x)),\(Int(p.y)) (travel so far \(Int(rawX)) x \(Int(rawY)))")
+        }
+        phoneMovesLogged += 1
+        place(p, screen)
+    }
+
+    /// The Mac's pointer at p, clamped into the Mac's screen.
+    private static func place(_ p: CGPoint, _ screen: CGRect) {
+        guard screen.width > 0, screen.height > 0 else { return }
+        let x = min(max((p.x - screen.minX) / screen.width, 0), 1), y = min(max((p.y - screen.minY) / screen.height, 0), 1)
+        henge_vm_pointer_at(Double(x), Double(y))
+    }
+
     static func mouseUsed(button: Bool) {
+        if !button && !deltaSeen && !Device.isPad {
+            deltaSeen = true
+            HengeLog.log("input", "iPhone mouse: moving (through AssistiveTouch)")
+        }
         let t = ProcessInfo.processInfo.systemUptime
         lastMouseActivity = t
         if button { lastMouseButton = t }
@@ -490,7 +529,18 @@ enum AbsolutePointer {
     }
 
     /// The iPad's pointer is at p: put the Mac's there too, if p is over the Mac's screen.
+    private static var syncsLogged = 0
     static func move(to p: CGPoint) {
+        if phoneMouse, let screen {
+            if syncsLogged < 12 {
+                syncsLogged += 1
+                let off = reckoned.map { " (reckoned \(Int($0.x)),\(Int($0.y)))" } ?? ""
+                HengeLog.log("input", "iPhone mouse: AssistiveTouch's pointer seen at \(Int(p.x)),\(Int(p.y))\(off)")
+            }
+            reckoned = p
+            place(p, screen)
+            return
+        }
         guard inUse, let screen, screen.width > 0, screen.height > 0, screen.contains(p) else { return }
         henge_vm_pointer_at(Double((p.x - screen.minX) / screen.width), Double((p.y - screen.minY) / screen.height))
     }
