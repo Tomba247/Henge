@@ -16,7 +16,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.superblocksKey) private var superblocks = false
     @AppStorage(EngineTuning.profileKey) private var profile = false
     @AppStorage(EngineTuning.syncWaitKey) private var syncWait = true
-    @AppStorage(EngineTuning.vblankKey) private var vblank = true
+    @AppStorage(EngineTuning.vblankKey) private var vblank = false
     @AppStorage(EngineTuning.windowKey) private var el0window = false
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB

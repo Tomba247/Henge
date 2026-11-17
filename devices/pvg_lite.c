@@ -729,7 +729,7 @@ static void vblank(HvPvgLite *p) {
         uint64_t r = hz && atoi(hz) > 0 ? (uint64_t)atoi(hz) : 60;
         period = 24000000ull / r; /* host counter ticks (24 MHz) */
     }
-    if (!on || !p->display_pa) return;
+    if (!p->display_pa) return;
     uint8_t *d = hv_phys_ptr(p->m, p->display_pa, 0x4000);
     if (!d) return;
     uint64_t now = mach_absolute_time();
@@ -747,7 +747,11 @@ static void vblank(HvPvgLite *p) {
         fprintf(stderr, "hengevm: pvg: refresh time written at %s%x of the display page\n", ts_off ? "+" : "(off) ", ts_off);
     }
     if (ts_off) __atomic_store_n((uint64_t *)(d + ts_off), now - p->m->cntvoff, __ATOMIC_RELEASE);
-    if (!(__atomic_load_n((uint32_t *)(d + 0x104), __ATOMIC_ACQUIRE) & 8)) return;
+    /* The event itself only with HV_PVG_VBLANK=1 (off since 2026-11-17): upstream #165 reads event bit 3 as the driver's
+       disconnect (handleHostInterrupt calls destroyDisplayAttributes for it), so raising it at the refresh rate would tear
+       the display state down 60 times a second. The time above is what WindowServer's timer needed, and it is written
+       either way. */
+    if (!on || !(__atomic_load_n((uint32_t *)(d + 0x104), __ATOMIC_ACQUIRE) & 8)) return;
     __atomic_fetch_or((uint32_t *)(d + 0x100), 8, __ATOMIC_RELEASE);
     p->vblanks++;
     /* In the log: the first one, then the count once a minute or so (it says whether the Mac is asking for them). */
