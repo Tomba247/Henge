@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.53",
+          "date": "2026-11-17T23:43:02Z",
+          "localizedDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's pointer goes where AssistiveTouch's is (USB absolute pointer, from hover and its taps), its copies of clicks are kept from the trackpad, and the Mac's own pointer is not drawn while the mouse is in use",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-53/Henge.ipa",
+          "size": 9766823,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.52",
           "date": "2026-11-17T23:36:08Z",
           "localizedDescription": "[league-el0] The refresh time at +68 is written without the refresh event; the event (HV_PVG_VBLANK) is off unless switched on",
@@ -156,11 +165,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.52",
-      "versionDate": "2026-11-17T23:36:08Z",
-      "versionDescription": "[league-el0] The refresh time at +68 is written without the refresh event; the event (HV_PVG_VBLANK) is off unless switched on",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-52/Henge.ipa",
-      "size": 9749856,
+      "buildVersion": "101.53",
+      "versionDate": "2026-11-17T23:43:02Z",
+      "versionDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's pointer goes where AssistiveTouch's is (USB absolute pointer, from hover and its taps), its copies of clicks are kept from the trackpad, and the Mac's own pointer is not drawn while the mouse is in use",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-53/Henge.ipa",
+      "size": 9766823,
       "minOSVersion": "17.0"
     }
   ],
