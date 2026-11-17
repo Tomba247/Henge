@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.52",
+          "date": "2026-11-17T23:36:08Z",
+          "localizedDescription": "[league-el0] The refresh time at +68 is written without the refresh event; the event (HV_PVG_VBLANK) is off unless switched on",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-52/Henge.ipa",
+          "size": 9749856,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.51",
           "date": "2026-11-15T01:45:09Z",
           "localizedDescription": "[league-el0] Experiment: an 8192-entry software TLB (HV_TLB_BITS=13), half the cache footprint",
@@ -147,11 +156,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.51",
-      "versionDate": "2026-11-15T01:45:09Z",
-      "versionDescription": "[league-el0] Experiment: an 8192-entry software TLB (HV_TLB_BITS=13), half the cache footprint",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-51/Henge.ipa",
-      "size": 9750201,
+      "buildVersion": "101.52",
+      "versionDate": "2026-11-17T23:36:08Z",
+      "versionDescription": "[league-el0] The refresh time at +68 is written without the refresh event; the event (HV_PVG_VBLANK) is off unless switched on",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-52/Henge.ipa",
+      "size": 9749856,
       "minOSVersion": "17.0"
     }
   ],
