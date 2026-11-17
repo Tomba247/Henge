@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.54",
+          "date": "2026-11-17T23:59:44Z",
+          "localizedDescription": "[league-el0] iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-54/Henge.ipa",
+          "size": 9767531,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.53",
           "date": "2026-11-17T23:43:02Z",
           "localizedDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's pointer goes where AssistiveTouch's is (USB absolute pointer, from hover and its taps), its copies of clicks are kept from the trackpad, and the Mac's own pointer is not drawn while the mouse is in use",
