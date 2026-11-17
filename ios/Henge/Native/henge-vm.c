@@ -426,6 +426,10 @@ void henge_vm_touch_button(int down) {
     hv_vm_touch_button(down);
     pthread_rwlock_unlock(&api_lock);
 }
+extern int hv_pvg_cursor_hidden;
+void henge_vm_hide_cursor(int hidden) {
+    __atomic_store_n(&hv_pvg_cursor_hidden, hidden ? 1 : 0, __ATOMIC_RELEASE);
+}
 void henge_vm_pointer_at(double x, double y) {
     if (!lock_running()) return;
     hv_vm_pointer_at(x, y);

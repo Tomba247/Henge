@@ -322,7 +322,11 @@ final class HardwareMouse {
         }
     }
 
+    /// Whether GameController has a mouse attached now.
+    var hasMouse: Bool { !mice.isEmpty }
+
     private func gcButton(_ physicalButton: Int32, _ pressed: Bool) {
+        AbsolutePointer.mouseUsed(button: true)
         // A release still goes through, so nothing pressed before a vendor channel opened stays down.
         guard vendorChannels.isEmpty || !pressed else { return }
         button(physicalButton, pressed)
@@ -372,6 +376,7 @@ final class HardwareMouse {
     /// GameController's Y runs upward. What doesn't make a whole step yet waits for the next move.
     /// While iPadOS won't lock the pointer, the Mac's pointer follows the iPad's (AbsolutePointer) instead.
     private func moved(_ dx: Float, _ dy: Float) {
+        AbsolutePointer.mouseUsed(button: false)
         guard !AbsolutePointer.inUse else { return }
         restX += dx * speed
         restY -= dy * speed
@@ -439,12 +444,49 @@ enum AbsolutePointer {
     private static var lastInUse: Bool?
 
     static var inUse: Bool {
-        let now = Device.isPad && screen != nil && !PointerLock.isLocked
+        let pad = Device.isPad && screen != nil && !PointerLock.isLocked
+        let now = pad || phoneMouse
         if now != lastInUse {
             lastInUse = now
-            HengeLog.log("input", "absolute pointer: \(now ? "on (the pointer isn't locked)" : "off")")
+            HengeLog.log("input", "absolute pointer: \(now ? (pad ? "on (the pointer isn't locked)" : "on (iPhone mouse through AssistiveTouch)") : "off")")
         }
         return now
+    }
+
+    /// iPhone (Madeira's way, written anew for Henge): a mouse reaches an iPhone app only through AssistiveTouch, whose
+    /// own pointer the app can neither hide nor lock. So that one is the pointer: the Mac's goes exactly where it is
+    /// (this absolute pointer, from hover and from the taps AssistiveTouch turns each click into) instead of moving by the
+    /// mouse's raw motion, which drifted apart from it; and the Mac's own pointer is not drawn while the mouse is in use,
+    /// so only one pointer shows. Clicks and scrolling still come from GameController; AssistiveTouch's copies of the
+    /// clicks are kept from the trackpad (Trackpad.Surface). Settings > Trackpad turns it off ("henge.mouse.followAT").
+    static let followKey = "henge.mouse.followAT"
+    static var phoneMouse: Bool {
+        guard !Device.isPad, screen != nil, UIAccessibility.isAssistiveTouchRunning, HardwareMouse.shared.hasMouse,
+              !HardwareMouse.shared.hasVendorChannel else { return false }
+        return UserDefaults.standard.object(forKey: followKey) as? Bool ?? true
+    }
+
+    /// The mouse moved or clicked just now (seconds, the touch clock): AssistiveTouch's taps around then are its copies.
+    static var lastMouseActivity: TimeInterval = 0
+    static var lastMouseButton: TimeInterval = 0
+    static var mouseRecentlyUsed: Bool { phoneMouse && ProcessInfo.processInfo.systemUptime - lastMouseActivity < 3 }
+
+    /// The Mac's own pointer is hidden while an iPhone mouse is in use, and shown again when a finger takes over.
+    private static var cursorHidden = false
+    static func mouseUsed(button: Bool) {
+        let t = ProcessInfo.processInfo.systemUptime
+        lastMouseActivity = t
+        if button { lastMouseButton = t }
+        if phoneMouse && !cursorHidden {
+            cursorHidden = true
+            henge_vm_hide_cursor(1)
+            HengeLog.log("input", "iPhone mouse: the Mac's pointer follows AssistiveTouch's, and is not drawn")
+        }
+    }
+    static func fingerUsed() {
+        guard cursorHidden else { return }
+        cursorHidden = false
+        henge_vm_hide_cursor(0)
     }
 
     /// The iPad's pointer is at p: put the Mac's there too, if p is over the Mac's screen.

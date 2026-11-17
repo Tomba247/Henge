@@ -96,9 +96,31 @@ struct Trackpad: UIViewRepresentable {
            and scroll inertia goes wild on release. */
         private static func ms(_ t: TimeInterval) -> UInt32 { UInt32(truncatingIfNeeded: Int(t * 1000)) }
 
+        /// AssistiveTouch's copies of the mouse's clicks: a tap at its pointer, with no contact patch, within a few
+        /// milliseconds of GameController's button change (Madeira's classifier). They place the Mac's pointer and are
+        /// otherwise left out, so a click is not made twice or read as a finger on the trackpad.
+        private var mouseTaps = Set<UITouch>()
+        private var mouseTapsLogged = 0
+
+        private func isMouseTap(_ t: UITouch) -> Bool {
+            guard AbsolutePointer.mouseRecentlyUsed else { return false }
+            let sinceButton = abs(t.timestamp - AbsolutePointer.lastMouseButton)
+            return t.majorRadius < 1 || sinceButton < 0.08
+        }
+
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-            let touches = touches.filter { $0.type != .indirectPointer }
+            var touches = touches.filter { $0.type != .indirectPointer }
+            for t in touches where isMouseTap(t) {
+                mouseTaps.insert(t)
+                AbsolutePointer.move(to: t.location(in: nil))
+                if mouseTapsLogged < 12 {
+                    mouseTapsLogged += 1
+                    HengeLog.log("input", "iPhone mouse: AssistiveTouch's tap (radius \(Int(t.majorRadius)), \(Int(abs(t.timestamp - AbsolutePointer.lastMouseButton) * 1000)) ms from the button) places the pointer")
+                }
+            }
+            touches.subtract(mouseTaps)
             guard !touches.isEmpty else { return }
+            AbsolutePointer.fingerUsed()
             if fingers.isEmpty {
                 started = Date()
                 travelled = 0
@@ -134,7 +156,9 @@ struct Trackpad: UIViewRepresentable {
             let ts = Self.ms(event?.timestamp ?? touches.first?.timestamp ?? 0)
             /* A drag with the iPad's own pointer, while it isn't locked: the Mac's pointer follows it. */
             if let t = touches.first(where: { $0.type == .indirectPointer }) { AbsolutePointer.move(to: t.location(in: nil)) }
-            for t in touches where t.type != .indirectPointer {
+            /* A drag with the iPhone's mouse (AssistiveTouch's tap held): the Mac's pointer follows it. */
+            if let t = touches.first(where: { mouseTaps.contains($0) }) { AbsolutePointer.move(to: t.location(in: nil)) }
+            for t in touches where t.type != .indirectPointer && !mouseTaps.contains(t) {
                 guard let i = fingers.firstIndex(where: { $0.touch == t }) else { continue }
                 let now = t.location(in: self), before = t.previousLocation(in: self)
                 travelled += abs(now.x - before.x) + abs(now.y - before.y)
@@ -157,6 +181,7 @@ struct Trackpad: UIViewRepresentable {
         override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { lift(touches) }
 
         private func lift(_ touches: Set<UITouch>) {
+            mouseTaps.subtract(touches)
             var lifted: [Int32] = []
             fingers.removeAll { finger in
                 guard touches.contains(finger.touch), finger.touch.type != .indirectPointer else { return false }

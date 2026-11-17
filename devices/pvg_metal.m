@@ -18,6 +18,9 @@
 #include <sys/utsname.h>
 #include <sys/sysctl.h>
 
+/* 1: the Mac's pointer is not drawn (henge_vm_hide_cursor: an iPhone mouse through AssistiveTouch, whose pointer shows). */
+int hv_pvg_cursor_hidden;
+
 /* 1080p shrunk onto a phone would make a normal pointer a few dots across; an iPad's screen needs less. */
 static int cursor_scale(void) {
 #if TARGET_OS_IPHONE
@@ -2728,7 +2731,7 @@ static const uint8_t *half_to_byte(void) {
     for (int y = drawn_y; y < drawn_y + drawn_h; y++) memcpy(frame + (size_t)y * w * 4 + (size_t)drawn_x * 4, base + (size_t)y * w * 4 + (size_t)drawn_x * 4, (size_t)drawn_w * 4);
     drawn_w = drawn_h = 0;
     const uint8_t *page = hv_pvg_lite_display_page(lite);
-    if (!page || !cursor || !(cursor_shown || page[0xe04])) return;
+    if (!page || !cursor || !(cursor_shown || page[0xe04]) || __atomic_load_n(&hv_pvg_cursor_hidden, __ATOMIC_ACQUIRE)) return;
     uint32_t where = __atomic_load_n((const uint32_t *)(page + 0xe00), __ATOMIC_ACQUIRE);
     if (getenv("HV_PVG_CURSOR_LOG")) {
         static uint32_t last;
@@ -2985,7 +2988,7 @@ static NSString *const screen_shaders = @"#include <metal_stdlib>\n"
         [e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
         const uint8_t *page = hv_pvg_lite_display_page(lite);
         uint32_t where = page ? __atomic_load_n((const uint32_t *)(page + 0xe00), __ATOMIC_ACQUIRE) : 0xffffffff;
-        if (ctex && where != 0xffffffff && (shown || page[0xe04])) {
+        if (ctex && where != 0xffffffff && (shown || page[0xe04]) && !__atomic_load_n(&hv_pvg_cursor_hidden, __ATOMIC_ACQUIRE)) {
             const float scale = cursor_scale();
             float x = (float)(where & 0xffff) - hx * scale, y = (float)(where >> 16) - hy * scale;
             float cw = cw0 * scale, ch = ch0 * scale;
