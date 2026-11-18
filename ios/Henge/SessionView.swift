@@ -606,7 +606,12 @@ struct SessionView: View {
         }
         HengeLog.log("session", "screen \(mac.screen.width)x\(mac.screen.height) retina \(mac.isRetina)")
         var rc: Int32 = -1
-        if InstantResume.enabled, let at = InstantResume.saved(for: mac, ramMB: ram, cpus: cpus) {
+        if mac.isLinux {
+            /* The Linux machine (docs/linux-machine.md): its kernel boots the root file system on its disk. No instant resume. */
+            let initrd = FileManager.default.fileExists(atPath: mac.initrd.path) ? mac.initrd.path : ""
+            rc = henge_vm_boot_linux(mac.kernel.path, initrd, mac.cmdline ?? "", mac.disk.path, ram, Int32(cpus),
+                                     UInt32(mac.screen.width), UInt32(mac.screen.height), &buffer, buffer.count)
+        } else if InstantResume.enabled, let at = InstantResume.saved(for: mac, ramMB: ram, cpus: cpus) {
             HengeLog.log("resume", "picking up the Mac saved \(Int(Date().timeIntervalSince(at))) s ago")
             let t0 = Date()
             rc = henge_vm_resume(mac.rom.path, mac.disk.path, mac.aux.path, mac.ecid, mac.seed, ram, Int32(cpus),
@@ -619,7 +624,7 @@ struct SessionView: View {
             }
         }
         InstantResume.discard(for: mac) /* used or out of date: the disk moves on from here */
-        if rc != 0 {
+        if rc != 0 && !mac.isLinux {
             rc = henge_vm_boot(mac.rom.path, mac.disk.path, mac.aux.path, mac.ecid, mac.seed, ram, Int32(cpus), &buffer, buffer.count)
         }
         if rc != 0 {

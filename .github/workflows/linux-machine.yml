@@ -1,0 +1,96 @@
+# .github/workflows/linux-machine.yml
+#
+# The Linux machine (docs/linux-machine.md), built and tried on a GitHub-hosted
+# arm64 Linux runner, where HengeVM's engine runs natively (no phone, no Mac):
+#
+# 1. builds tools/hengelinux, the engine with the Linux machine, for arm64 Linux;
+# 2. makes an Ubuntu machine with tools/linux/make-ubuntu-disk.sh (optionally
+#    with the Xfce desktop: the runner runs the image's arm64 apt itself);
+# 3. boots it on the engine with henge.autotest on the kernel's command line:
+#    the image reports what came up on the serial console and powers off;
+# 4. uploads the machine folder (Image, disk.img.hvsparse, machine.json) for
+#    the app to import, and the boot log.
+#
+# Manual only (Actions tab > Linux machine > Run workflow). Free on a public
+# repo: arm64 runners are standard runners there.
+
+name: Linux machine
+
+on:
+  workflow_dispatch:
+    inputs:
+      desktop:
+        description: "Install the Xfce desktop"
+        type: boolean
+        default: true
+      size:
+        description: "Disk size"
+        type: string
+        default: "24G"
+      cpus:
+        description: "CPUs for the boot test"
+        type: string
+        default: "4"
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential e2fsprogs kmod zstd xz-utils curl
+
+      - name: Build the engine with the Linux machine (native arm64)
+        run: make linux-test LXCC=gcc
+
+      - name: Make the Ubuntu machine
+        run: |
+          set -euo pipefail
+          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size }}" ${{ inputs.desktop && '--desktop' || '' }}
+          sudo chown -R "$(id -u):$(id -g)" machine
+          ls -la machine
+          cat machine/machine.json
+
+      - name: Boot it on the engine
+        run: |
+          set -uo pipefail
+          # A copy, so the machine handed out has never been booted.
+          cp --sparse=always machine/disk.img boot-test.img
+          timeout 3600 build/linux/hengelinux --kernel machine/Image --disk boot-test.img \
+              --cpus "${{ inputs.cpus }}" --ram 4096 --fb 1280x800 \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
+              < /dev/null 2>&1 | tee boot.log
+          rm -f boot-test.img
+          sed -n '/henge-autotest: Ubuntu is up/,/henge-autotest: end/p' boot.log
+          grep -q "henge-autotest: Ubuntu is up" boot.log
+
+      - name: Pack the disk
+        if: always()
+        run: |
+          if [ -f machine/disk.img ]; then
+            cc -O2 -std=gnu11 -Ihost tools/hvsparse_main.c host/hvsparse.c -o hvsparse
+            ./hvsparse pack machine/disk.img machine/disk.img.hvsparse
+            rm machine/disk.img
+            du -sh machine/*
+          fi
+
+      - name: Upload the machine
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: henge-ubuntu-${{ inputs.desktop && 'xfce' || 'server' }}-${{ github.sha }}
+          path: machine/
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the boot log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-log-${{ github.sha }}
+          path: boot.log
+          if-no-files-found: ignore
