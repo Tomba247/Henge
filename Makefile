@@ -264,3 +264,29 @@ $(B)/test_jit_advice: ios/Henge/JIT/JITNetworkAdvice.swift tests/test_jit_advice
 test-jit-advice: $(B)/test_jit_advice
 	$(B)/test_jit_advice
 .PHONY: test-jit-advice
+
+# Linux machine (devices/linuxvirt.c) test tool, built for an arm64 Linux host:
+# natively there, or on an x86 host with a cross compiler, run under qemu-aarch64:
+#   make linux-test   (LXCC=aarch64-linux-gnu-gcc by default)
+#   qemu-aarch64 -cpu max build/linux/hengelinux --kernel Image --initrd initrd.gz
+# host/linux/ stands in for the few Mach and Apple headers the engine includes.
+LXCC ?= aarch64-linux-gnu-gcc
+LXB = $(B)/linux
+LXFLAGS = -std=gnu11 -O2 -g -Wall -Wno-unused-parameter -Ihost/linux -include host/linux/compat.h -Icore -Ihost -Idevices
+LX_SRC = core/classify.c core/operands.c core/translate.c core/dispatch.c core/mmu.c core/memop.c core/exception.c \
+         core/sysreg.c core/machine.c host/jit_region.c host/disk.c host/linux/ulock.c devices/gicv3.c devices/timer.c \
+         devices/pl011.c devices/pl031.c devices/pcie.c devices/virtio.c devices/virtio_blk.c devices/virtio_net.c \
+         devices/virtio_input.c devices/fdt.c devices/linuxvirt.c tools/hengelinux.c
+LX_OBJ = $(patsubst %.c,$(LXB)/%.o,$(LX_SRC)) $(LXB)/enter.o
+$(LXB)/%.o: %.c core/*.h host/*.h devices/*.h host/linux/*.h host/linux/*/*.h
+	@mkdir -p $(dir $@)
+	$(LXCC) $(LXFLAGS) -c $< -o $@
+# enter.S names its symbols the Mach-O way (_hv_enter); ELF has no leading underscore.
+$(LXB)/enter.o: host/enter.S
+	@mkdir -p $(LXB)
+	sed 's/\b_hv_/hv_/g' $< > $(LXB)/enter.S
+	$(LXCC) -c $(LXB)/enter.S -o $@
+$(LXB)/hengelinux: $(LX_OBJ)
+	$(LXCC) -static -o $@ $(LX_OBJ) -lpthread -latomic
+linux-test: $(LXB)/hengelinux
+.PHONY: linux-test
