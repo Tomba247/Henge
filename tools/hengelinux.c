@@ -170,6 +170,18 @@ int main(int argc, char **argv) {
     for (int i = 1; i < board.ncpus; i++) pthread_join(sec[i], NULL);
     pthread_join(kick, NULL);
     restore_tty();
+    const char *dump = getenv("HV_FB_DUMP"); /* the framebuffer as it was at the end, as a PPM image */
+    FILE *pf = dump && board.fb ? fopen(dump, "wb") : NULL;
+    if (pf) {
+        fprintf(pf, "P6\n%u %u\n255\n", board.fb_width, board.fb_height);
+        for (uint64_t i = 0; i < (uint64_t)board.fb_width * board.fb_height; i++) {
+            const uint8_t *px = board.fb + i * 4; /* a8r8g8b8: B, G, R, A in memory */
+            uint8_t rgb[3] = {px[2], px[1], px[0]};
+            fwrite(rgb, 1, 3, pf);
+        }
+        fclose(pf);
+        fprintf(stderr, "hengelinux: framebuffer written to %s\n", dump);
+    }
     fprintf(stderr, "\nhengelinux: stopped (reason %d) at pc %llx el%u\n", r, (unsigned long long)cpus[0].pc, cpus[0].el);
     return 0;
 }

@@ -108,6 +108,10 @@ static uint8_t *make_dtb(HvLinuxVirt *b, const HvLinuxVirtConfig *c, size_t *len
     hv_fdt_prop(&f, "rng-seed", seed, sizeof seed);
     hv_fdt_u64(&f, "kaslr-seed", (uint64_t)rand() << 32 ^ hv_counter());
     if (b->fb) {
+        /* /chosen is no bus: without ranges Linux cannot translate the framebuffer's reg to an address. */
+        hv_fdt_u32(&f, "#address-cells", 2);
+        hv_fdt_u32(&f, "#size-cells", 2);
+        hv_fdt_empty(&f, "ranges");
         char name[48];
         snprintf(name, sizeof name, "framebuffer@%llx", (unsigned long long)b->fb_pa);
         hv_fdt_begin(&f, name);
