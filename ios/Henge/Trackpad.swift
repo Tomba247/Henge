@@ -64,6 +64,13 @@ struct Trackpad: UIViewRepresentable {
             isMultipleTouchEnabled = true
             backgroundColor = .clear
             addInteraction(UIPointerInteraction(delegate: self))
+            // Where AssistiveTouch's pointer is, when iOS says (iPhone, with PhonePointer's drivers attached).
+            addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
+        }
+
+        @objc private func hovered(_ g: UIHoverGestureRecognizer) {
+            guard g.state == .began || g.state == .changed else { return }
+            AbsolutePointer.seen(g.location(in: nil), from: "hover")
         }
 
         /// Over the Mac there is only the Mac's pointer, if iPadOS hasn't locked its own away.
@@ -71,7 +78,10 @@ struct Trackpad: UIViewRepresentable {
 
         /// One region, the whole surface, so the hidden style never lapses back to the system pointer between regions.
         func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest,
-                                defaultRegion: UIPointerRegion) -> UIPointerRegion? { UIPointerRegion(rect: bounds) }
+                                defaultRegion: UIPointerRegion) -> UIPointerRegion? {
+            AbsolutePointer.seen(convert(request.location, to: nil), from: "pointer region")
+            return UIPointerRegion(rect: bounds)
+        }
 
         required init?(coder: NSCoder) { fatalError("made in code") }
 

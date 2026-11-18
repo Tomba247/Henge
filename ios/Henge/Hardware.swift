@@ -486,8 +486,23 @@ enum AbsolutePointer {
     static var reckoned: CGPoint?
     private static var phoneMovesLogged = 0
     private static var rawX: Float = 0, rawY: Float = 0
+    /// iOS told where AssistiveTouch's pointer is (hover, or a pointer-region request): that is followed exactly, and
+    /// the reckoning from the mouse's motion only fills in while iOS says nothing. Reckoning alone fell behind on fast
+    /// moves, where iOS accelerates its pointer and the raw motion doesn't.
+    private static var lastSeen: TimeInterval = 0
+    private static var seenCounts: [String: Int] = [:]
+    static func seen(_ p: CGPoint, from source: String) {
+        guard phoneMouse || inUse else { return }
+        lastSeen = ProcessInfo.processInfo.systemUptime
+        let n = (seenCounts[source] ?? 0) + 1
+        seenCounts[source] = n
+        if n == 1 || n == 100 || n == 1000 { HengeLog.log("input", "iPhone mouse: iOS says where the pointer is (\(source), \(n) times)") }
+        move(to: p)
+    }
+
     static func phoneMoved(_ dx: Float, _ dy: Float) {
         guard let screen else { return }
+        if ProcessInfo.processInfo.systemUptime - lastSeen < 0.25 { return } // iOS is saying where it is
         let bounds = UIScreen.main.bounds
         var p = reckoned ?? CGPoint(x: screen.midX, y: screen.midY)
         p.x = min(max(p.x + CGFloat(dx), bounds.minX), bounds.maxX - 1)
