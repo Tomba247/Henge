@@ -94,12 +94,14 @@ jobs:
           set -uo pipefail
           # A copy, so the machine handed out has never been booted.
           cp --sparse=always machine/disk.img boot-test.img
-          timeout 3600 build/linux/hengelinux --kernel machine/Image --disk boot-test.img \
+          HV_FB_DUMP=screen.ppm timeout 3600 build/linux/hengelinux --kernel machine/Image --disk boot-test.img \
               --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot.log
           rm -f boot-test.img
           sed -n '/henge-autotest: Ubuntu is up/,/henge-autotest: end/p' boot.log
+          # The screen as the machine left it, as a PNG (what the app would have shown).
+          [ -f screen.ppm ] && python3 tools/linux/ppm2png.py screen.ppm screen.png
           grep -q "henge-autotest: Ubuntu is up" boot.log
 
       - name: Pack the disk
@@ -121,10 +123,12 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      - name: Upload the boot log
+      - name: Upload the boot log and the screen
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: boot-log-${{ github.sha }}
-          path: boot.log
+          path: |
+            boot.log
+            screen.png
           if-no-files-found: ignore

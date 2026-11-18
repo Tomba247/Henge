@@ -137,7 +137,7 @@ After=multi-user.target
 Type=oneshot
 StandardOutput=tty
 TTYPath=/dev/ttyAMA0
-ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "modules:"; lsmod | grep -E "^(xhci_pci|usbhid|hid_magicmouse|virtio_input|virtio_snd|virtio_net)" ; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
+ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; if systemctl -q is-enabled lightdm 2>/dev/null; then for i in $(seq 1 120); do pgrep -x xfce4-panel >/dev/null && break; sleep 1; done; sleep 15; echo "desktop: $(pgrep -x xfce4-panel >/dev/null && echo "Xfce panel up after about $i s" || echo "no Xfce panel after 120 s")"; ps -eo comm= | grep -xE "Xorg|lightdm|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|pulseaudio" | sort | uniq | tr "\n" " "; echo; fi; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "input:"; grep -h "^N:" /proc/bus/input/devices; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
 ExecStartPost=/bin/systemctl poweroff
 
 [Install]
