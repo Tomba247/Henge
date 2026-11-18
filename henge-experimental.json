@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.60",
+          "date": "2026-11-18T00:54:49Z",
+          "localizedDescription": "[league-el0] iPhone mouse: keep AssistiveTouch's pointer shown (the trackpad's hidden pointer style reached it through PhonePointer's drivers, so it vanished unless the mouse moved fast); PhonePointer off in Madeira's way, as in Madeira",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-60/Henge.ipa",
+          "size": 9771380,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.58",
           "date": "2026-11-18T00:37:25Z",
           "localizedDescription": "[league-el0] iPhone mouse: Madeira's way by default, as Madeira does it on iPhone: only the mouse's own motion moves the Mac's pointer (no hover), and AssistiveTouch's copies of clicks are only dropped; a setting follows iOS's hover instead",
@@ -192,11 +201,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.58",
-      "versionDate": "2026-11-18T00:37:25Z",
-      "versionDescription": "[league-el0] iPhone mouse: Madeira's way by default, as Madeira does it on iPhone: only the mouse's own motion moves the Mac's pointer (no hover), and AssistiveTouch's copies of clicks are only dropped; a setting follows iOS's hover instead",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-58/Henge.ipa",
-      "size": 9769619,
+      "buildVersion": "101.60",
+      "versionDate": "2026-11-18T00:54:49Z",
+      "versionDescription": "[league-el0] iPhone mouse: keep AssistiveTouch's pointer shown (the trackpad's hidden pointer style reached it through PhonePointer's drivers, so it vanished unless the mouse moved fast); PhonePointer off in Madeira's way, as in Madeira",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-60/Henge.ipa",
+      "size": 9771380,
       "minOSVersion": "17.0"
     }
   ],
