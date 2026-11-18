@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.64",
+          "date": "2026-11-18T23:35:59Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine: input through virtio, USB off for now, desktop image on push",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-64/Henge.ipa",
+          "size": 9789817,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.63",
           "date": "2026-11-18T22:33:30Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Merge league-el0 into the Linux machine branch",
@@ -111,11 +120,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.63",
-      "versionDate": "2026-11-18T22:33:30Z",
-      "versionDescription": "[claude/linux-runner-crash-flumcd] Merge league-el0 into the Linux machine branch",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-63/Henge.ipa",
-      "size": 9787988,
+      "buildVersion": "101.64",
+      "versionDate": "2026-11-18T23:35:59Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] Linux machine: input through virtio, USB off for now, desktop image on push",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-64/Henge.ipa",
+      "size": 9789817,
       "minOSVersion": "17.0"
     }
   ],
