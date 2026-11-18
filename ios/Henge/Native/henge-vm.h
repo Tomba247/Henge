@@ -94,6 +94,8 @@ void henge_vm_touch_frame(uint32_t ts_ms); /* commit one frame with every finger
 void henge_vm_touch_button(int down); /* the pad's full press (a click) */
 /* Put the Mac's pointer at x, y, each 0..1 across its screen: for an iPad pointer iPadOS won't lock. */
 void henge_vm_pointer_at(double x, double y);
+/* Draw the Mac's pointer at x, y (0..1 across its screen) at once, instead of where the Mac has it; negative: the Mac's place. */
+void henge_vm_cursor_at(double x, double y);
 /* 1: the Mac's pointer is not drawn (an iPhone mouse through AssistiveTouch, whose own pointer shows instead). */
 void henge_vm_hide_cursor(int hidden);
 /* Where the guest has its pointer, in display pixels. 0, or -1 before it has one. */

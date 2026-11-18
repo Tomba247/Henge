@@ -167,6 +167,17 @@ void hv_pvg_lite_set_size_mm(uint32_t width_mm, uint32_t height_mm) {
     display_mm_h = height_mm;
 }
 
+/* Where the host has the pointer, in the display mode's pixels (x | y << 16), drawn there instead of where the guest
+   says; 0xffffffff: the guest's own place. An iPhone mouse through AssistiveTouch: the pointer is drawn at once where
+   the mouse is (as Madeira draws its own), while the guest's pointer, moved there through the USB tablet, follows
+   behind; drawn where the slow guest has it, it trailed and jumped on fast moves. */
+uint32_t hv_pvg_cursor_at = 0xffffffff;
+
+void hv_pvg_lite_cursor_redraw(HvPvgLite *p) {
+    HvPvgMetal *metal = p ? atomic_load_explicit(&p->metal, memory_order_acquire) : NULL;
+    if (metal) hv_pvg_metal_cursor_moved(metal);
+}
+
 void hv_pvg_lite_set_mode(uint32_t width, uint32_t height) {
     display_w = width;
     display_h = height;

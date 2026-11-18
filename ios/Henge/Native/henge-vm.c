@@ -430,6 +430,9 @@ extern int hv_pvg_cursor_hidden;
 void henge_vm_hide_cursor(int hidden) {
     __atomic_store_n(&hv_pvg_cursor_hidden, hidden ? 1 : 0, __ATOMIC_RELEASE);
 }
+void henge_vm_cursor_at(double x, double y) {
+    hv_vm_cursor_at(x, y); /* only a stored place and a redraw request: safe whether or not a Mac runs */
+}
 void henge_vm_pointer_at(double x, double y) {
     if (!lock_running()) return;
     hv_vm_pointer_at(x, y);

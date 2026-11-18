@@ -91,14 +91,14 @@ struct SettingsView: View {
                 }
                 if !Device.isPad {
                     Section("Mouse") {
-                        Toggle("One pointer (AssistiveTouch's)", isOn: $followAssistiveTouch)
-                        Toggle("Madeira's way (mouse motion only)", isOn: $madeiraMouse)
+                        Toggle("One pointer that follows the mouse", isOn: $followAssistiveTouch)
+                        Toggle("Madeira's way (follow iOS's pointer)", isOn: $madeiraMouse)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Mouse speed")
                             Slider(value: $mouseSpeed, in: 0.5...3)
                         }
                         Toggle("Reverse scrolling", isOn: $reverseScrolling)
-                        Text("A mouse works through AssistiveTouch. With one pointer on, the Mac's own pointer is hidden and follows AssistiveTouch's; if it runs ahead or behind, change the mouse speed. Changes apply the next time a Mac starts.")
+                        Text("A mouse works through AssistiveTouch. With one pointer on, Henge draws the Mac's pointer right where the mouse is, as Madeira does, so it never trails behind. Changes apply the next time Henge starts.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     .listRowBackground(Desk.card)

@@ -775,6 +775,21 @@ void hv_vm_pointer_at(double x, double y) {
     hv_xhci_pointer(board.usb, (int)(x * HV_PTR_MAX + 0.5), (int)(y * HV_PTR_MAX + 0.5));
 }
 
+void hv_vm_cursor_at(double x, double y) {
+    uint32_t at = 0xffffffff;
+    uint32_t mw = 0, mh = 0;
+    hv_pvg_lite_mode(&mw, &mh);
+    if (x >= 0 && y >= 0 && mw && mh) {
+        if (x > 1) x = 1;
+        if (y > 1) y = 1;
+        uint32_t px = (uint32_t)(x * (mw - 1) + 0.5), py = (uint32_t)(y * (mh - 1) + 0.5);
+        at = (px & 0xffff) | (py & 0xffff) << 16;
+    }
+    __atomic_store_n(&hv_pvg_cursor_at, at, __ATOMIC_RELEASE);
+    HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
+    if (pvg) hv_pvg_lite_cursor_redraw(pvg);
+}
+
 int hv_vm_pointer(int *x, int *y) {
     HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
     const uint8_t *page = pvg ? hv_pvg_lite_display_page(pvg) : NULL;

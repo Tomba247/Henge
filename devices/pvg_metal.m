@@ -47,6 +47,13 @@ static int cursor_scale(void) {
 #include <string.h>
 
 #include "pvg_lite.h"
+
+/* Where to draw the pointer: the host's place for it when it has one (hv_pvg_cursor_at), else the guest's. */
+static inline uint32_t cursor_where(const uint8_t *page) {
+    uint32_t at = __atomic_load_n(&hv_pvg_cursor_at, __ATOMIC_ACQUIRE);
+    if (at != 0xffffffff) return at;
+    return page ? __atomic_load_n((const uint32_t *)(page + 0xe00), __ATOMIC_ACQUIRE) : 0xffffffff;
+}
 #include "metallib.h"
 
 #if !TARGET_OS_IPHONE
@@ -2732,7 +2739,7 @@ static const uint8_t *half_to_byte(void) {
     drawn_w = drawn_h = 0;
     const uint8_t *page = hv_pvg_lite_display_page(lite);
     if (!page || !cursor || !(cursor_shown || page[0xe04]) || __atomic_load_n(&hv_pvg_cursor_hidden, __ATOMIC_ACQUIRE)) return;
-    uint32_t where = __atomic_load_n((const uint32_t *)(page + 0xe00), __ATOMIC_ACQUIRE);
+    uint32_t where = cursor_where(page);
     if (getenv("HV_PVG_CURSOR_LOG")) {
         static uint32_t last;
         if (where != last) fprintf(stderr, "pvgcursor at %u,%u shown %d flag %d\n", where & 0xffff, where >> 16, cursor_shown, page[0xe04]);
@@ -2987,7 +2994,7 @@ static NSString *const screen_shaders = @"#include <metal_stdlib>\n"
         }
         [e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
         const uint8_t *page = hv_pvg_lite_display_page(lite);
-        uint32_t where = page ? __atomic_load_n((const uint32_t *)(page + 0xe00), __ATOMIC_ACQUIRE) : 0xffffffff;
+        uint32_t where = page ? cursor_where(page) : 0xffffffff;
         if (ctex && where != 0xffffffff && (shown || page[0xe04]) && !__atomic_load_n(&hv_pvg_cursor_hidden, __ATOMIC_ACQUIRE)) {
             const float scale = cursor_scale();
             float x = (float)(where & 0xffff) - hx * scale, y = (float)(where >> 16) - hy * scale;
