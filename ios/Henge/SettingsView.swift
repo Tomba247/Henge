@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(VolumeClicks.swapKey) private var swapButtons = false
     @AppStorage(PhysicalMouseButtons.swapKey) private var swapMouseButtons = false
     @AppStorage(AbsolutePointer.followKey) private var followAssistiveTouch = true
+    @AppStorage(AbsolutePointer.madeiraKey) private var madeiraMouse = true
     @AppStorage(EngineTuning.refreshKey) private var refreshRate = 60
     @AppStorage(EngineTuning.fastFlushKey) private var fastFlush = true
     @AppStorage(EngineTuning.wfiSpinKey) private var wfiSpin = false
@@ -82,6 +83,7 @@ struct SettingsView: View {
                         }
                         Toggle("Swap physical right and middle buttons", isOn: $swapMouseButtons)
                         Toggle("iPhone mouse: one pointer (AssistiveTouch's)", isOn: $followAssistiveTouch)
+                        Toggle("iPhone mouse: Madeira's way (mouse motion only)", isOn: $madeiraMouse)
                         Text("Only enable this if your physical mouse's right and middle buttons are reversed in the Mac. Touch controls stay unchanged. Restart the Mac session to apply.")
                             .font(.footnote).foregroundStyle(.secondary)
                         Text("A Magic Keyboard or a Bluetooth mouse moves the Mac's pointer. Pointer speed changes apply the next time a Mac starts; scroll speed changes apply immediately.")

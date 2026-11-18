@@ -491,7 +491,13 @@ enum AbsolutePointer {
     /// moves, where iOS accelerates its pointer and the raw motion doesn't.
     private static var lastSeen: TimeInterval = 0
     private static var seenCounts: [String: Int] = [:]
+    /// Madeira's way (the default): on iPhone only the mouse's own motion moves the Mac's pointer, as Madeira moves
+    /// Windows' cursor; where iOS says its pointer is (hover) is not used. Off: follow iOS's hover instead.
+    static let madeiraKey = "henge.mouse.madeira"
+    static var madeiraWay: Bool { UserDefaults.standard.object(forKey: madeiraKey) as? Bool ?? true }
+
     static func seen(_ p: CGPoint, from source: String) {
+        if phoneMouse && madeiraWay { return }
         guard phoneMouse || inUse else { return }
         lastSeen = ProcessInfo.processInfo.systemUptime
         let n = (seenCounts[source] ?? 0) + 1

@@ -122,7 +122,7 @@ struct Trackpad: UIViewRepresentable {
             var touches = touches.filter { $0.type != .indirectPointer }
             for t in touches where isMouseTap(t) {
                 mouseTaps.insert(t)
-                AbsolutePointer.move(to: t.location(in: nil))
+                if !AbsolutePointer.madeiraWay { AbsolutePointer.move(to: t.location(in: nil)) } // Madeira only drops them
                 if mouseTapsLogged < 12 {
                     mouseTapsLogged += 1
                     HengeLog.log("input", "iPhone mouse: AssistiveTouch's tap (radius \(Int(t.majorRadius)), \(Int(abs(t.timestamp - AbsolutePointer.lastMouseButton) * 1000)) ms from the button) places the pointer")
@@ -167,7 +167,7 @@ struct Trackpad: UIViewRepresentable {
             /* A drag with the iPad's own pointer, while it isn't locked: the Mac's pointer follows it. */
             if let t = touches.first(where: { $0.type == .indirectPointer }) { AbsolutePointer.move(to: t.location(in: nil)) }
             /* A drag with the iPhone's mouse (AssistiveTouch's tap held): the Mac's pointer follows it. */
-            if let t = touches.first(where: { mouseTaps.contains($0) }) { AbsolutePointer.move(to: t.location(in: nil)) }
+            if !AbsolutePointer.madeiraWay, let t = touches.first(where: { mouseTaps.contains($0) }) { AbsolutePointer.move(to: t.location(in: nil)) }
             for t in touches where t.type != .indirectPointer && !mouseTaps.contains(t) {
                 guard let i = fingers.firstIndex(where: { $0.touch == t }) else { continue }
                 let now = t.location(in: self), before = t.previousLocation(in: self)
