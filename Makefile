@@ -7,7 +7,7 @@ CORE = $(B)/classify.o $(B)/operands.o $(B)/translate.o $(B)/dispatch.o $(B)/mmu
        $(B)/exception.o $(B)/sysreg.o $(B)/machine.o
 HOST = $(B)/jit_region.o $(B)/enter.o $(B)/disk.o
 DEV = $(B)/pvg_lite.o $(B)/pvg_metal.o $(B)/gicv3.o $(B)/timer.o $(B)/pl011.o $(B)/pl031.o $(B)/cfg.o $(B)/bdif.o $(B)/pcie.o \
-      $(B)/virtio.o $(B)/virtio_blk.o $(B)/virtio_net.o $(B)/virtio_input.o $(B)/virtio_snd.o $(B)/virtio_usb.o $(B)/virtio_balloon.o $(B)/xhci.o $(B)/vmapple.o $(B)/aes.o $(B)/pl061.o $(B)/metallib.o
+      $(B)/virtio.o $(B)/virtio_blk.o $(B)/virtio_net.o $(B)/virtio_input.o $(B)/virtio_snd.o $(B)/virtio_usb.o $(B)/virtio_balloon.o $(B)/xhci.o $(B)/vmapple.o $(B)/aes.o $(B)/pl061.o $(B)/metallib.o $(B)/fdt.o $(B)/linuxvirt.o
 ENGINE = $(CORE) $(HOST)
 METAL_LIBS = -framework Foundation -framework QuartzCore -framework Metal -framework IOSurface -framework CoreGraphics -framework ImageIO -framework UniformTypeIdentifiers
 
@@ -276,7 +276,7 @@ LXFLAGS = -std=gnu11 -O2 -g -Wall -Wno-unused-parameter -Ihost/linux -include ho
 LX_SRC = core/classify.c core/operands.c core/translate.c core/dispatch.c core/mmu.c core/memop.c core/exception.c \
          core/sysreg.c core/machine.c host/jit_region.c host/disk.c host/linux/ulock.c devices/gicv3.c devices/timer.c \
          devices/pl011.c devices/pl031.c devices/pcie.c devices/virtio.c devices/virtio_blk.c devices/virtio_net.c \
-         devices/virtio_input.c devices/fdt.c devices/linuxvirt.c tools/hengelinux.c
+         devices/virtio_input.c devices/virtio_snd.c devices/xhci.c devices/fdt.c devices/linuxvirt.c tools/hengelinux.c
 LX_OBJ = $(patsubst %.c,$(LXB)/%.o,$(LX_SRC)) $(LXB)/enter.o
 $(LXB)/%.o: %.c core/*.h host/*.h devices/*.h host/linux/*.h host/linux/*/*.h
 	@mkdir -p $(dir $@)

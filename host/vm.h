@@ -20,6 +20,12 @@ typedef struct HvVmConfig {
     int log;                  /* m->log */
     int no_net, no_sound;
     int installer;            /* boot the ROM in DFU mode with the USB device port (installing macOS) */
+    /* The Linux machine (devices/linuxvirt.c, docs/linux-machine.md) instead of the virtual Mac when
+       linux_kernel is set: an uncompressed arm64 Image, an initrd (or NULL) and the kernel's command
+       line (NULL: the root file system on disk, /dev/vda). rom and aux are not used; the screen is a
+       framebuffer fb_width x fb_height (0: 1280 x 800), which hv_vm_boot_display hands out. */
+    const char *linux_kernel, *linux_initrd, *linux_cmdline;
+    uint32_t fb_width, fb_height;
     /* JIT memory the host already has (iOS: granted by a debugger), or NULL to map it here. */
     void *jit_rx, *jit_rw;
     size_t jit_bytes;         /* 0: 768 MB */
@@ -38,6 +44,8 @@ extern void (*hv_prof_register)(void); /* debugging: each thread that will run g
 void hv_vm_set_display_layer(void *layer);
 uint64_t hv_vm_gpu_frames(void);
 int hv_vm_ncpus(void);
+/* The machine is the Linux one (HvVmConfig.linux_kernel): no saving it (instant resume) yet. */
+int hv_vm_is_linux(void);
 
 /* The boot framebuffer iBoot hands the kernel (XNU's boot_args video info):
    the Apple logo and progress bar while booting or installing, before a GPU

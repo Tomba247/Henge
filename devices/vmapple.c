@@ -247,14 +247,10 @@ static uint64_t tick(HvMachine *m, HvCpu *cpu) {
     return deadline;
 }
 
-int hv_vmapple_create(HvVmapple *b, HvMachine *m, HvCpu *cpu, uint64_t ram_size, HvDisk *root, HvDisk *aux,
-                      const HvCfgParams *cfg, const uint8_t mac[6]) {
-    memset(b, 0, sizeof *b);
-    b->ram_fd = -1;
-    b->m = m;
-    b->cpu = cpu;
-    b->ncpus = cfg->nr_cpus ? (int)cfg->nr_cpus : 1;
-    if (b->ncpus > HV_MAX_CPUS) b->ncpus = HV_MAX_CPUS;
+/* Guest RAM as the virtual Mac gets it: outside the app's footprint where iOS allows that, else in a file
+   (HV_RAM_FILE), else anonymous memory. Sets b->ram, b->ram_size and b->ram_fd (which must be -1 first).
+   The Linux machine (devices/linuxvirt.c) takes its RAM from here too. */
+int hv_vmapple_alloc_ram(HvVmapple *b, uint64_t ram_size) {
     b->ram_size = ram_size;
     /* HV_RAM_FILE: guest RAM in a file. iOS's memory limit counts anonymous
        pages and not pages of a mapped file, which it can also write out and
@@ -287,7 +283,22 @@ int hv_vmapple_create(HvVmapple *b, HvMachine *m, HvCpu *cpu, uint64_t ram_size,
         }
     }
     if (b->ram == MAP_FAILED) b->ram = mmap(NULL, ram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (b->ram == MAP_FAILED) return -1;
+    if (b->ram == MAP_FAILED) {
+        b->ram = NULL;
+        return -1;
+    }
+    return 0;
+}
+
+int hv_vmapple_create(HvVmapple *b, HvMachine *m, HvCpu *cpu, uint64_t ram_size, HvDisk *root, HvDisk *aux,
+                      const HvCfgParams *cfg, const uint8_t mac[6]) {
+    memset(b, 0, sizeof *b);
+    b->ram_fd = -1;
+    b->m = m;
+    b->cpu = cpu;
+    b->ncpus = cfg->nr_cpus ? (int)cfg->nr_cpus : 1;
+    if (b->ncpus > HV_MAX_CPUS) b->ncpus = HV_MAX_CPUS;
+    if (hv_vmapple_alloc_ram(b, ram_size) != 0) return -1;
     b->rom = mmap(NULL, ROM_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     if (b->rom == MAP_FAILED) return -1;
     /* QEMU maps the firmware as RAM, and so do we. */

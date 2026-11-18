@@ -23,7 +23,8 @@
 
 static HvMachine m;
 static HvCpu cpus[HV_MAX_CPUS];
-static HvLinuxVirt board;
+static HvVmapple board = {.ram_fd = -1}; /* the devices */
+static HvLinuxVirt lv;
 static atomic_int stopping;
 static struct termios saved_tty;
 static int tty_raw;
@@ -135,14 +136,14 @@ int main(int argc, char **argv) {
         return 1;
     }
     m.log = getenv("HV_LOG") != NULL;
-    HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL,
+    HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL, .usb = 1, .sound = 1,
                              .fb_width = fbw, .fb_height = fbh, .cmdline = append};
     char err[200];
-    if (hv_linuxvirt_create(&board, &m, cpus, &cfg) != 0) {
+    if (hv_linuxvirt_create(&lv, &board, &m, cpus, &cfg) != 0) {
         fprintf(stderr, "hengelinux: cannot build the machine\n");
         return 1;
     }
-    if (hv_linuxvirt_boot(&board, &cfg, image, image_len, rd, initrd_len, err, sizeof err) != 0) {
+    if (hv_linuxvirt_boot(&lv, &cfg, image, image_len, rd, initrd_len, err, sizeof err) != 0) {
         fprintf(stderr, "hengelinux: %s\n", err);
         return 1;
     }
@@ -150,8 +151,8 @@ int main(int argc, char **argv) {
     free(rd);
     if (getenv("HV_STATS")) m.stats_interval = (uint32_t)atoi(getenv("HV_STATS")); /* seconds between engine statistics */
     fprintf(stderr, "hengelinux: %d CPU(s), %llu MB, kernel at %llx, device tree at %llx%s (Ctrl-A x quits)\n",
-            board.ncpus, (unsigned long long)ram_mb, (unsigned long long)board.kernel_pa,
-            (unsigned long long)board.dtb_pa, board.initrd_size ? ", initrd" : "");
+            board.ncpus, (unsigned long long)ram_mb, (unsigned long long)lv.kernel_pa,
+            (unsigned long long)lv.dtb_pa, lv.initrd_size ? ", initrd" : "");
     if (isatty(0) && tcgetattr(0, &saved_tty) == 0) {
         struct termios raw = saved_tty;
         cfmakeraw(&raw);
@@ -171,11 +172,11 @@ int main(int argc, char **argv) {
     pthread_join(kick, NULL);
     restore_tty();
     const char *dump = getenv("HV_FB_DUMP"); /* the framebuffer as it was at the end, as a PPM image */
-    FILE *pf = dump && board.fb ? fopen(dump, "wb") : NULL;
+    FILE *pf = dump && lv.fb ? fopen(dump, "wb") : NULL;
     if (pf) {
-        fprintf(pf, "P6\n%u %u\n255\n", board.fb_width, board.fb_height);
-        for (uint64_t i = 0; i < (uint64_t)board.fb_width * board.fb_height; i++) {
-            const uint8_t *px = board.fb + i * 4; /* a8r8g8b8: B, G, R, A in memory */
+        fprintf(pf, "P6\n%u %u\n255\n", lv.fb_width, lv.fb_height);
+        for (uint64_t i = 0; i < (uint64_t)lv.fb_width * lv.fb_height; i++) {
+            const uint8_t *px = lv.fb + i * 4; /* a8r8g8b8: B, G, R, A in memory */
             uint8_t rgb[3] = {px[2], px[1], px[0]};
             fwrite(rgb, 1, 3, pf);
         }

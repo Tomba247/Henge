@@ -1,4 +1,5 @@
 #include "vm.h"
+#include "linuxvirt.h"
 #include "pvg_lite.h"
 
 #include <TargetConditionals.h>
@@ -28,6 +29,10 @@ static HvMachine m;
 static HvCpu cpus[HV_MAX_CPUS]; /* the board takes them as an array */
 static int ncpus = 1;
 static HvVmapple board = {.ram_fd = -1};
+/* The Linux machine (devices/linuxvirt.c), when that is what runs: its devices are in board. */
+static HvLinuxVirt linux_vm;
+static int linux_mode;
+static _Atomic(uint8_t *) linux_fb; /* published only when the machine is ready, like display_pvg */
 static _Atomic int input_stopping = 1;
 static void stop_pointer(void);
 /* UI display changes may arrive before or during the background machine creation. */
@@ -61,11 +66,19 @@ HvMachine *hv_vm_machine(void) { return &m; }
 HvVmapple *hv_vm_board(void) { return &board; }
 HvCpu *hv_vm_cpu(int index) { return index >= 0 && index < ncpus ? &cpus[index] : NULL; }
 int hv_vm_ncpus(void) { return ncpus; }
+int hv_vm_is_linux(void) { return machine_created && linux_mode; }
 
 /* arm64 boot_args: {u16 Revision, u16 Version, u64 virtBase, physBase, memSize,
    topOfKernelData, Video {baseAddr, display, rowBytes, width, height, depth}, ...}.
    Found by scanning page starts for one whose physBase is the RAM base. */
 int hv_vm_boot_display(HvBootDisplay *d) {
+    /* The Linux machine's screen is its simple-framebuffer: a8r8g8b8 is BGRA in memory, as here. */
+    uint8_t *fb = atomic_load_explicit(&linux_fb, memory_order_acquire);
+    if (fb) {
+        d->pixels = fb;
+        d->width = linux_vm.fb_width, d->height = linux_vm.fb_height, d->stride = linux_vm.fb_width * 4;
+        return 0;
+    }
     /* What the guest's GPU has drawn, once it has drawn anything. */
     HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
     if (!pvg) return -1;
@@ -248,7 +261,9 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         pthread_join(primary_thread, NULL);
         primary_started = 0;
     }
-    if (!c->rom || !c->disk || !c->aux) return fail(err, errlen, "The ROM, disk and auxiliary storage are all needed.");
+    linux_mode = c->linux_kernel != NULL;
+    if (linux_mode && !c->disk) return fail(err, errlen, "The Linux machine needs its disk.");
+    if (!linux_mode && (!c->rom || !c->disk || !c->aux)) return fail(err, errlen, "The ROM, disk and auxiliary storage are all needed.");
     machine_created = 1;
     struct sigaction ill = {.sa_flags = SA_SIGINFO | SA_ONSTACK};
     ill.sa_sigaction = on_ill;
@@ -260,7 +275,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
     }
     signal(SIGPIPE, SIG_IGN); /* a guest connection closing at the far end must not end the machine */
     if (hv_disk_open(&disk, c->disk, 0, 0) != 0) return fail(err, errlen, "Cannot open the disk image.");
-    if (hv_disk_open(&aux, c->aux, c->aux_offset ? c->aux_offset : 16384, 0) != 0)
+    if (!linux_mode && hv_disk_open(&aux, c->aux, c->aux_offset ? c->aux_offset : 16384, 0) != 0)
         return fail(err, errlen, "Cannot open the auxiliary storage.");
     size_t jit = c->jit_bytes ? c->jit_bytes : (size_t)768 << 20;
     int r = c->jit_rx ? hv_machine_init_jit(&m, c->jit_rx, c->jit_rw, jit) : hv_machine_init(&m, jit);
@@ -278,10 +293,28 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         cfg.run_installer1 = a, cfg.run_installer2 = b2;
     }
     static const uint8_t mac[6] = {0x02, 0x48, 0x56, 0x4d, 0x00, 0x01};
-    if (hv_vmapple_create(&board, &m, cpus, (c->ram_mb ? c->ram_mb : 2048) << 20, &disk, &aux, &cfg, mac) != 0)
-        return fail(err, errlen, "Cannot build the machine (not enough memory for the guest's RAM?).");
-    if (hv_vmapple_load_rom(&board, c->rom) != 0) return fail(err, errlen, "Cannot read the ROM (AVPBooter.vmapple2.bin).");
-    hv_vmapple_reset_cpu(&board);
+    if (linux_mode) {
+        /* devices/linuxvirt.c: a real Linux kernel on the same engine and devices, the virtual Mac's
+           board holding them so input, disk, network and sound below serve it unchanged. */
+        uint64_t ram = (c->ram_mb ? c->ram_mb : 2048) << 20;
+        memset(&board, 0, sizeof board);
+        board.ram_fd = -1;
+        if (hv_vmapple_alloc_ram(&board, ram) != 0) return fail(err, errlen, "Not enough memory for the guest's RAM.");
+        HvLinuxVirtConfig lc = {.ncpus = ncpus, .ram_size = ram, .disk = &disk, .mac = mac, .usb = 1, .sound = !c->no_sound,
+                                .fb_width = c->fb_width ? c->fb_width : 1280, .fb_height = c->fb_height ? c->fb_height : 800,
+                                .cmdline = c->linux_cmdline && *c->linux_cmdline ? c->linux_cmdline
+                                                                                 : "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"};
+        if (hv_linuxvirt_create(&linux_vm, &board, &m, cpus, &lc) != 0)
+            return fail(err, errlen, "Cannot build the Linux machine (not enough memory for the guest's RAM?).");
+        if (hv_linuxvirt_boot_files(&linux_vm, &lc, c->linux_kernel, c->linux_initrd, err, errlen) != 0) return -1;
+        fprintf(stderr, "hengevm: Linux machine, %d CPUs, %llu MB, %ux%u screen, kernel %s\n", ncpus,
+                (unsigned long long)(ram >> 20), linux_vm.fb_width, linux_vm.fb_height, c->linux_kernel);
+    } else {
+        if (hv_vmapple_create(&board, &m, cpus, (c->ram_mb ? c->ram_mb : 2048) << 20, &disk, &aux, &cfg, mac) != 0)
+            return fail(err, errlen, "Cannot build the machine (not enough memory for the guest's RAM?).");
+        if (hv_vmapple_load_rom(&board, c->rom) != 0) return fail(err, errlen, "Cannot read the ROM (AVPBooter.vmapple2.bin).");
+        hv_vmapple_reset_cpu(&board);
+    }
     if (board.net && !c->no_net) {
         if (hv_net_attach(&m, board.net) != 0) fprintf(stderr, "hengevm: user-mode network unavailable\n");
         else net_on = 1;
@@ -296,6 +329,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
     os_unfair_lock_lock(&display_lock);
     if (display_layer_set && board.pvg) hv_pvg_lite_set_layer(board.pvg, (void *)display_layer);
     atomic_store_explicit(&display_pvg, board.pvg, memory_order_release);
+    atomic_store_explicit(&linux_fb, linux_mode ? linux_vm.fb : NULL, memory_order_release);
     os_unfair_lock_unlock(&display_lock);
     atomic_store(&input_stopping, 0);
     return 0;
@@ -311,12 +345,15 @@ void hv_vm_destroy(void) {
        queued GPU work; completion callbacks still need the GIC and RAM. */
     os_unfair_lock_lock(&display_lock);
     atomic_store_explicit(&display_pvg, NULL, memory_order_release);
+    atomic_store_explicit(&linux_fb, NULL, memory_order_release);
     os_unfair_lock_unlock(&display_lock);
     stop_pointer();
     hv_net_detach();
     net_on = 0;
     hv_audio_detach();
-    hv_vmapple_destroy(&board);
+    hv_vmapple_destroy(&board); /* the Linux machine's devices too: they are in board */
+    memset(&linux_vm, 0, sizeof linux_vm);
+    linux_mode = 0;
     hv_disk_close(&disk);
     hv_disk_close(&aux);
     hv_machine_free(&m);

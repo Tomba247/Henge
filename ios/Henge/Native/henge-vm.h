@@ -9,6 +9,13 @@
    (henge_ios_jit_prewarm), and starts it. 0, or -1 with a reason in err. */
 int henge_vm_boot(const char *rom, const char *disk, const char *aux, uint64_t ecid, uint64_t seed, uint64_t ram_mb,
                   int cpus, char *err, size_t errlen);
+/* Boots the Linux machine (docs/linux-machine.md): an uncompressed arm64 kernel Image, an initrd (NULL or "" for
+   none), the kernel command line (NULL: root file system on disk, /dev/vda), the root disk image, and the screen
+   (a framebuffer; 0 x 0 for 1280 x 800), which henge_vm_boot_display hands out. 0, or -1 with a reason in err. */
+int henge_vm_boot_linux(const char *kernel, const char *initrd, const char *cmdline, const char *disk, uint64_t ram_mb,
+                        int cpus, uint32_t fb_width, uint32_t fb_height, char *err, size_t errlen);
+/* The running machine is the Linux one: it cannot be saved (instant resume) yet. */
+int henge_vm_is_linux(void);
 /* Installs macOS from an IPSW onto a new machine (blank disk and auxiliary
    storage): boots the ROM in DFU mode and runs the restore over its USB port,
    as Virtualization.framework's installer does. workdir is scratch space.

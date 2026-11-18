@@ -139,6 +139,10 @@ int henge_vm_pause(char *err, size_t errlen) {
 }
 
 int henge_vm_save(const char *path, const char *ident, char *err, size_t errlen) {
+    if (hv_vm_is_linux()) { /* host/snapshot.c saves the virtual Mac's devices */
+        snprintf(err, errlen, "Saving a Linux machine is not supported yet.");
+        return -1;
+    }
     pthread_rwlock_rdlock(&api_lock);
     if (state != 4) {
         pthread_rwlock_unlock(&api_lock);
@@ -203,6 +207,27 @@ static int boot_or_resume(const char *rom, const char *disk, const char *aux, ui
     if (getenv("HV_STATS")) hv_vm_machine()->stats_interval = atoi(getenv("HV_STATS"));
     return started(err, errlen);
 }
+
+int henge_vm_boot_linux(const char *kernel, const char *initrd, const char *cmdline, const char *disk, uint64_t ram_mb,
+                        int cpus, uint32_t fb_width, uint32_t fb_height, char *err, size_t errlen) {
+    { extern void hv_prof_ios_start(void); hv_prof_ios_start(); }
+    if (begin_start(err, errlen)) return -1;
+    HengeDualMapping *jit = henge_ios_jit_get_mapping();
+    if (!jit || !jit->rw_addr) {
+        snprintf(err, errlen, "Henge has no JIT region. Turn on JIT first.");
+        return failed_start();
+    }
+    HvVmConfig c = {.disk = disk, .ram_mb = ram_mb, .ncpus = cpus, .log = 1, .linux_kernel = kernel,
+                    .linux_initrd = initrd && *initrd ? initrd : NULL, .linux_cmdline = cmdline, .fb_width = fb_width,
+                    .fb_height = fb_height, .jit_rx = jit->rx_addr, .jit_rw = jit->rw_addr, .jit_bytes = jit->size};
+    fprintf(stderr, "henge: booting Linux with %d CPUs, %llu MB RAM, a %zu MB JIT region\n", cpus, (unsigned long long)ram_mb,
+            jit->size >> 20);
+    if (hv_vm_create(&c, err, errlen) != 0) return failed_start();
+    if (getenv("HV_STATS")) hv_vm_machine()->stats_interval = atoi(getenv("HV_STATS"));
+    return started(err, errlen);
+}
+
+int henge_vm_is_linux(void) { return hv_vm_is_linux(); }
 
 static volatile int install_step = -1;
 static volatile double install_progress;
