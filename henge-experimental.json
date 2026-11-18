@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.58",
+          "date": "2026-11-18T00:37:25Z",
+          "localizedDescription": "[league-el0] iPhone mouse: Madeira's way by default, as Madeira does it on iPhone: only the mouse's own motion moves the Mac's pointer (no hover), and AssistiveTouch's copies of clicks are only dropped; a setting follows iOS's hover instead",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-58/Henge.ipa",
+          "size": 9769619,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.55",
           "date": "2026-11-18T00:20:19Z",
           "localizedDescription": "[league-el0] iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden",
@@ -183,11 +192,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.55",
-      "versionDate": "2026-11-18T00:20:19Z",
-      "versionDescription": "[league-el0] iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-55/Henge.ipa",
-      "size": 9767564,
+      "buildVersion": "101.58",
+      "versionDate": "2026-11-18T00:37:25Z",
+      "versionDescription": "[league-el0] iPhone mouse: Madeira's way by default, as Madeira does it on iPhone: only the mouse's own motion moves the Mac's pointer (no hover), and AssistiveTouch's copies of clicks are only dropped; a setting follows iOS's hover instead",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-58/Henge.ipa",
+      "size": 9769619,
       "minOSVersion": "17.0"
     }
   ],
