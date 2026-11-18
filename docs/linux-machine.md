@@ -60,22 +60,56 @@ Kernel: Ubuntu 24.04's stock `linux-image-unsigned-6.8.0-149-generic` (arm64).
 - One engine fix was needed: the translator read macOS's commpage to inline
   counter reads, which a Linux host does not have (`core/translate.c`).
 
-Not tried yet: a phone, input, network, sound.
+Not tried yet: a phone, input, network, sound, the desktop.
 
-## What the app needs
+## An Ubuntu machine
 
-- **Machine:** build `linuxvirt` instead of the virtual Mac in `hv_vm_create`
-  when a kernel is given. The input, disk, network and sound plumbing is the
-  same devices.
-- **Display:** the simple-framebuffer is 32-bit BGRA in guest RAM, the format
-  `hv_vm_boot_display` already hands `BootDisplay.swift`.
-- **Input:** the Mac's xHCI controller with its keyboard and Magic Trackpad 2 —
-  Linux drives them with `xhci_hcd`, `usbhid` and `hid-magicmouse` (libinput then
-  gives two-finger scrolling and gestures) — or virtio-input.
-- **Network:** virtio-net on the existing user-mode network (`host/net_slirp.c`).
-- **The system:** Ubuntu's arm64 cloud root file system
-  (`noble-server-cloudimg-arm64-root.tar.xz`) as an ext4 disk image, with the
-  kernel's modules added. A CI job can build the disk image (with a desktop
-  installed) so the app only downloads it.
-- **Graphics acceleration (later):** a virtio-gpu device; with virglrenderer on
-  ANGLE/Metal, OpenGL in the guest would run on the phone's GPU.
+`tools/linux/make-ubuntu-disk.sh` makes a folder the app brings in, from Ubuntu
+as it is: the arm64 cloud root file system and the stock generic kernel (the
+release's own series, 6.8 for 24.04), the kernel uncompressed (`Image`) and its
+modules indexed with `depmod` (they are not installed as packages, so nothing
+else would). A `henge` user with no password signs in on the consoles and has
+sudo; the network is DHCP on virtio-net; `--desktop` adds Xfce with LightDM
+signing in by itself (apt runs inside the image, so that needs an arm64 host).
+
+```sh
+sudo tools/linux/make-ubuntu-disk.sh ~/Ubuntu --size 24G --desktop --pack
+```
+
+The folder holds `Image`, `disk.img.hvsparse` (the disk with its holes left out)
+and `machine.json` with `"kind": "linux"` and the kernel's command line.
+
+`.github/workflows/linux-machine.yml` does the same on a GitHub-hosted arm64
+runner, where the engine runs natively: it builds `tools/hengelinux`, makes the
+machine, boots it with `henge.autotest` on the command line (a unit in the image
+then reports what came up on the serial console and powers off), and uploads the
+folder as an artifact.
+
+## In the app
+
+Bring the folder in like an exported Mac: drop it on Henge in Finder, or pick it
+in the Files app. A `"kind": "linux"` machine.json makes it a Linux machine: its
+`Image` (and `initrd.img`, if there is one) instead of the boot ROM and
+auxiliary storage, a 1280 x 800 screen, and `henge_vm_boot_linux` to start it.
+Instant resume is off for it (the snapshot format holds the Mac's devices).
+
+What runs on the phone, and how:
+
+- **Machine:** `hv_vm_create` builds `linuxvirt` when `HvVmConfig.linux_kernel`
+  is set; its devices are in the virtual Mac's board, so the input, disk,
+  network and sound code is the Mac's. Guest RAM comes from
+  `hv_vmapple_alloc_ram`, outside the app's footprint where iOS allows it.
+- **Display:** the simple-framebuffer, handed to `BootDisplay.swift` through
+  `hv_vm_boot_display` (32-bit BGRA, as the Mac's boot framebuffer). The guest
+  draws with the CPU: no GPU acceleration yet.
+- **Input:** the Mac's xHCI controller with its USB keyboard and Magic Trackpad 2
+  (Linux: `xhci_pci`, `usbhid`, `hid-magicmouse`; libinput gives two-finger
+  scrolling and gestures), and virtio-input for the relative mouse.
+- **Network and sound:** virtio-net on the user-mode network, virtio-snd.
+
+## Next
+
+- Try it on a phone.
+- A virtio-gpu device: with virglrenderer on ANGLE/Metal, OpenGL in the guest
+  would run on the phone's GPU, as LinuxRunner does it.
+- Saving a Linux machine (instant resume).
