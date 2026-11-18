@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.61",
+          "date": "2026-11-18T01:17:05Z",
+          "localizedDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
+          "size": 9775631,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.60",
           "date": "2026-11-18T00:54:49Z",
           "localizedDescription": "[league-el0] iPhone mouse: keep AssistiveTouch's pointer shown (the trackpad's hidden pointer style reached it through PhonePointer's drivers, so it vanished unless the mouse moved fast); PhonePointer off in Madeira's way, as in Madeira",
@@ -201,11 +210,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.60",
-      "versionDate": "2026-11-18T00:54:49Z",
-      "versionDescription": "[league-el0] iPhone mouse: keep AssistiveTouch's pointer shown (the trackpad's hidden pointer style reached it through PhonePointer's drivers, so it vanished unless the mouse moved fast); PhonePointer off in Madeira's way, as in Madeira",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-60/Henge.ipa",
-      "size": 9771380,
+      "buildVersion": "101.61",
+      "versionDate": "2026-11-18T01:17:05Z",
+      "versionDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
+      "size": 9775631,
       "minOSVersion": "17.0"
     }
   ],
