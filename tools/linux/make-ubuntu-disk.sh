@@ -7,7 +7,11 @@
 # the arm64 cloud root file system and the stock generic kernel, its modules
 # indexed (depmod) since nothing installs them as packages here.
 #
-#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 16G] [--desktop] [--pack] [--release noble]
+#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 16G] [--desktop] [--pack] [--release noble] [--kernel-dir DIR]
+#
+# --kernel-dir takes the kernel tools/linux/build-kernel.sh built (16 KB pages,
+# what HengeVM runs fastest: see henge-kernel.config) instead of Ubuntu's own
+# 4 KB generic kernel.
 #
 # --desktop installs Xfce with LightDM signing in on its own. That runs apt
 # inside the image, so it needs a host that runs arm64 programs: an arm64
@@ -18,7 +22,7 @@
 # image).
 set -euo pipefail
 
-OUT=""; SIZE=16G; DESKTOP=0; PACK=0; RELEASE=noble
+OUT=""; SIZE=16G; DESKTOP=0; PACK=0; RELEASE=noble; KDIR=""
 # The release's own kernel series (noble: 6.8, what the Linux machine is tried with), not the
 # newer hardware-enablement kernels the same archive also has. KSERIES=7.0.0 picks those.
 KSERIES=${KSERIES:-6.8.0}
@@ -30,12 +34,13 @@ while [ $# -gt 0 ]; do
         --desktop) DESKTOP=1 ;;
         --pack) PACK=1 ;;
         --release) RELEASE=$2; shift ;;
+        --kernel-dir) KDIR=$(cd "$2" && pwd); shift ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) OUT=$1 ;;
     esac
     shift
 done
-[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 16G] [--desktop] [--pack] [--release noble]" >&2; exit 2; }
+[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 16G] [--desktop] [--pack] [--release noble] [--kernel-dir DIR]" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "$0: run as root (the image's files keep their owners)" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$OUT"
@@ -56,27 +61,38 @@ mkdir -p "$ROOT"
 tar -C "$ROOT" --numeric-owner -xJf "$WORK/root.tar.xz"
 rm "$WORK/root.tar.xz"
 
-say "kernel: the newest $KSERIES generic kernel in $RELEASE-updates"
-curl -fsSL "$ARCHIVE/dists/$RELEASE-updates/main/binary-arm64/Packages.xz" | xz -d > "$WORK/Packages"
-KVER=$(sed -n 's/^Package: linux-image-unsigned-\([0-9.]*-[0-9]*-generic\)$/\1/p' "$WORK/Packages" | grep "^$KSERIES-" | sort -V | tail -1)
-[ -n "$KVER" ] || { echo "no generic kernel found in $RELEASE-updates" >&2; exit 1; }
-echo "   $KVER"
-mkdir -p "$WORK/k"
-for pkg in linux-image-unsigned-$KVER linux-modules-$KVER linux-modules-extra-$KVER; do
-    file=$(awk -v p="$pkg" '$1 == "Package:" { hit = ($2 == p) } hit && $1 == "Filename:" { print $2; exit }' "$WORK/Packages")
-    [ -n "$file" ] || { echo "$pkg not found" >&2; exit 1; }
-    curl -fsSL "$ARCHIVE/$file" -o "$WORK/pkg.deb"
-    dpkg-deb -x "$WORK/pkg.deb" "$WORK/k"
-    rm "$WORK/pkg.deb"
-done
-# Henge loads an uncompressed arm64 Image; Ubuntu's vmlinuz is gzip.
-zcat "$WORK/k/boot/vmlinuz-$KVER" > "$OUT/Image"
-mkdir -p "$ROOT/usr/lib/modules"
-rm -rf "$ROOT/usr/lib/modules/$KVER"
-cp -a "$WORK/k/lib/modules/$KVER" "$ROOT/usr/lib/modules/$KVER"
-cp "$WORK/k/boot/config-$KVER" "$ROOT/boot/" 2>/dev/null || true
-depmod -b "$ROOT/usr" "$KVER"
-rm -rf "$WORK/k"
+if [ -n "$KDIR" ]; then
+    KVER=$(cat "$KDIR/release")
+    say "kernel: $KVER from $KDIR"
+    cp "$KDIR/Image" "$OUT/Image"
+    mkdir -p "$ROOT/usr/lib/modules"
+    rm -rf "$ROOT/usr/lib/modules/$KVER"
+    cp -a "$KDIR/lib/modules/$KVER" "$ROOT/usr/lib/modules/$KVER"
+    cp "$KDIR/config" "$ROOT/boot/config-$KVER" 2>/dev/null || true
+    depmod -b "$ROOT/usr" "$KVER"
+else
+    say "kernel: the newest $KSERIES generic kernel in $RELEASE-updates"
+    curl -fsSL "$ARCHIVE/dists/$RELEASE-updates/main/binary-arm64/Packages.xz" | xz -d > "$WORK/Packages"
+    KVER=$(sed -n 's/^Package: linux-image-unsigned-\([0-9.]*-[0-9]*-generic\)$/\1/p' "$WORK/Packages" | grep "^$KSERIES-" | sort -V | tail -1)
+    [ -n "$KVER" ] || { echo "no generic kernel found in $RELEASE-updates" >&2; exit 1; }
+    echo "   $KVER"
+    mkdir -p "$WORK/k"
+    for pkg in linux-image-unsigned-$KVER linux-modules-$KVER linux-modules-extra-$KVER; do
+        file=$(awk -v p="$pkg" '$1 == "Package:" { hit = ($2 == p) } hit && $1 == "Filename:" { print $2; exit }' "$WORK/Packages")
+        [ -n "$file" ] || { echo "$pkg not found" >&2; exit 1; }
+        curl -fsSL "$ARCHIVE/$file" -o "$WORK/pkg.deb"
+        dpkg-deb -x "$WORK/pkg.deb" "$WORK/k"
+        rm "$WORK/pkg.deb"
+    done
+    # Henge loads an uncompressed arm64 Image; Ubuntu's vmlinuz is gzip.
+    zcat "$WORK/k/boot/vmlinuz-$KVER" > "$OUT/Image"
+    mkdir -p "$ROOT/usr/lib/modules"
+    rm -rf "$ROOT/usr/lib/modules/$KVER"
+    cp -a "$WORK/k/lib/modules/$KVER" "$ROOT/usr/lib/modules/$KVER"
+    cp "$WORK/k/boot/config-$KVER" "$ROOT/boot/" 2>/dev/null || true
+    depmod -b "$ROOT/usr" "$KVER"
+    rm -rf "$WORK/k"
+fi
 
 say "settings"
 # No cloud to ask for user data; the machine is configured here instead.
