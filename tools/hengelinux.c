@@ -28,9 +28,43 @@ static HvMachine m;
 static HvCpu cpus[HV_MAX_CPUS];
 static HvVmapple board = {.ram_fd = -1}; /* the devices */
 static HvLinuxVirt lv;
+static void save_screen(const char *when);
 static atomic_int stopping;
 static struct termios saved_tty;
 static int tty_raw;
+static atomic_int screen_saved;
+
+/* The framebuffer as a PPM image at $HV_FB_DUMP. */
+static void save_screen(const char *when) {
+    const char *path = getenv("HV_FB_DUMP");
+    FILE *pf = path && lv.fb ? fopen(path, "wb") : NULL;
+    if (!pf) return;
+    fprintf(pf, "P6\n%u %u\n255\n", lv.fb_width, lv.fb_height);
+    for (uint64_t i = 0; i < (uint64_t)lv.fb_width * lv.fb_height; i++) {
+        const uint8_t *px = lv.fb + i * 4; /* a8r8g8b8: B, G, R, A in memory */
+        uint8_t rgb[3] = {px[2], px[1], px[0]};
+        fwrite(rgb, 1, 3, pf);
+    }
+    fclose(pf);
+    atomic_store(&screen_saved, 1);
+    fprintf(stderr, "\nhengelinux: framebuffer (%s) written to %s\n", when, path);
+}
+
+/* The serial console to this terminal, watching for the self-test's request for a screenshot. */
+static void console_out(void *opaque, uint8_t c) {
+    (void)opaque;
+    static char line[256];
+    static size_t n;
+    fputc(c, stdout);
+    if (c != '\n') {
+        if (n < sizeof line - 1) line[n++] = (char)c;
+        return;
+    }
+    fflush(stdout);
+    line[n] = 0;
+    n = 0;
+    if (strstr(line, "henge-autotest: screenshot")) save_screen("when the guest asked");
+}
 
 static uint8_t *slurp(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
@@ -154,6 +188,7 @@ int main(int argc, char **argv) {
     }
     free(image);
     free(rd);
+    board.uart->output = console_out;
     if (getenv("HV_STATS")) m.stats_interval = (uint32_t)atoi(getenv("HV_STATS")); /* seconds between engine statistics */
     fprintf(stderr, "hengelinux: %d CPU(s), %llu MB, kernel at %llx, device tree at %llx%s (Ctrl-A x quits)\n",
             board.ncpus, (unsigned long long)ram_mb, (unsigned long long)lv.kernel_pa,
@@ -176,18 +211,8 @@ int main(int argc, char **argv) {
     for (int i = 1; i < board.ncpus; i++) pthread_join(sec[i], NULL);
     pthread_join(kick, NULL);
     restore_tty();
-    const char *dump = getenv("HV_FB_DUMP"); /* the framebuffer as it was at the end, as a PPM image */
-    FILE *pf = dump && lv.fb ? fopen(dump, "wb") : NULL;
-    if (pf) {
-        fprintf(pf, "P6\n%u %u\n255\n", lv.fb_width, lv.fb_height);
-        for (uint64_t i = 0; i < (uint64_t)lv.fb_width * lv.fb_height; i++) {
-            const uint8_t *px = lv.fb + i * 4; /* a8r8g8b8: B, G, R, A in memory */
-            uint8_t rgb[3] = {px[2], px[1], px[0]};
-            fwrite(rgb, 1, 3, pf);
-        }
-        fclose(pf);
-        fprintf(stderr, "hengelinux: framebuffer written to %s\n", dump);
-    }
+    /* HV_FB_DUMP: the framebuffer when the guest's console printed "henge-autotest: screenshot", else at the end. */
+    if (!screen_saved) save_screen("at the end");
     fprintf(stderr, "\nhengelinux: stopped (reason %d) at pc %llx el%u\n", r, (unsigned long long)cpus[0].pc, cpus[0].el);
     return 0;
 }

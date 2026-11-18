@@ -24,6 +24,23 @@ def main(src, dst):
     open(dst, "wb").write(png)
     lit = sum(1 for i in range(0, len(pix), 3 * 7) if pix[i] | pix[i + 1] | pix[i + 2])
     print(f"screen {w}x{h}: {100.0 * lit / max(1, len(pix) // (3 * 7)):.0f}% of it not black -> {dst}")
+    # For a log that cannot show images: the main colours, and a thumbnail in characters by brightness.
+    counts = {}
+    for i in range(0, len(pix), 3 * 13):
+        c = pix[i:i + 3]
+        counts[c] = counts.get(c, 0) + 1
+    total = sum(counts.values())
+    print("colours: " + ", ".join(f"#{c.hex()} {100.0 * n / total:.0f}%" for c, n in sorted(counts.items(), key=lambda kv: -kv[1])[:6])
+          + f" ({len(counts)} sampled)")
+    ramp, cols, lines = " .:-=+*#%@", 80, 24
+    for ty in range(lines):
+        row = ""
+        for tx in range(cols):
+            x, y = tx * w // cols + w // cols // 2, ty * h // lines + h // lines // 2
+            o = (y * w + x) * 3
+            lum = (pix[o] * 3 + pix[o + 1] * 6 + pix[o + 2]) // 10
+            row += ramp[min(len(ramp) - 1, lum * len(ramp) // 256)]
+        print("|" + row + "|")
 
 if __name__ == "__main__":
     main(sys.argv[1], sys.argv[2])
