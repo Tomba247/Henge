@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.63",
+          "date": "2026-11-18T22:33:30Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Merge league-el0 into the Linux machine branch",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-63/Henge.ipa",
+          "size": 9787988,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.50",
           "date": "2026-11-14T22:48:33Z",
           "localizedDescription": "[henge-perf] Shared folder: henge.log and henge-prev.log linked into it when a Mac starts",
@@ -102,11 +111,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.50",
-      "versionDate": "2026-11-14T22:48:33Z",
-      "versionDescription": "[henge-perf] Shared folder: henge.log and henge-prev.log linked into it when a Mac starts",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-50/Henge.ipa",
-      "size": 9749760,
+      "buildVersion": "101.63",
+      "versionDate": "2026-11-18T22:33:30Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] Merge league-el0 into the Linux machine branch",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-63/Henge.ipa",
+      "size": 9787988,
       "minOSVersion": "17.0"
     }
   ],
