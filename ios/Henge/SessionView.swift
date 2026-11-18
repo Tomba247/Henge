@@ -184,8 +184,11 @@ struct SessionView: View {
                 controlsHidden = false
                 showRevealHint = false
             }
-            .onContinuousHover(coordinateSpace: .local) { phase in
-                if case .active(let p) = phase { AbsolutePointer.move(to: p) }
+            // iPhone: in the window's coordinates (global, as an iPhone app fills the screen), the same as the trackpad's
+            // own hover and the reckoning use, so the sources agree on where the pointer is.
+            .onContinuousHover(coordinateSpace: Device.isPad ? .local : .global) { phase in
+                guard case .active(let p) = phase else { return }
+                if Device.isPad { AbsolutePointer.move(to: p) } else { AbsolutePointer.seen(p, from: "hover (session)") }
             }
             .onAppear {
                 shown = layout.shown
