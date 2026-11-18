@@ -28,7 +28,7 @@ typedef struct HvVmConfig {
     uint32_t fb_width, fb_height;
     /* JIT memory the host already has (iOS: granted by a debugger), or NULL to map it here. */
     void *jit_rx, *jit_rw;
-    size_t jit_bytes;         /* 0: 768 MB */
+    size_t jit_bytes;         /* 0: 1536 MB */
 } HvVmConfig;
 
 /* Returns 0, or -1 with a reason in err. */
@@ -108,6 +108,10 @@ void hv_vm_mouse_hwheel(int dx);
 void hv_vm_touch(int id, int phase, int x, int y, uint32_t ts_ms);
 void hv_vm_touch_frame(uint32_t ts_ms); /* commit one frame with every finger that moved */
 void hv_vm_touch_button(int down); /* the pad's full press (a click) */
+/* The absolute pointer on the USB bus: put the guest's pointer at x, y, each 0..1 across its screen. */
+void hv_vm_pointer_at(double x, double y);
+/* Draw the pointer at x, y (0..1 across the screen) instead of where the guest has it; negative: the guest's place again. */
+void hv_vm_cursor_at(double x, double y);
 /* Where the guest has its pointer, in display pixels. 0, or -1 before it has one. */
 int hv_vm_pointer(int *x, int *y);
 /* A small picture of the display, BGRA, width * height * 4 bytes. 0, or -1 before anything shows. */

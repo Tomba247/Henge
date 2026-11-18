@@ -33,7 +33,11 @@ struct SessionView: View {
     @State private var showDetails = false
     @State private var controlsHidden = false
     @State private var showRevealHint = false
+    /// The pill tucked into a small handle at the top, off the Mac's menu bar, a few seconds after it was last used.
+    @State private var pillTucked = false
+    @State private var pillTuck: Task<Void, Never>?
     @State private var pointerRefused = false
+    @State private var mouseNeedsAssistiveTouch = false
     @AppStorage("henge.controls.hintsShown") private var revealHintsShown = 0
     @AppStorage(VolumeClicks.inputModeKey) private var inputMode = VolumeClicks.InputMode.touchscreen
     @AppStorage(VolumeClicks.modeKey) private var volumeMode = VolumeClicks.Mode.delayHold
@@ -110,6 +114,16 @@ struct SessionView: View {
                             .transition(.opacity)
                             .allowsHitTesting(false)
                     }
+                    if mouseNeedsAssistiveTouch && !pointerRefused && !showRevealHint {
+                        Label("Turn on AssistiveTouch to use this mouse with the Mac", systemImage: "computermouse")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18).padding(.vertical, 12)
+                            .deskGlass(in: Capsule())
+                            .position(x: full.width / 2, y: insets.top + 40)
+                            .transition(.opacity)
+                            .allowsHitTesting(false)
+                    }
                     if showRevealHint {
                         Label("Tap with four fingers to show the controls", systemImage: "hand.tap")
                             .font(.system(size: 15, weight: .medium))
@@ -147,20 +161,44 @@ struct SessionView: View {
             .animation(.easeInOut(duration: 0.25), value: zoomed)
             .animation(.easeInOut(duration: 0.25), value: typing)
             .animation(.easeInOut(duration: 0.25), value: controlsHidden)
+            .animation(.easeInOut(duration: 0.25), value: pillTucked)
             .animation(.easeInOut(duration: 0.25), value: showRevealHint)
+            .animation(.easeInOut(duration: 0.25), value: mouseNeedsAssistiveTouch)
             .animation(.easeInOut(duration: 0.25), value: showWallpaperTip)
             .onReceive(NotificationCenter.default.publisher(for: UIPointerLockState.didChangeNotification)) { _ in
                 pointerRefused = PointerLock.refused
             }
             .onReceive(NotificationCenter.default.publisher(for: .GCMouseDidConnect)) { _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { pointerRefused = PointerLock.refused }
+                // An iPhone gives an app a mouse only through AssistiveTouch, unless Henge reads it over its maker's
+                // own channel (a Logitech mouse). Give that channel time to open before saying so.
+                guard !Device.isPad else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                    // Not UIAccessibility.isAssistiveTouchRunning (false on iOS 27 with it on): a mouse that has moved is through.
+                    guard !AbsolutePointer.deltaSeen, !UIAccessibility.isAssistiveTouchRunning, !HardwareMouse.shared.hasVendorChannel else { return }
+                    mouseNeedsAssistiveTouch = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) { mouseNeedsAssistiveTouch = false }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: Trackpad.revealTap)) { _ in
                 controlsHidden = false
                 showRevealHint = false
             }
-            .onAppear { shown = layout.shown }
+            // iPhone: in the window's coordinates (global, as an iPhone app fills the screen), the same as the trackpad's
+            // own hover and the reckoning use, so the sources agree on where the pointer is.
+            .onContinuousHover(coordinateSpace: Device.isPad ? .local : .global) { phase in
+                guard case .active(let p) = phase else { return }
+                if Device.isPad { AbsolutePointer.move(to: p) } else { AbsolutePointer.seen(p, from: "hover (session)") }
+            }
+            .onAppear {
+                shown = layout.shown
+                AbsolutePointer.screen = display.isExternal ? nil : layout.screen
+            }
             .onChange(of: layout.shown) { shown = $0 }
+            .onChange(of: layout.screen) { AbsolutePointer.screen = display.isExternal ? nil : $0 }
+            .onChange(of: full) { _ in PointerLock.set(!pointerNeeded) } // a window filling the screen, or no longer
+            .onChange(of: display.isExternal) { AbsolutePointer.screen = $0 ? nil : layout.screen }
+            .onDisappear { AbsolutePointer.screen = nil }
         }
         .statusBarHidden(zoomed || Device.isPad)
         .persistentSystemOverlays(.hidden)
@@ -367,8 +405,40 @@ struct SessionView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showRevealHint = false }
     }
 
+    /// What is left of the pill when it is tucked: a short bar at the top edge, brought back by a tap or a pull down.
+    private var pillHandle: some View {
+        Capsule().fill(Color.white.opacity(0.75))
+            .frame(width: 44, height: 5)
+            .shadow(color: .black.opacity(0.5), radius: 2)
+            .frame(width: 120, height: 22)
+            .contentShape(Rectangle())
+            .onTapGesture { untuckPill() }
+            .gesture(DragGesture(minimumDistance: 6).onEnded { if $0.translation.height > 0 { untuckPill() } })
+            .accessibilityElement()
+            .accessibilityLabel("Show controls")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { untuckPill() }
+            .transition(.opacity)
+    }
+
+    private func untuckPill() {
+        pillTucked = false
+        tuckPillLater()
+    }
+
+    /// Tucks the pill away once it has gone unused a few seconds (VoiceOver keeps it out).
+    private func tuckPillLater() {
+        pillTuck?.cancel()
+        guard !UIAccessibility.isVoiceOverRunning else { return }
+        pillTuck = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, !showDetails, !confirmStop else { return }
+            pillTucked = true
+        }
+    }
+
     private func tool(_ symbol: String, _ label: String, tint: Color = Desk.text, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button(action: { action(); if !pillTucked { tuckPillLater() } }) {
             Image(systemName: symbol)
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(tint)
@@ -395,12 +465,18 @@ struct SessionView: View {
         .padding(.horizontal, 8)
         .frame(height: 50)
         .deskGlass(in: Capsule())
+        // Over the Mac's menu bar (on its side, no room beside the screen) the pill tucks away to a handle when idle.
+        let overMac = layout.barY == nil && landscape && !typing
         if controlsHidden {
             EmptyView()
         } else if let barY = layout.barY {
             pill.position(x: layout.touch.midX, y: barY)
+        } else if overMac && pillTucked {
+            pillHandle.position(x: layout.touch.midX, y: layout.insets.top + 11)
         } else if landscape || typing {
             pill.position(x: layout.touch.midX, y: top + 25)
+                .onAppear { if overMac { tuckPillLater() } }
+                .onChange(of: overMac) { if $0 { tuckPillLater() } }
         } else {
             pill.position(x: layout.touch.midX, y: layout.touch.height - layout.insets.bottom - 34)
         }
@@ -599,6 +675,11 @@ struct SessionView: View {
         Sharing.prepare()
         EngineTuning.apply()
         henge_vm_set_display(UInt32(mac.screen.width), UInt32(mac.screen.height))
+        // About This Mac's chip: this device's ("Apple A20 Pro"), where it said "Apple M1 (Virtual)". henge-env.txt can name another.
+        if getenv("HV_SOC_NAME") == nil, let chip = Device.chipName {
+            setenv("HV_SOC_NAME", String(chip.prefix(31)), 1)
+            HengeLog.log("session", "chip name for the Mac: \(chip)")
+        }
         if mac.isRetina {
             henge_vm_set_display_mm(UInt32(Device.retinaMM.width), UInt32(Device.retinaMM.height))
         } else {

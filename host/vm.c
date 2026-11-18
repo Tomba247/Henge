@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "usb_host.h"
+#include "window.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -154,15 +155,16 @@ static int fail(char *err, size_t n, const char *msg) {
    there, for a crash report cannot. */
 static struct sigaction prior_ill, prior_bus, prior_segv;
 static void on_ill(int sig, siginfo_t *info, void *ctx) {
+    if (sig != SIGILL && hv_window_signal(&m, info, ctx)) return; /* a user page entering the window (window.c) */
     ucontext_t *uc = ctx;
     uint64_t pc = uc->uc_mcontext->__ss.__pc, rx = (uint64_t)(uintptr_t)m.jit.base, size = (uint64_t)m.jit.capacity * 4;
-    uint64_t used = (uint64_t)m.jit.used * 4;
+    uint64_t used = (uint64_t)hv_jit_extent(&m.jit) * 4;
     int in_rx = pc >= rx && pc < rx + size;
     int fetch = (uint64_t)(uintptr_t)info->si_addr == pc;
     if (sig == SIGILL || in_rx || fetch) {
-        fprintf(stderr, "hengevm: signal %d in translated code: pc %llx (rx %llx size %llx used %llx, pc is rx%+lld), full flushes %llu, lr %llx, addr %p\n",
+        fprintf(stderr, "hengevm: signal %d in translated code: pc %llx (rx %llx size %llx used %llx, pc is rx%+lld), full flushes %llu, evictions %llu, lr %llx, addr %p\n",
                 sig, (unsigned long long)pc, (unsigned long long)rx, (unsigned long long)size, (unsigned long long)used, (long long)(pc - rx),
-                (unsigned long long)m.stats.block_flushes, (unsigned long long)uc->uc_mcontext->__ss.__lr, info->si_addr);
+                (unsigned long long)m.stats.block_flushes, (unsigned long long)m.stats.evictions, (unsigned long long)uc->uc_mcontext->__ss.__lr, info->si_addr);
         for (int i = 0; i < 29; i++) fprintf(stderr, "x%d=%llx%c", i, (unsigned long long)uc->uc_mcontext->__ss.__x[i], i % 6 == 5 ? '\n' : ' ');
         fprintf(stderr, "\n");
         fprintf(stderr, "sp=%llx ram %llx size %llx\n", (unsigned long long)uc->uc_mcontext->__ss.__sp, (unsigned long long)(uintptr_t)board.ram, (unsigned long long)board.ram_size);
@@ -274,24 +276,30 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         signals_installed = 1;
     }
     signal(SIGPIPE, SIG_IGN); /* a guest connection closing at the far end must not end the machine */
+    fprintf(stderr, "henge: opening the disks\n");
     if (hv_disk_open(&disk, c->disk, 0, 0) != 0) return fail(err, errlen, "Cannot open the disk image.");
     if (!linux_mode && hv_disk_open(&aux, c->aux, c->aux_offset ? c->aux_offset : 16384, 0) != 0)
         return fail(err, errlen, "Cannot open the auxiliary storage.");
-    size_t jit = c->jit_bytes ? c->jit_bytes : (size_t)768 << 20;
+    size_t jit = c->jit_bytes ? c->jit_bytes : (size_t)1536 << 20; /* engine default code cache: 1536 MB; smaller defaults evict and retranslate through the boot translation storm */
     int r = c->jit_rx ? hv_machine_init_jit(&m, c->jit_rx, c->jit_rw, jit) : hv_machine_init(&m, jit);
     if (r != 0) return fail(err, errlen, "Cannot set up the JIT region.");
     m.log = c->log;
     m.gen_checks = getenv("HV_JIT_POISON") != NULL;
     if (getenv("HV_SLOW_MEM")) m.slow_mem = 1; /* debugging: every load and store through the helper */
     ncpus = c->ncpus < 1 ? 1 : c->ncpus > HV_MAX_CPUS ? HV_MAX_CPUS : c->ncpus;
+    fprintf(stderr, "henge: machine set up, %d CPUs\n", ncpus);
+    hv_window_reserve(&m, ncpus); /* HV_EL0_WINDOW: before any CPU resets (each takes its window then) */
     m.big_lock_on = ncpus > 1 && getenv("HV_BIG_LOCK"); /* debugging: one CPU in guest code at a time */
     HvCfgParams cfg = {.nr_cpus = (uint32_t)ncpus, .ecid = c->ecid, .seed = c->seed, .mac_en0 = {0x02, 0x48, 0x56, 0x4d, 0x00, 0x01}};
     if (c->installer) cfg.run_installer1 = cfg.run_installer2 = 1;
+    /* The chip About This Mac names (31 characters), when the host has a name for it. */
+    if (getenv("HV_SOC_NAME") && *getenv("HV_SOC_NAME")) cfg.soc_name = getenv("HV_SOC_NAME");
     if (getenv("HV_RUN_INSTALLER")) { /* experiment: "a,b" for the two installer words */
         unsigned a = 0, b2 = 0;
         sscanf(getenv("HV_RUN_INSTALLER"), "%u,%u", &a, &b2);
         cfg.run_installer1 = a, cfg.run_installer2 = b2;
     }
+    fprintf(stderr, "henge: building the board\n");
     static const uint8_t mac[6] = {0x02, 0x48, 0x56, 0x4d, 0x00, 0x01};
     if (linux_mode) {
         /* devices/linuxvirt.c: a real Linux kernel on the same engine and devices, the virtual Mac's
@@ -410,7 +418,7 @@ void hv_vm_cpu_qos(void) {
     /* HV_QOS=ui|init|default (testing): the class the guest's CPUs run at. */
     const char *q = getenv("HV_QOS");
 #if TARGET_OS_IPHONE
-    qos_class_t c = QOS_CLASS_USER_INITIATED;
+    qos_class_t c = QOS_CLASS_USER_INTERACTIVE;
 #else
     qos_class_t c = QOS_CLASS_DEFAULT;
 #endif
@@ -418,6 +426,13 @@ void hv_vm_cpu_qos(void) {
     else if (q && !strcmp(q, "init")) c = QOS_CLASS_USER_INITIATED;
     else if (q && !strcmp(q, "default")) c = QOS_CLASS_DEFAULT;
     if (c != QOS_CLASS_DEFAULT) pthread_set_qos_class_self_np(c, 0);
+    static int qos_logged;
+    if (!__atomic_load_n(&qos_logged, __ATOMIC_RELAXED)) {
+        __atomic_store_n(&qos_logged, 1, __ATOMIC_RELAXED);
+        fprintf(stderr, "henge: vCPU thread QoS: %s (from %s)\n",
+                c == QOS_CLASS_USER_INTERACTIVE ? "USER_INTERACTIVE" : c == QOS_CLASS_USER_INITIATED ? "USER_INITIATED" : "DEFAULT",
+                q ? "HV_QOS" : "default");
+    }
 }
 
 /* CPUs 1 and up: run whenever PSCI CPU_ON starts them; the machine stops with CPU 0. */
@@ -701,8 +716,23 @@ void hv_vm_key_hid(uint8_t usage, int down) {
     else hv_xhci_key(board.usb, usage, down);
 }
 
+/* macOS wakes a sleeping display for the USB keyboard but not for pointer input (the virtio mouse or the
+   USB trackpad). While the guest hasn't presented a frame for 3 s (its display is likely asleep), pointer
+   input also taps F20, a key macOS leaves unbound, at most once every two seconds. */
+static void wake_display_for_pointer(int held) {
+    static uint64_t wake_sent_ns;
+    HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
+    uint64_t last = pvg ? hv_pvg_lite_last_present_ns(pvg) : 0, now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
+    if (!last || held || now - last < 3000000000ull || now - wake_sent_ns < 2000000000ull) return;
+    wake_sent_ns = now;
+    fprintf(stderr, "hengevm: display asleep; pointer input tapped F20 to wake it\n");
+    hv_xhci_key(board.usb, 0x6f, 1);
+    hv_xhci_key(board.usb, 0x6f, 0);
+}
+
 static void move_now(void *ctx) {
     if (atomic_load(&input_stopping)) return;
+    wake_display_for_pointer(left_sent);
     int64_t packed = (int64_t)(intptr_t)ctx;
     int32_t dx = (int32_t)(packed >> 32), dy = (int32_t)packed;
     if (dx) hv_virtio_input_send(board.mouse, HV_EV_REL, HV_REL_X, dx);
@@ -770,12 +800,32 @@ void hv_vm_touch(int id, int phase, int x, int y, uint32_t ts_ms) {
     if (x > HV_TP_SENSOR_X) x = HV_TP_SENSOR_X;
     if (y < 0) y = 0;
     if (y > HV_TP_SENSOR_Y) y = HV_TP_SENSOR_Y;
+    wake_display_for_pointer(0);
     hv_xhci_touch(board.usb, id, phase, x, y, ts_ms);
 }
 
 void hv_vm_touch_frame(uint32_t ts_ms) { hv_xhci_touch_frame(board.usb, ts_ms); }
 
 void hv_vm_touch_button(int down) { hv_xhci_touch_button(board.usb, down); }
+
+void hv_vm_pointer_at(double x, double y) {
+    hv_xhci_pointer(board.usb, (int)(x * HV_PTR_MAX + 0.5), (int)(y * HV_PTR_MAX + 0.5));
+}
+
+void hv_vm_cursor_at(double x, double y) {
+    uint32_t at = 0xffffffff;
+    uint32_t mw = 0, mh = 0;
+    hv_pvg_lite_mode(&mw, &mh);
+    if (x >= 0 && y >= 0 && mw && mh) {
+        if (x > 1) x = 1;
+        if (y > 1) y = 1;
+        uint32_t px = (uint32_t)(x * (mw - 1) + 0.5), py = (uint32_t)(y * (mh - 1) + 0.5);
+        at = (px & 0xffff) | (py & 0xffff) << 16;
+    }
+    __atomic_store_n(&hv_pvg_cursor_at, at, __ATOMIC_RELEASE);
+    HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
+    if (pvg) hv_pvg_lite_cursor_redraw(pvg);
+}
 
 int hv_vm_pointer(int *x, int *y) {
     HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);

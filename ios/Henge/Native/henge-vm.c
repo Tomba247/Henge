@@ -183,7 +183,7 @@ int henge_vm_continue(void) {
 
 static int boot_or_resume(const char *rom, const char *disk, const char *aux, uint64_t ecid, uint64_t seed, uint64_t ram_mb,
                           int cpus, const char *resume, const char *ident, char *err, size_t errlen) {
-    { extern void hv_prof_ios_start(void); hv_prof_ios_start(); }
+    { extern void hv_prof_ios_start(void), hv_fault_bench(void), hv_log_va_range(void); hv_log_va_range(); hv_fault_bench(); hv_prof_ios_start(); }
     if (begin_start(err, errlen)) return -1;
     HengeDualMapping *jit = henge_ios_jit_get_mapping();
     if (!jit || !jit->rw_addr) {
@@ -449,6 +449,18 @@ void henge_vm_touch_frame(uint32_t ts_ms) {
 void henge_vm_touch_button(int down) {
     if (!lock_running()) return;
     hv_vm_touch_button(down);
+    pthread_rwlock_unlock(&api_lock);
+}
+extern int hv_pvg_cursor_hidden;
+void henge_vm_hide_cursor(int hidden) {
+    __atomic_store_n(&hv_pvg_cursor_hidden, hidden ? 1 : 0, __ATOMIC_RELEASE);
+}
+void henge_vm_cursor_at(double x, double y) {
+    hv_vm_cursor_at(x, y); /* only a stored place and a redraw request: safe whether or not a Mac runs */
+}
+void henge_vm_pointer_at(double x, double y) {
+    if (!lock_running()) return;
+    hv_vm_pointer_at(x, y);
     pthread_rwlock_unlock(&api_lock);
 }
 void henge_vm_set_display_layer(void *layer) {

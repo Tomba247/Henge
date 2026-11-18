@@ -46,6 +46,11 @@ static uint64_t tick(HvMachine *m, HvCpu *cpu) {
     return deadline;
 }
 
+/* Timer registers written: only the timers, without the device lock (as the virtual Mac's timer_tick). */
+static uint64_t timer_tick(HvMachine *m, HvCpu *cpu) {
+    return hv_timer_update(((HvLinuxVirt *)m->tick_opaque)->board->gic, cpu);
+}
+
 int hv_linuxvirt_create(HvLinuxVirt *lv, HvVmapple *b, HvMachine *m, HvCpu *cpus, const HvLinuxVirtConfig *c) {
     memset(lv, 0, sizeof *lv);
     lv->board = b;
@@ -81,6 +86,7 @@ int hv_linuxvirt_create(HvLinuxVirt *lv, HvVmapple *b, HvMachine *m, HvCpu *cpus
         lv->fb = b->ram + (lv->fb_pa - LV_MEM);
     }
     m->tick = tick;
+    m->timer_tick = timer_tick;
     m->tick_opaque = lv;
     cpus[0].m = m;
     return 0;
