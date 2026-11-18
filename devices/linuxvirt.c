@@ -74,7 +74,7 @@ int hv_linuxvirt_create(HvLinuxVirt *lv, HvVmapple *b, HvMachine *m, HvCpu *cpus
     /* PCIe slots in this order (slot s raises SPI 0x20 + s): disk, network, USB, keyboard, mouse, sound. */
     if (c->disk && !(b->root_blk = hv_virtio_blk_create(m, b->pcie, c->disk, HV_VBLK_PLAIN))) return -1;
     if (c->mac) b->net = hv_virtio_net_create(m, b->pcie, c->mac);
-    if (c->usb) b->usb = hv_xhci_create(m, b->pcie);
+    if (c->usb && (b->usb = hv_xhci_create(m, b->pcie))) hv_xhci_spec_ports(b->usb, 1);
     b->keyboard = hv_virtio_input_create(m, b->pcie, HV_VINPUT_KEYBOARD);
     b->mouse = hv_virtio_input_create(m, b->pcie, HV_VINPUT_MOUSE);
     if (c->sound) b->snd = hv_virtio_snd_create(m, b->pcie);

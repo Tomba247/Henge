@@ -15,7 +15,7 @@
 #
 # Manual (Actions tab > Linux machine > Run workflow, once this file is on the
 # default branch), and on pushes to the Linux machine's branch that touch it
-# (a server image then). Free on a public repo: arm64 runners are standard
+# (the Xfce desktop image then). Free on a public repo: arm64 runners are standard
 # runners there.
 
 name: Linux machine
@@ -84,7 +84,7 @@ jobs:
           set -euo pipefail
           kernel=""
           if [ -f kernel/Image ]; then kernel="--kernel-dir kernel"; fi
-          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '8G' }}" ${{ inputs.desktop && '--desktop' || '' }} $kernel
+          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '16G' }}" ${{ (github.event_name == 'push' || inputs.desktop) && '--desktop' || '' }} $kernel
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine
           cat machine/machine.json
@@ -116,7 +116,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: henge-ubuntu-${{ inputs.desktop && 'xfce' || 'server' }}-${{ github.sha }}
+          name: henge-ubuntu-${{ (github.event_name == 'push' || inputs.desktop) && 'xfce' || 'server' }}-${{ github.sha }}
           path: machine/
           retention-days: 14
           compression-level: 0

@@ -816,6 +816,11 @@ static void reset(HvXhci *x) {
     update_irq(x);
 }
 
+/* hv_xhci_spec_ports: the port count as the xHCI specification has it (the Linux machine). Not in HvXhci,
+   whose size instant resume checks; reset by hv_xhci_create, and one controller exists at a time. */
+static int spec_port_count;
+void hv_xhci_spec_ports(HvXhci *x, int on) { (void)x; spec_port_count = on; }
+
 static uint64_t bar_read(HvPciDev *d, int bar, uint64_t off, unsigned size) {
     HvXhci *x = d->opaque;
     if (bar != 0) return 0;
@@ -840,7 +845,10 @@ static uint64_t bar_read(HvPciDev *d, int bar, uint64_t off, unsigned size) {
         if (size == 8 && i + 1 < 8) v |= (uint64_t)cap[i + 1] << 32;
         v >>= 8 * (off & 3);
     } else if (off >= XECP && off < XECP + 16) { /* Supported Protocol: USB 2.0 on every port */
-        static const uint32_t ext[4] = {2u | 0x0200u << 16, 0x20425355, 1u | ((1u << HV_XHCI_PORTS) - 1u) << 8, 0};
+        /* Dword 2 is compatible port offset (1) and count. The virtual Mac's has always said 7, which macOS
+           takes; Linux drops a range past MaxPorts and then finds no ports at all, so its machine gets 3. */
+        uint32_t count = spec_port_count ? HV_XHCI_PORTS : (1u << HV_XHCI_PORTS) - 1u;
+        const uint32_t ext[4] = {2u | 0x0200u << 16, 0x20425355, 1u | count << 8, 0};
         uint32_t i = (uint32_t)(off - XECP) / 4;
         v = ext[i];
         if (size == 8 && i + 1 < 4) v |= (uint64_t)ext[i + 1] << 32;
@@ -1032,6 +1040,19 @@ void hv_xhci_key_linux(HvXhci *x, uint16_t code, int down) {
     if (code < 256) hv_xhci_key(x, linux_to_hid[code], down);
 }
 
+uint16_t hv_xhci_hid_to_linux(uint8_t usage) {
+    static uint16_t table[256];
+    static int made;
+    if (!__atomic_load_n(&made, __ATOMIC_ACQUIRE)) {
+        uint16_t t[256] = {0};
+        for (int code = 255; code > 0; code--) /* the lowest Linux code where two share a usage */
+            if (linux_to_hid[code]) t[linux_to_hid[code]] = (uint16_t)code;
+        memcpy(table, t, sizeof table);
+        __atomic_store_n(&made, 1, __ATOMIC_RELEASE);
+    }
+    return table[usage];
+}
+
 /* ---- the Magic Trackpad 2's reports ---- */
 
 /* Build the current report into out: a 12-byte prefix (report ID 2, the press,
@@ -1183,6 +1204,7 @@ void hv_xhci_poll(HvXhci *x) {
 }
 
 HvXhci *hv_xhci_create(HvMachine *m, HvPcie *bus) {
+    spec_port_count = 0;
     HvXhci *x = calloc(1, sizeof *x);
     x->m = m;
     pthread_mutex_init(&x->mu, NULL);

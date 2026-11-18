@@ -62,6 +62,30 @@ Kernel: Ubuntu 24.04's stock `linux-image-unsigned-6.8.0-149-generic` (arm64).
 
 Not tried yet: a phone, input, network, sound, the desktop.
 
+## The kernel: 16 KB pages
+
+HengeVM's software TLB keeps 16 KB pages, macOS's and the iPhone's size; a guest
+mapping smaller pages takes the slow path, a table walk, on every access
+(`core/mmu.c`, `tlb_fill`). Ubuntu's stock arm64 kernel uses 4 KB pages, so its
+user space crawled: on the arm64 CI runner one boot service (AppArmor compiling
+snap profiles) took 18 minutes. `tools/linux/build-kernel.sh` builds Linux (6.12
+long-term) from arm64 defconfig plus `tools/linux/henge-kernel.config`: 16 KB
+pages, a 47-bit VA (three table levels, as macOS), the machine's devices built in,
+and what Ubuntu needs. The same BusyBox work on the engine (qemu-aarch64 host,
+guest seconds):
+
+| | Ubuntu 6.8, 4 KB pages | Henge 6.12, 16 KB pages |
+| --- | --- | --- |
+| shell loop (3000 iterations) | 1.97 s | 0.02 s |
+| gzip of 16 MB | 25.6 s | 0.14 s |
+| md5 + sha256 of 4 MB | 9.3 s | 0.05 s |
+
+With it, Ubuntu 24.04 boots to its signed-in console with systemd and snapd in
+under a minute on the arm64 runner (4 CPUs, 4 GB).
+
+User space is Ubuntu's own. Programs that assume 4 KB pages (a few allocators and
+JITs built that way) may not run on a 16 KB kernel, as on Asahi Linux.
+
 ## An Ubuntu machine
 
 `tools/linux/make-ubuntu-disk.sh` makes a folder the app brings in, from Ubuntu
@@ -102,9 +126,17 @@ What runs on the phone, and how:
 - **Display:** the simple-framebuffer, handed to `BootDisplay.swift` through
   `hv_vm_boot_display` (32-bit BGRA, as the Mac's boot framebuffer). The guest
   draws with the CPU: no GPU acceleration yet.
-- **Input:** the Mac's xHCI controller with its USB keyboard and Magic Trackpad 2
-  (Linux: `xhci_pci`, `usbhid`, `hid-magicmouse`; libinput gives two-finger
-  scrolling and gestures), and virtio-input for the relative mouse.
+- **Input:** for now the virtio keyboard and mouse (`host/vm.c`, "Input for the
+  Linux machine"): keys from the app's on-screen and hardware keyboards go to the
+  virtio keyboard; on the iPhone trackpad one finger moves the pointer, two
+  scroll, a tap clicks and a two-finger tap right-clicks.
+- **USB (off):** the Mac's xHCI controller with its USB keyboard and Magic
+  Trackpad 2 would give Linux the trackpad itself (`hid-magicmouse`, libinput's
+  gestures). Linux finds its ports once the Supported Protocol capability gives a
+  port count rather than a mask (`hv_xhci_spec_ports`), but then a transfer event
+  pointing at an earlier TD than the one its driver waits for leads it to a
+  stale command and a panic (`hengelinux --usb` shows it). macOS's driver
+  tolerates the same events.
 - **Network and sound:** virtio-net on the user-mode network, virtio-snd.
 
 ## Next

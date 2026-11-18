@@ -5,7 +5,10 @@
    (make linux-test, which also runs under qemu-aarch64 on an x86 host).
 
      hengelinux --kernel Image [--initrd initrd] [--disk disk.img] [--ram MB]
-                [--cpus N] [--append "console=ttyAMA0 ..."] [--fb WxH]
+                [--cpus N] [--append "console=ttyAMA0 ..."] [--fb WxH] [--usb]
+
+   --usb adds the xHCI controller with the USB keyboard and trackpad, which
+   Linux's driver does not get along with yet (docs/linux-machine.md).
 */
 #include <errno.h>
 #include <pthread.h>
@@ -102,6 +105,7 @@ int main(int argc, char **argv) {
     uint64_t ram_mb = 1024;
     int ncpus = 1;
     unsigned fbw = 0, fbh = 0;
+    int usb = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
         if (!strcmp(a, "--kernel") && v) kernel = v, i++;
@@ -111,8 +115,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--ram") && v) ram_mb = strtoull(v, NULL, 0), i++;
         else if (!strcmp(a, "--cpus") && v) ncpus = atoi(v), i++;
         else if (!strcmp(a, "--fb") && v) sscanf(v, "%ux%u", &fbw, &fbh), i++;
+        else if (!strcmp(a, "--usb")) usb = 1;
         else {
-            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH]\n", argv[0]);
+            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb]\n", argv[0]);
             return 2;
         }
     }
@@ -136,7 +141,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     m.log = getenv("HV_LOG") != NULL;
-    HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL, .usb = 1, .sound = 1,
+    HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL, .usb = usb, .sound = 1,
                              .fb_width = fbw, .fb_height = fbh, .cmdline = append};
     char err[200];
     if (hv_linuxvirt_create(&lv, &board, &m, cpus, &cfg) != 0) {

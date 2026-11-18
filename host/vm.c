@@ -308,7 +308,8 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         memset(&board, 0, sizeof board);
         board.ram_fd = -1;
         if (hv_vmapple_alloc_ram(&board, ram) != 0) return fail(err, errlen, "Not enough memory for the guest's RAM.");
-        HvLinuxVirtConfig lc = {.ncpus = ncpus, .ram_size = ram, .disk = &disk, .mac = mac, .usb = 1, .sound = !c->no_sound,
+        /* .usb: the xHCI controller's transfer events confuse Linux's driver (docs/linux-machine.md): off for now. */
+        HvLinuxVirtConfig lc = {.ncpus = ncpus, .ram_size = ram, .disk = &disk, .mac = mac, .usb = 0, .sound = !c->no_sound,
                                 .fb_width = c->fb_width ? c->fb_width : 1280, .fb_height = c->fb_height ? c->fb_height : 800,
                                 .cmdline = c->linux_cmdline && *c->linux_cmdline ? c->linux_cmdline
                                                                                  : "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"};
@@ -706,13 +707,95 @@ static void rctrl_hold(int *owner, int down) {
     os_unfair_lock_unlock(&rctrl_lock);
 }
 
+/* ---- Input for the Linux machine ----
+   Its USB controller is left out for now (Linux's xHCI driver and the emulated controller disagree about
+   transfer events), so keys go to the virtio keyboard and the iPhone trackpad's fingers drive the virtio
+   mouse: one finger moves the pointer, two scroll (content follows the fingers, as on iOS), a quick tap
+   clicks and a two-finger tap right-clicks. The press (volume buttons) is the left button. */
+#define LX_FINGERS 10
+static pthread_mutex_t lx_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct { int id, x, y, lx, ly; } lx_finger[LX_FINGERS];
+static int lx_down, lx_tap_fingers, lx_tap_moved, lx_tap_travel, lx_acc_x, lx_acc_y, lx_acc_wheel, lx_acc_hwheel;
+static uint64_t lx_tap_ns;
+enum { LX_PTR_NUM = 24, LX_PTR_DEN = 100 }; /* pad units to pixels: a swipe across the pad is ~1.5 screens wide */
+enum { LX_WHEEL_UNITS = 220, LX_TAP_MS = 220, LX_TAP_SLOP = 160 };
+
+static void lx_key(uint16_t code, int down) {
+    if (!board.keyboard || !code) return;
+    hv_virtio_input_send(board.keyboard, HV_EV_KEY, code, down);
+    hv_virtio_input_send(board.keyboard, HV_EV_SYN, 0, 0);
+}
+
+static void lx_button(uint16_t button, int down) {
+    hv_virtio_input_send(board.mouse, HV_EV_KEY, button, down);
+    hv_virtio_input_send(board.mouse, HV_EV_SYN, 0, 0);
+}
+
+static void lx_touch(int id, int phase, int x, int y) {
+    pthread_mutex_lock(&lx_mu);
+    int i = 0;
+    while (i < lx_down && lx_finger[i].id != id) i++;
+    if (phase == 0 && i == lx_down && lx_down < LX_FINGERS) {
+        if (!lx_down) {
+            lx_tap_ns = clock_gettime_nsec_np(CLOCK_MONOTONIC);
+            lx_tap_fingers = 0, lx_tap_moved = 0, lx_tap_travel = 0;
+            lx_acc_x = lx_acc_y = lx_acc_wheel = lx_acc_hwheel = 0;
+        }
+        lx_finger[lx_down].id = id;
+        lx_finger[lx_down].x = lx_finger[lx_down].lx = x;
+        lx_finger[lx_down].y = lx_finger[lx_down].ly = y;
+        lx_down++;
+        if (lx_down > lx_tap_fingers) lx_tap_fingers = lx_down;
+    } else if (phase == 1 && i < lx_down) {
+        lx_finger[i].x = x, lx_finger[i].y = y;
+    } else if (phase == 2 && i < lx_down) {
+        lx_finger[i] = lx_finger[--lx_down];
+        if (!lx_down && !lx_tap_moved && clock_gettime_nsec_np(CLOCK_MONOTONIC) - lx_tap_ns < LX_TAP_MS * 1000000ull) {
+            uint16_t b = lx_tap_fingers >= 2 ? HV_BTN_RIGHT : HV_BTN_LEFT;
+            lx_button(b, 1);
+            lx_button(b, 0);
+        }
+    }
+    pthread_mutex_unlock(&lx_mu);
+}
+
+static void lx_touch_frame(void) {
+    pthread_mutex_lock(&lx_mu);
+    int n = lx_down, dx = 0, dy = 0;
+    for (int i = 0; i < n; i++) {
+        dx += lx_finger[i].x - lx_finger[i].lx, dy += lx_finger[i].y - lx_finger[i].ly;
+        lx_finger[i].lx = lx_finger[i].x, lx_finger[i].ly = lx_finger[i].y;
+    }
+    if (n) dx /= n, dy /= n;
+    lx_tap_travel += abs(dx) + abs(dy); /* a touch that travelled is a move or a scroll, not a tap */
+    if (lx_tap_travel > LX_TAP_SLOP) lx_tap_moved = 1;
+    if (n == 1 && (dx || dy)) {
+        lx_acc_x += dx * LX_PTR_NUM, lx_acc_y += dy * LX_PTR_NUM;
+        int px = lx_acc_x / LX_PTR_DEN, py = lx_acc_y / LX_PTR_DEN;
+        lx_acc_x -= px * LX_PTR_DEN, lx_acc_y -= py * LX_PTR_DEN;
+        if (px) hv_virtio_input_send(board.mouse, HV_EV_REL, HV_REL_X, px);
+        if (py) hv_virtio_input_send(board.mouse, HV_EV_REL, HV_REL_Y, py);
+        if (px || py) hv_virtio_input_send(board.mouse, HV_EV_SYN, 0, 0);
+    } else if (n >= 2 && (dx || dy)) {
+        lx_acc_wheel += dy, lx_acc_hwheel -= dx;
+        int w = lx_acc_wheel / LX_WHEEL_UNITS, h = lx_acc_hwheel / LX_WHEEL_UNITS;
+        lx_acc_wheel -= w * LX_WHEEL_UNITS, lx_acc_hwheel -= h * LX_WHEEL_UNITS;
+        if (w) hv_virtio_input_send(board.mouse, HV_EV_REL, HV_REL_WHEEL, w);
+        if (h) hv_virtio_input_send(board.mouse, HV_EV_REL, HV_REL_HWHEEL, h);
+        if (w || h) hv_virtio_input_send(board.mouse, HV_EV_SYN, 0, 0);
+    }
+    pthread_mutex_unlock(&lx_mu);
+}
+
 void hv_vm_key(uint16_t code, int down) {
-    if (code == LINUX_KEY_RIGHTCTRL) rctrl_hold(&rctrl_user, down);
+    if (linux_mode) lx_key(code, down);
+    else if (code == LINUX_KEY_RIGHTCTRL) rctrl_hold(&rctrl_user, down);
     else hv_xhci_key_linux(board.usb, code, down);
 }
 
 void hv_vm_key_hid(uint8_t usage, int down) {
-    if (usage == HID_RIGHT_CONTROL) rctrl_hold(&rctrl_user, down);
+    if (linux_mode) lx_key(hv_xhci_hid_to_linux(usage), down);
+    else if (usage == HID_RIGHT_CONTROL) rctrl_hold(&rctrl_user, down);
     else hv_xhci_key(board.usb, usage, down);
 }
 
@@ -800,15 +883,26 @@ void hv_vm_touch(int id, int phase, int x, int y, uint32_t ts_ms) {
     if (x > HV_TP_SENSOR_X) x = HV_TP_SENSOR_X;
     if (y < 0) y = 0;
     if (y > HV_TP_SENSOR_Y) y = HV_TP_SENSOR_Y;
+    if (linux_mode) {
+        lx_touch(id, phase, x, y);
+        return;
+    }
     wake_display_for_pointer(0);
     hv_xhci_touch(board.usb, id, phase, x, y, ts_ms);
 }
 
-void hv_vm_touch_frame(uint32_t ts_ms) { hv_xhci_touch_frame(board.usb, ts_ms); }
+void hv_vm_touch_frame(uint32_t ts_ms) {
+    if (linux_mode) lx_touch_frame();
+    else hv_xhci_touch_frame(board.usb, ts_ms);
+}
 
-void hv_vm_touch_button(int down) { hv_xhci_touch_button(board.usb, down); }
+void hv_vm_touch_button(int down) {
+    if (linux_mode) lx_button(HV_BTN_LEFT, down);
+    else hv_xhci_touch_button(board.usb, down);
+}
 
 void hv_vm_pointer_at(double x, double y) {
+    if (linux_mode) return; /* no absolute pointer device on the Linux machine yet: the mouse moves it */
     hv_xhci_pointer(board.usb, (int)(x * HV_PTR_MAX + 0.5), (int)(y * HV_PTR_MAX + 0.5));
 }
 

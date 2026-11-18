@@ -92,6 +92,10 @@ typedef struct HvXhci {
 } HvXhci;
 
 HvXhci *hv_xhci_create(HvMachine *m, HvPcie *bus);
+/* Report the port count the way the xHCI specification has it, which Linux needs (devices/linuxvirt.c). */
+void hv_xhci_spec_ports(HvXhci *x, int on);
+/* The Linux key code for a HID keyboard usage (the inverse of the table hv_xhci_key_linux uses), or 0. */
+uint16_t hv_xhci_hid_to_linux(uint8_t usage);
 /* Any thread: a key went down or up (HID usage page 7 usage, e.g. 4 = A; 0xe0-0xe7 are modifiers). */
 void hv_xhci_key(HvXhci *x, uint8_t usage, int down);
 /* The same, by Linux input key code (what the host UI produces). */
