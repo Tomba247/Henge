@@ -82,8 +82,6 @@ struct SettingsView: View {
                             Slider(value: $scrollSpeed, in: 0.1...1.5)
                         }
                         Toggle("Swap physical right and middle buttons", isOn: $swapMouseButtons)
-                        Toggle("iPhone mouse: one pointer (AssistiveTouch's)", isOn: $followAssistiveTouch)
-                        Toggle("iPhone mouse: Madeira's way (mouse motion only)", isOn: $madeiraMouse)
                         Text("Only enable this if your physical mouse's right and middle buttons are reversed in the Mac. Touch controls stay unchanged. Restart the Mac session to apply.")
                             .font(.footnote).foregroundStyle(.secondary)
                         Text("A Magic Keyboard or a Bluetooth mouse moves the Mac's pointer. Pointer speed changes apply the next time a Mac starts; scroll speed changes apply immediately.")
@@ -92,6 +90,18 @@ struct SettingsView: View {
                     .listRowBackground(Desk.card)
                 }
                 if !Device.isPad {
+                    Section("Mouse") {
+                        Toggle("One pointer (AssistiveTouch's)", isOn: $followAssistiveTouch)
+                        Toggle("Madeira's way (mouse motion only)", isOn: $madeiraMouse)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Mouse speed")
+                            Slider(value: $mouseSpeed, in: 0.5...3)
+                        }
+                        Toggle("Reverse scrolling", isOn: $reverseScrolling)
+                        Text("A mouse works through AssistiveTouch. With one pointer on, the Mac's own pointer is hidden and follows AssistiveTouch's; if it runs ahead or behind, change the mouse speed. Changes apply the next time a Mac starts.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Desk.card)
                     Section("Trackpad") {
                         Picker("Input mode", selection: $inputMode) {
                             Text("Touchscreen").tag(VolumeClicks.InputMode.touchscreen)
