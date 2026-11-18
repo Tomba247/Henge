@@ -205,7 +205,12 @@ enum PhonePointer {
     private(set) static var status = "not run"
 
     static func install() {
-        guard !Device.isPad, original == nil else { return }
+        // Madeira's way (the default) doesn't use hover, and with the drivers attached the trackpad's hidden pointer
+        // style reaches AssistiveTouch's pointer: it vanished whenever the mouse slowed. Madeira leaves this off too.
+        guard !Device.isPad, original == nil, !AbsolutePointer.madeiraWay else {
+            if !Device.isPad { status = "off (Madeira's way)"; HengeLog.log("input", "phone pointer: \(status)") }
+            return
+        }
         let selector = NSSelectorFromString("_updateInteractionIsEnabled")
         guard let method = class_getInstanceMethod(UIPointerInteraction.self, selector) else {
             status = "unavailable"

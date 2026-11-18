@@ -74,7 +74,9 @@ struct Trackpad: UIViewRepresentable {
         }
 
         /// Over the Mac there is only the Mac's pointer, if iPadOS hasn't locked its own away.
-        func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? { .hidden() }
+        func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+            Device.isPad ? .hidden() : nil // iPhone: AssistiveTouch's pointer is the one pointer, so it stays shown
+        }
 
         /// One region, the whole surface, so the hidden style never lapses back to the system pointer between regions.
         func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest,
