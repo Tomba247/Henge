@@ -11,8 +11,10 @@
 # 4. uploads the machine folder (Image, disk.img.hvsparse, machine.json) for
 #    the app to import, and the boot log.
 #
-# Manual only (Actions tab > Linux machine > Run workflow). Free on a public
-# repo: arm64 runners are standard runners there.
+# Manual (Actions tab > Linux machine > Run workflow, once this file is on the
+# default branch), and on pushes to the Linux machine's branch that touch it
+# (a server image then). Free on a public repo: arm64 runners are standard
+# runners there.
 
 name: Linux machine
 
@@ -31,6 +33,16 @@ on:
         description: "CPUs for the boot test"
         type: string
         default: "4"
+  push:
+    branches: ["claude/linux-runner-crash-flumcd"]
+    paths:
+      - "core/**"
+      - "devices/linuxvirt.*"
+      - "devices/fdt.*"
+      - "host/linux/**"
+      - "tools/hengelinux.c"
+      - "tools/linux/**"
+      - ".github/workflows/linux-machine.yml"
 
 jobs:
   ubuntu:
@@ -50,7 +62,7 @@ jobs:
       - name: Make the Ubuntu machine
         run: |
           set -euo pipefail
-          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size }}" ${{ inputs.desktop && '--desktop' || '' }}
+          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '8G' }}" ${{ inputs.desktop && '--desktop' || '' }}
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine
           cat machine/machine.json
@@ -61,7 +73,7 @@ jobs:
           # A copy, so the machine handed out has never been booted.
           cp --sparse=always machine/disk.img boot-test.img
           timeout 3600 build/linux/hengelinux --kernel machine/Image --disk boot-test.img \
-              --cpus "${{ inputs.cpus }}" --ram 4096 --fb 1280x800 \
+              --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot.log
           rm -f boot-test.img
