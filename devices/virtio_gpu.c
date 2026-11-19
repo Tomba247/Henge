@@ -157,7 +157,7 @@ static int from_backing(const Res *r, uint64_t at, uint8_t *dst, uint64_t len) {
 }
 
 /* One pixel of a virtio format (named by byte order in memory) as B, G, R, A. */
-static void to_bgra(uint32_t format, const uint8_t *s, uint8_t *d, uint32_t n) {
+void hv_vgpu_to_bgra(uint32_t format, const uint8_t *s, uint8_t *d, uint32_t n) {
     switch (format) {
     case 1: case 2: /* B8G8R8A8, B8G8R8X8: as is */
         memcpy(d, s, (size_t)n * 4);
@@ -195,7 +195,7 @@ static void update_screen(HvVirtioGpu *g, Res *r, uint32_t x, uint32_t y, uint32
     uint32_t dx = x0 - g->sx, dy = y0 - g->sy, cw = x1 - x0, ch = y1 - y0;
     if (r->data) {
         for (uint32_t row = 0; row < ch; row++)
-            to_bgra(r->format, r->data + ((uint64_t)(y0 + row) * r->width + x0) * 4,
+            hv_vgpu_to_bgra(r->format, r->data + ((uint64_t)(y0 + row) * r->width + x0) * 4,
                     s->pixels + ((uint64_t)(dy + row) * s->width + dx) * 4, cw);
     } else if (g->has_gl && g->gl.read_pixels) {
         g->gl.read_pixels(g->gl.opaque, r->id, x0, y0, cw, ch, s->pixels + ((uint64_t)dy * s->width + dx) * 4, s->width * 4);
@@ -230,7 +230,7 @@ static void cursor_image(HvVirtioGpu *g, uint32_t res, uint32_t hx, uint32_t hy)
         memset(g->cursor, 0, sizeof g->cursor);
         uint32_t w = r->width < 64 ? r->width : 64, h = r->height < 64 ? r->height : 64;
         if (r->data) {
-            for (uint32_t row = 0; row < h; row++) to_bgra(r->format, r->data + (uint64_t)row * r->width * 4, g->cursor + row * 256, w);
+            for (uint32_t row = 0; row < h; row++) hv_vgpu_to_bgra(r->format, r->data + (uint64_t)row * r->width * 4, g->cursor + row * 256, w);
             g->cursor_on = 1;
         } else if (g->has_gl && g->gl.read_pixels) {
             g->cursor_on = g->gl.read_pixels(g->gl.opaque, res, 0, 0, w, h, g->cursor, 256) == 0;

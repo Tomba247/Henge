@@ -73,5 +73,7 @@ void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, void (*present)(void *opaque, c
 int hv_virtio_gpu_cursor(HvVirtioGpu *g, uint8_t out[64 * 64 * 4], uint32_t *hot_x, uint32_t *hot_y, int32_t *x, int32_t *y);
 /* The size the guest is told its display prefers (e.g. the phone turned): a display change event. Any thread. */
 void hv_virtio_gpu_set_size(HvVirtioGpu *g, uint32_t width, uint32_t height);
+/* n pixels of a virtio-gpu (= Gallium/virgl) format, named by byte order in memory, as B, G, R, A. */
+void hv_vgpu_to_bgra(uint32_t format, const uint8_t *s, uint8_t *d, uint32_t n);
 
 #endif

@@ -10,7 +10,7 @@
    --usb adds the xHCI controller with the USB keyboard and trackpad, which
    Linux's driver does not get along with yet (docs/linux-machine.md). --gpu
    makes virtio-gpu the display (--fb then the size it prefers) instead of the
-   framebuffer.
+   framebuffer, and --virgl gives it 3D through the host's virglrenderer.
 */
 #include <errno.h>
 #include <pthread.h>
@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include "dispatch.h"
+#include "vgpu_virgl.h"
 #include "linuxvirt.h"
 #include "machine.h"
 
@@ -153,7 +154,7 @@ int main(int argc, char **argv) {
     uint64_t ram_mb = 1024;
     int ncpus = 1;
     unsigned fbw = 0, fbh = 0;
-    int usb = 0, gpu = 0;
+    int usb = 0, gpu = 0, virgl = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
         if (!strcmp(a, "--kernel") && v) kernel = v, i++;
@@ -165,8 +166,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--fb") && v) sscanf(v, "%ux%u", &fbw, &fbh), i++;
         else if (!strcmp(a, "--usb")) usb = 1;
         else if (!strcmp(a, "--gpu")) gpu = 1;
+        else if (!strcmp(a, "--virgl")) gpu = virgl = 1;
         else {
-            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb] [--gpu]\n", argv[0]);
+            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb] [--gpu] [--virgl]\n", argv[0]);
             return 2;
         }
     }
@@ -193,10 +195,17 @@ int main(int argc, char **argv) {
     HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL, .usb = usb, .sound = 1, .gpu = gpu,
                              .fb_width = fbw, .fb_height = fbh, .cmdline = append};
     char err[200];
+    static HvVgpu3d gl;
+    HvVgpuVirgl *vg = NULL;
+    if (virgl) { /* 3D through the host's virglrenderer (built with make linux-test LX_VIRGL=1) */
+        if ((vg = hv_vgpu_virgl_create(&gl, getenv("HV_VIRGL_GLES") != NULL))) cfg.gl = &gl;
+        else fprintf(stderr, "hengelinux: no virgl renderer (not built with LX_VIRGL=1, or no EGL): 2D only\n");
+    }
     if (hv_linuxvirt_create(&lv, &board, &m, cpus, &cfg) != 0) {
         fprintf(stderr, "hengelinux: cannot build the machine\n");
         return 1;
     }
+    hv_vgpu_virgl_bind(vg, lv.gpu);
     if (hv_linuxvirt_boot(&lv, &cfg, image, image_len, rd, initrd_len, err, sizeof err) != 0) {
         fprintf(stderr, "hengelinux: %s\n", err);
         return 1;

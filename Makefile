@@ -296,13 +296,20 @@ test-gesture-engine: $(B)/test_gesture_engine
 #   make linux-test   (LXCC=aarch64-linux-gnu-gcc by default)
 #   qemu-aarch64 -cpu max build/linux/hengelinux --kernel Image --initrd initrd.gz
 # host/linux/ stands in for the few Mach and Apple headers the engine includes.
+# LX_VIRGL=1 adds 3D for virtio-gpu through the host's virglrenderer (linked dynamically then: EGL, Mesa).
 LXCC ?= aarch64-linux-gnu-gcc
 LXB = $(B)/linux
 LXFLAGS = -std=gnu11 -O2 -g -Wall -Wno-unused-parameter -Ihost/linux -include host/linux/compat.h -Icore -Ihost -Idevices
 LX_SRC = $(filter-out core/window.c,$(wildcard core/*.c)) host/linux/window_stub.c host/jit_region.c host/disk.c host/linux/ulock.c devices/gicv3.c devices/timer.c \
          devices/pl011.c devices/pl031.c devices/pcie.c devices/virtio.c devices/virtio_blk.c devices/virtio_net.c \
-         devices/virtio_input.c devices/virtio_snd.c devices/xhci.c devices/fdt.c devices/linuxvirt.c devices/virtio_gpu.c tools/hengelinux.c
+         devices/virtio_input.c devices/virtio_snd.c devices/xhci.c devices/fdt.c devices/linuxvirt.c devices/virtio_gpu.c devices/vgpu_virgl.c tools/hengelinux.c
 LX_OBJ = $(patsubst %.c,$(LXB)/%.o,$(LX_SRC)) $(LXB)/enter.o
+ifeq ($(LX_VIRGL),1)
+LXFLAGS += -DHV_VIRGL $(shell pkg-config --cflags virglrenderer)
+LX_LINK = $(shell pkg-config --libs virglrenderer)
+else
+LX_LINK = -static
+endif
 $(LXB)/%.o: %.c core/*.h host/*.h devices/*.h host/linux/*.h host/linux/*/*.h
 	@mkdir -p $(dir $@)
 	$(LXCC) $(LXFLAGS) -c $< -o $@
@@ -312,6 +319,6 @@ $(LXB)/enter.o: host/enter.S
 	sed 's/\b_hv_/hv_/g' $< > $(LXB)/enter.S
 	$(LXCC) -c $(LXB)/enter.S -o $@
 $(LXB)/hengelinux: $(LX_OBJ)
-	$(LXCC) -static -o $@ $(LX_OBJ) -lpthread -latomic
+	$(LXCC) $(filter -static,$(LX_LINK)) -o $@ $(LX_OBJ) -lpthread -latomic $(filter-out -static,$(LX_LINK))
 linux-test: $(LXB)/hengelinux
 .PHONY: linux-test

@@ -137,7 +137,7 @@ After=multi-user.target
 Type=oneshot
 StandardOutput=tty
 TTYPath=/dev/ttyAMA0
-ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; if systemctl -q is-enabled lightdm 2>/dev/null; then for i in $(seq 1 120); do pgrep -x xfce4-panel >/dev/null && break; sleep 1; done; sleep 15; echo "desktop: $(pgrep -x xfce4-panel >/dev/null && echo "Xfce panel up after about $i s" || echo "no Xfce panel after 120 s")"; echo "=== henge-autotest: screenshot ==="; sleep 2; ps -eo comm= | grep -xE "Xorg|lightdm|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|pulseaudio|plank" | sort | uniq | tr "\n" " "; echo; echo "display: $(for d in /sys/class/drm/card[0-9]; do basename "$(readlink -f $d/device/driver)"; done | tr "\n" " ")"; grep -hE "LoadModule: .(modesetting|fbdev).|glamor|Output .* connected|using drmmode|Not using" /var/log/Xorg.0.log 2>/dev/null | cut -d"]" -f2- | sed "s/^/xorg:/" | head -8; fi; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "firefox: $(command -v firefox || echo none)"; echo "input:"; grep -h "^N:" /proc/bus/input/devices; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
+ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; if systemctl -q is-enabled lightdm 2>/dev/null; then for i in $(seq 1 120); do pgrep -x xfce4-panel >/dev/null && break; sleep 1; done; sleep 15; echo "desktop: $(pgrep -x xfce4-panel >/dev/null && echo "Xfce panel up after about $i s" || echo "no Xfce panel after 120 s")"; echo "=== henge-autotest: screenshot ==="; sleep 2; ps -eo comm= | grep -xE "Xorg|lightdm|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|pulseaudio|plank" | sort | uniq | tr "\n" " "; echo; echo "display: $(for d in /sys/class/drm/card[0-9]; do basename "$(readlink -f $d/device/driver)"; done | tr "\n" " ")"; grep -hE "LoadModule: .(modesetting|fbdev).|glamor|Output .* connected|using drmmode|Not using" /var/log/Xorg.0.log 2>/dev/null | cut -d"]" -f2- | sed "s/^/xorg:/" | head -8; echo "gl: $(DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 timeout 60 glxinfo -B 2>&1 | grep -E "OpenGL renderer|OpenGL version|direct rendering" | tr -s " " | tr "\n" ";")"; fi; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "firefox: $(command -v firefox || echo none)"; echo "input:"; grep -h "^N:" /proc/bus/input/devices; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
 ExecStartPost=/bin/systemctl poweroff
 
 [Install]
@@ -159,7 +159,8 @@ if [ "$DESKTOP" = 1 ]; then
         xubuntu-core lightdm lightdm-gtk-greeter xserver-xorg-video-fbdev xserver-xorg-input-libinput \
         pulseaudio pavucontrol fonts-dejavu-core \
         yaru-theme-gtk yaru-theme-icon yaru-theme-sound fonts-ubuntu ubuntu-wallpapers plank \
-        xfce4-terminal mousepad ristretto xfce4-screenshooter
+        xfce4-terminal mousepad ristretto xfce4-screenshooter \
+        libgl1-mesa-dri libegl-mesa0 mesa-utils
     # Firefox as a deb from Mozilla's own repository: Ubuntu's firefox package only installs the snap,
     # which cannot be installed into an image being built.
     mkdir -p "$ROOT/etc/apt/keyrings"

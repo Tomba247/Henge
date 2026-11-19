@@ -46,6 +46,7 @@ on:
       - "devices/linuxvirt.*"
       - "devices/fdt.*"
       - "devices/virtio_gpu.*"
+      - "devices/vgpu_virgl.*"
       - "host/linux/**"
       - "tools/hengelinux.c"
       - "tools/linux/**"
@@ -61,10 +62,14 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3
+          sudo apt-get install -y -qq build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
+              libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri pkg-config
 
       - name: Build the engine with the Linux machine (native arm64)
-        run: make linux-test LXCC=gcc
+        run: |
+          make linux-test LXCC=gcc
+          # And with 3D for virtio-gpu through virglrenderer (the runner's Mesa, surfaceless EGL).
+          make linux-test LXCC=gcc LX_VIRGL=1 LXB=build/linux-virgl
 
       - name: Kernel cache
         if: ${{ (inputs.kernel || 'henge') == 'henge' }}
@@ -105,6 +110,22 @@ jobs:
           [ -f screen.ppm ] && python3 tools/linux/ppm2png.py screen.ppm screen.png
           grep -q "henge-autotest: Ubuntu is up" boot.log
 
+      - name: Boot it again with 3D (virgl)
+        if: success()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          cp --sparse=always machine/disk.img boot-test.img
+          HV_FB_DUMP=screen-virgl.ppm timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image --disk boot-test.img \
+              --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --virgl \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
+              < /dev/null 2>&1 | tee boot-virgl.log
+          rm -f boot-test.img
+          grep -E "^virgl:|virtio-gpu|virgl" boot-virgl.log | grep -v "^\[" | head -20
+          sed -n '/henge-autotest: Ubuntu is up/,/henge-autotest: end/p' boot-virgl.log
+          [ -f screen-virgl.ppm ] && python3 tools/linux/ppm2png.py screen-virgl.ppm screen-virgl.png
+          grep -q "gl: .*virgl" boot-virgl.log
+
       - name: Pack the disk
         if: always()
         run: |
@@ -132,4 +153,6 @@ jobs:
           path: |
             boot.log
             screen.png
+            boot-virgl.log
+            screen-virgl.png
           if-no-files-found: ignore
