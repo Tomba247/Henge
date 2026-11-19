@@ -209,8 +209,22 @@ static int write_reg(HvCpu *cpu, uint32_t reg, uint64_t v) {
         return 0;
     }
     case R(3, 0, 2, 0, 1): { /* TTBR1: rewritten unchanged on context switches; its ASID field only counts with TCR.A1 */
-        uint64_t changed = (cpu->ttbr1_el1 ^ v) & ((cpu->tcr_el1 >> 22) & 1 ? ~0ull : 0x0000ffffffffffffull);
+        int a1 = (cpu->tcr_el1 >> 22) & 1;
+        uint64_t changed = (cpu->ttbr1_el1 ^ v) & (a1 ? ~0ull : 0x0000ffffffffffffull);
         cpu->ttbr1_el1 = v;
+        /* With TCR.A1 (Linux) the ASID lives here and changes on every process switch while the table stays the
+           kernel's own: only the user (ASID-tagged) translations change. The kernel's global ones stay, and its
+           cached branch targets with them; the user half goes as on a TTBR0 switch. A new table empties it all.
+           HV_TTBR1_FLUSH_ALL brings back emptying it all on an ASID change too. */
+        static int flush_all = -1;
+        if (flush_all < 0) flush_all = getenv("HV_TTBR1_FLUSH_ALL") != NULL;
+        if (changed && a1 && !(changed & 0x0000fffffffffffeull) && (cpu->sctlr_el1 & 1) && !flush_all) {
+            cpu->m->stats.ttbr1_asid_switches++;
+            hv_tlb_flush_user(cpu);
+            hv_tlb_stash_drop(cpu, -1);
+            hv_ijc_switch(cpu);
+            return 0;
+        }
         if (changed) cpu->m->stats.flush_why[3]++, hv_tlb_flush(cpu);
         /* Only with the MMU off, as XNU's start sets it: macOS 27's microkernel
            iBoot rewrites it on every system call with the MMU on. */
