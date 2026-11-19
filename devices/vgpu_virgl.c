@@ -56,6 +56,8 @@ void hv_vgpu_virgl_destroy(HvVgpuVirgl *v) { (void)v; }
     X(eglGetProcAddress) X(eglInitialize) X(eglBindAPI) X(eglChooseConfig) X(eglCreateContext) X(eglMakeCurrent)    \
     X(eglGetError) X(eglQueryString) X(eglDestroyContext) X(eglTerminate) X(eglGetCurrentContext)
 #define DECLARE(f) static __typeof__(&f) p_##f;
+static void (*p_glFinish)(void);
+static int (*p_get_info_ext)(int, struct virgl_renderer_resource_info_ext *);
 VIRGL_FNS(DECLARE)
 EGL_FNS(DECLARE)
 
@@ -78,6 +80,10 @@ static int load_libraries(void) {
 #define LOAD_EGL(f) LOAD(egl, f)
     VIRGL_FNS(LOAD_VIRGL)
     EGL_FNS(LOAD_EGL)
+    /* For showing scanouts as their own Metal textures (optional: without them the screen is read back). */
+    void *gles = dlopen("@rpath/GLESv2.framework/GLESv2", RTLD_NOW | RTLD_LOCAL);
+    p_glFinish = gles ? (void (*)(void))dlsym(gles, "glFinish") : NULL;
+    p_get_info_ext = (int (*)(int, struct virgl_renderer_resource_info_ext *))dlsym(vr, "virgl_renderer_resource_get_info_ext");
     loaded = 1;
     return 0;
 }
@@ -256,6 +262,9 @@ static void *render_thread(void *arg) {
         cbs.make_current = egl_make_current;
         cbs.get_egl_display = egl_display;
         flags = VIRGL_RENDERER_USE_GLES;
+#if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
+        if (!getenv("HV_VIRGL_NO_NATIVE")) flags |= VIRGL_RENDERER_NATIVE_SHARE_TEXTURE; /* scanouts as Metal textures */
+#endif
         r = egl_open(v);
     }
     if (r == 0) r = virgl_renderer_init(v, flags, &cbs);
@@ -499,6 +508,35 @@ static int create_fence(void *o, uint32_t ctx, uint32_t ring, uint64_t fence) {
     return a.r;
 }
 
+#if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
+#include <CoreFoundation/CoreFoundation.h>
+#ifndef VIRGL_RENDERER_NATIVE_SHARE_TEXTURE
+#define VIRGL_RENDERER_NATIVE_SHARE_TEXTURE (1 << 12)
+#endif
+/* A scanout's own Metal texture (UTM's virglrenderer makes scanouts Metal textures that ANGLE draws into, with
+   VIRGL_RENDERER_NATIVE_SHARE_TEXTURE), once the GPU has finished what the guest drew: glFinish on the context the
+   guest last drew with, which is current here. */
+static void j_native(HvVgpuVirgl *v, void *a_) {
+    (void)v;
+    Args *a = a_;
+    a->out = NULL;
+    if (!p_get_info_ext || !p_glFinish) return;
+    struct virgl_renderer_resource_info_ext ext;
+    memset(&ext, 0, sizeof ext);
+    ext.version = VIRGL_RENDERER_RESOURCE_INFO_EXT_VERSION;
+    if (p_get_info_ext((int)a->u[0], &ext) != 0 || ext.native_type != VIRGL_NATIVE_HANDLE_METAL_TEXTURE || !ext.native_handle) return;
+    p_glFinish();
+    a->u[1] = (ext.base.flags & 1) != 0; /* VIRGL_RESOURCE_Y_0_TOP */
+    a->out = (void *)CFRetain(ext.native_handle);
+}
+static void *native_texture(void *o, uint32_t res, int *y0top) {
+    Args a = {.u = {res}};
+    call(o, j_native, &a);
+    *y0top = (int)a.u[1];
+    return a.out;
+}
+#endif
+
 /* The screen: a rectangle of the scanned-out texture read back, top row first, as BGRA. */
 static void j_read(HvVgpuVirgl *v, void *a_) {
     Args *a = a_;
@@ -590,6 +628,9 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
     gl->submit = submit;
     gl->create_fence = create_fence;
     gl->read_pixels = read_pixels;
+#if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
+    gl->native_texture = native_texture;
+#endif
     fprintf(stderr, "virgl: renderer started (%s%s)\n", gles || v->own_egl ? "OpenGL ES" : "OpenGL", v->own_egl ? ", own EGL contexts" : "");
     return v;
 }

@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CTRLQ 0
 #define CURSORQ 1
@@ -85,8 +86,9 @@ struct HvVirtioGpu {
     int cursor_on;
     uint32_t hot_x, hot_y;
     int32_t cur_x, cur_y;
-    void (*present)(void *, const HvVgpuScreen *, uint32_t, uint32_t, uint32_t, uint32_t);
-    void *present_opaque;
+    HvVgpuPresenter pres; /* under mu */
+    int has_pres;
+    uint64_t readback_ns; /* when the screen's pixels were last read back while a presenter shows textures */
     /* 3D */
     HvVgpu3d gl;
     int has_gl;
@@ -198,11 +200,30 @@ static void update_screen(HvVirtioGpu *g, Res *r, uint32_t x, uint32_t y, uint32
         for (uint32_t row = 0; row < ch; row++)
             hv_vgpu_to_bgra(r->format, r->data + ((uint64_t)(y0 + row) * r->width + x0) * 4,
                     s->pixels + ((uint64_t)(dy + row) * s->width + dx) * 4, cw);
-    } else if (g->has_gl && g->gl.read_pixels) {
-        g->gl.read_pixels(g->gl.opaque, r->id, x0, y0, cw, ch, s->pixels + ((uint64_t)dy * s->width + dx) * 4, s->width * 4);
+    } else if (g->has_gl) {
+        /* A presenter that takes GPU textures shows the scanout as it is, nothing copied; the screen's pixels are
+           refreshed now and then for snapshots (the app's preview). */
+        void *tex = NULL;
+        int y0top = 0;
+        if (g->has_pres && g->pres.texture && g->gl.native_texture) tex = g->gl.native_texture(g->gl.opaque, r->id, &y0top);
+        if (tex) {
+            g->pres.texture(g->pres.opaque, tex, r->width, r->height, g->sx, g->sy, s->width, s->height, y0top);
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            uint64_t now = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+            if (now - g->readback_ns > 2000000000ull && g->gl.read_pixels) {
+                g->readback_ns = now;
+                g->gl.read_pixels(g->gl.opaque, r->id, g->sx, g->sy, s->width, s->height, s->pixels, s->width * 4);
+            }
+            s->frames++;
+            pthread_mutex_unlock(&g->mu);
+            return;
+        }
+        if (g->gl.read_pixels)
+            g->gl.read_pixels(g->gl.opaque, r->id, x0, y0, cw, ch, s->pixels + ((uint64_t)dy * s->width + dx) * 4, s->width * 4);
     }
     s->frames++;
-    if (g->present) g->present(g->present_opaque, s, dx, dy, cw, ch);
+    if (g->has_pres && g->pres.pixels) g->pres.pixels(g->pres.opaque, s, dx, dy, cw, ch);
     pthread_mutex_unlock(&g->mu);
 }
 
@@ -521,12 +542,8 @@ static void cursorq(HvVirtioGpu *g) {
             if (cmd == CMD_UPDATE_CURSOR) cursor_image(g, rd32(c + HDR + 16), rd32(c + HDR + 20), len >= HDR + 28 ? rd32(c + HDR + 24) : 0);
             pthread_mutex_lock(&g->mu);
             g->cur_x = x, g->cur_y = y;
+            if (g->has_pres && g->pres.cursor) g->pres.cursor(g->pres.opaque); /* a frame with the pointer in its new place */
             pthread_mutex_unlock(&g->mu);
-            if (g->present) { /* the pointer moved: a frame with it in its new place */
-                pthread_mutex_lock(&g->mu);
-                if (g->screen.pixels) g->present(g->present_opaque, &g->screen, 0, 0, 0, 0);
-                pthread_mutex_unlock(&g->mu);
-            }
         }
         hv_virtq_push(&g->vio, CURSORQ, &e, 0); /* no response */
         any = 1;
@@ -665,10 +682,12 @@ void hv_virtio_gpu_stats(HvVirtioGpu *g, uint64_t out[3]) {
     out[2] = g ? atomic_load(&g->submit_bytes) : 0;
 }
 
-void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, void (*present)(void *, const HvVgpuScreen *, uint32_t, uint32_t, uint32_t, uint32_t),
-                                 void *opaque) {
+void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, const HvVgpuPresenter *p) {
+    if (!g) return;
     pthread_mutex_lock(&g->mu);
-    g->present = present, g->present_opaque = opaque;
+    g->has_pres = p != NULL;
+    if (p) g->pres = *p;
+    g->readback_ns = 0;
     pthread_mutex_unlock(&g->mu);
 }
 

@@ -48,6 +48,9 @@ typedef struct HvVgpu3d {
     void (*poll)(void *o);
     /* A resource's pixels as BGRA rows into out (width * 4 per row), for the screen. 0 if it could. */
     int (*read_pixels)(void *o, uint32_t res, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint8_t *out, uint32_t out_stride);
+    /* The GPU texture behind a 3D resource, once what was drawn into it is finished, retained for the caller (on
+       Apple an MTLTexture, released with CFRelease); *y0top: its rows are stored bottom first. NULL: none (read_pixels). */
+    void *(*native_texture)(void *o, uint32_t res, int *y0top);
 } HvVgpu3d;
 
 typedef struct HvVgpuScreen {
@@ -68,9 +71,22 @@ int hv_virtio_gpu_snapshot(HvVirtioGpu *g, uint8_t **pixels, uint32_t *width, ui
 uint64_t hv_virtio_gpu_frames(HvVirtioGpu *g);
 /* Screen updates (flushes), 3D command buffers and their bytes, so far. g may be NULL (all 0). */
 void hv_virtio_gpu_stats(HvVirtioGpu *g, uint64_t out[3]);
-/* Called after every flush with the screen locked (e.g. to hand the frame to Metal). */
-void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, void (*present)(void *opaque, const HvVgpuScreen *s, uint32_t x, uint32_t y,
-                                                                  uint32_t w, uint32_t h), void *opaque);
+/* Something that shows the screen itself (devices/vgpu_metal.m), told of every change. Called with the screen locked,
+   from the guest's CPU threads: they must not block or call back into the device.
+   pixels: the screen's BGRA pixels changed in (x, y, w, h).
+   texture: a 3D scanout was drawn: its GPU texture (retained, the presenter releases it), the resource's size, the part
+            scanned out, and whether its rows are stored bottom first. The screen's pixels are then not kept up to date
+            (only every few seconds, for snapshots).
+   cursor: the pointer moved or changed (hv_virtio_gpu_cursor). */
+typedef struct HvVgpuPresenter {
+    void *opaque;
+    void (*pixels)(void *opaque, const HvVgpuScreen *s, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+    void (*texture)(void *opaque, void *texture, uint32_t width, uint32_t height, uint32_t sx, uint32_t sy, uint32_t sw,
+                    uint32_t sh, int y0top);
+    void (*cursor)(void *opaque);
+} HvVgpuPresenter;
+/* Any thread; NULL takes it away. */
+void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, const HvVgpuPresenter *p);
 /* The pointer: its image (BGRA 64 x 64, hot spot) and where it is, as the guest last set them. */
 int hv_virtio_gpu_cursor(HvVirtioGpu *g, uint8_t out[64 * 64 * 4], uint32_t *hot_x, uint32_t *hot_y, int32_t *x, int32_t *y);
 /* The size the guest is told its display prefers (e.g. the phone turned): a display change event. Any thread. */

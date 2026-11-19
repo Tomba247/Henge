@@ -1,5 +1,6 @@
 #include "vm.h"
 #include "linuxvirt.h"
+#include "vgpu_metal.h"
 #include "vgpu_virgl.h"
 #include "pvg_lite.h"
 
@@ -38,6 +39,7 @@ static _Atomic(uint8_t *) linux_fb; /* published only when the machine is ready,
 static _Atomic(HvVirtioGpu *) linux_gpu; /* the same, for its virtio-gpu */
 static HvVgpu3d linux_gl;           /* its 3D renderer (virgl on ANGLE), when the app was built with one */
 static HvVgpuVirgl *linux_virgl;
+static HvVgpuMetal *linux_metal; /* its screen on the display's layer (devices/vgpu_metal.m); display_lock */
 static _Atomic int input_stopping = 1;
 static void stop_pointer(void);
 /* UI display changes may arrive before or during the background machine creation. */
@@ -261,6 +263,7 @@ void hv_vm_set_display_layer(void *layer) {
     display_layer_set = 1;
     HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
     if (pvg) hv_pvg_lite_set_layer(pvg, layer);
+    if (linux_metal) hv_vgpu_metal_set_layer(linux_metal, layer);
     os_unfair_lock_unlock(&display_lock);
     if (previous) CFRelease(previous);
 }
@@ -270,6 +273,12 @@ void hv_vm_linux_stats(uint64_t out[3]) {
 }
 
 uint64_t hv_vm_gpu_frames(void) {
+    /* A Linux machine's screen drawn on the layer: the display switches to the layer once there is a frame. */
+    os_unfair_lock_lock(&display_lock);
+    uint64_t linux_frames = linux_metal ? hv_vgpu_metal_frames(linux_metal) : 0;
+    int is_linux = linux_metal != NULL;
+    os_unfair_lock_unlock(&display_lock);
+    if (is_linux) return linux_frames;
     HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
     return pvg ? hv_pvg_lite_gpu_frames(pvg) : 0;
 }
@@ -336,6 +345,12 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         if (hv_linuxvirt_create(&linux_vm, &board, &m, cpus, &lc) != 0)
             return fail(err, errlen, "Cannot build the Linux machine (not enough memory for the guest's RAM?).");
         hv_vgpu_virgl_bind(linux_virgl, linux_vm.gpu);
+        /* The screen drawn by the GPU on the display's layer, 3D scanouts as their own textures; HV_LINUX_NO_METAL:
+           copied into an image for BootDisplay instead, as before. */
+        HvVgpuMetal *metal = linux_vm.gpu && !getenv("HV_LINUX_NO_METAL") ? hv_vgpu_metal_create(linux_vm.gpu) : NULL;
+        os_unfair_lock_lock(&display_lock);
+        linux_metal = metal;
+        os_unfair_lock_unlock(&display_lock);
         if (hv_linuxvirt_boot_files(&linux_vm, &lc, c->linux_kernel, c->linux_initrd, err, errlen) != 0) return -1;
         fprintf(stderr, "hengevm: Linux machine, %d CPUs, %llu MB, %ux%u screen (%s), kernel %s\n", ncpus,
                 (unsigned long long)(ram >> 20), lc.fb_width, lc.fb_height, !lc.gpu ? "framebuffer" : lc.gl ? "virtio-gpu, virgl 3D" : "virtio-gpu, 2D", c->linux_kernel);
@@ -358,6 +373,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
     // never overwrite a monitor change made while the board was being built.
     os_unfair_lock_lock(&display_lock);
     if (display_layer_set && board.pvg) hv_pvg_lite_set_layer(board.pvg, (void *)display_layer);
+    if (display_layer_set && linux_metal) hv_vgpu_metal_set_layer(linux_metal, (void *)display_layer);
     atomic_store_explicit(&display_pvg, board.pvg, memory_order_release);
     atomic_store_explicit(&linux_fb, linux_mode ? linux_vm.fb : NULL, memory_order_release);
     atomic_store_explicit(&linux_gpu, linux_mode ? linux_vm.gpu : NULL, memory_order_release);
@@ -384,6 +400,11 @@ void hv_vm_destroy(void) {
     net_on = 0;
     hv_audio_detach();
     hv_vmapple_destroy(&board); /* the Linux machine's devices too: they are in board, but for its GPU */
+    os_unfair_lock_lock(&display_lock);
+    HvVgpuMetal *metal = linux_metal;
+    linux_metal = NULL;
+    os_unfair_lock_unlock(&display_lock);
+    hv_vgpu_metal_destroy(metal); /* before the GPU it reads the pointer from */
     hv_virtio_gpu_destroy(linux_vm.gpu);
     hv_vgpu_virgl_destroy(linux_virgl); /* after the GPU, which hands its resources back to it */
     linux_virgl = NULL;
