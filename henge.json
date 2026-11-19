@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.74",
+          "date": "2026-11-19T05:24:45Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine: the iPhone mouse as on the Mac (Madeira's way)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-74/Henge.ipa",
+          "size": 12171383,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.72",
           "date": "2026-11-19T04:41:41Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] App build: wait for a Linux machine build still running before attaching its machines",
@@ -174,11 +183,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.72",
-      "versionDate": "2026-11-19T04:41:41Z",
-      "versionDescription": "[claude/linux-runner-crash-flumcd] App build: wait for a Linux machine build still running before attaching its machines",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-72/Henge.ipa",
-      "size": 12169907,
+      "buildVersion": "101.74",
+      "versionDate": "2026-11-19T05:24:45Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] Linux machine: the iPhone mouse as on the Mac (Madeira's way)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-74/Henge.ipa",
+      "size": 12171383,
       "minOSVersion": "17.0"
     }
   ],
