@@ -222,6 +222,10 @@ jobs:
           gh run download "$run" --repo "$GITHUB_REPOSITORY" -p 'henge-ubuntu-*' -D /tmp/lm || { echo "run $run has no Ubuntu machines"; exit 0; }
           cp /tmp/notes.txt /tmp/notes-linux.txt
           echo >> /tmp/notes-linux.txt
+          if [ -d ios/deps-gpu/Frameworks ]; then
+            echo "**3D for Linux machines:** this build carries the GPU libraries (virglrenderer on ANGLE, which draws with Metal), so a Linux machine's OpenGL runs on the phone's GPU. If a Linux machine misbehaves with them, a line \`HV_LINUX_NO_3D=1\` in Files › On My iPhone › Henge › henge-env.txt turns 3D off (2D, as before)." >> /tmp/notes-linux.txt
+            echo >> /tmp/notes-linux.txt
+          fi
           for d in /tmp/lm/henge-ubuntu-*; do
             case "$d" in
               *-gnome-*) folder="Ubuntu GNOME" zip=Henge-Ubuntu-GNOME.zip what="Ubuntu's own desktop (GNOME, with Ubuntu's dock)" ;;
