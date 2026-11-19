@@ -67,6 +67,11 @@ echo "== sources"
 fetch "$WEBKIT_REPO" "$WEBKIT_COMMIT" "$WORK/WebKit" /Source/ThirdParty/ANGLE /Configurations /Tools/ccache
 fetch "$EPOXY_REPO" "$EPOXY_COMMIT" "$WORK/libepoxy"
 fetch "$VIRGL_REPO" "$VIRGL_COMMIT" "$WORK/virglrenderer"
+# Henge's changes to it (ios/patches): 4x multisampling reported on ANGLE's OpenGL ES 3.0, which Chrome needs.
+git -C "$WORK/virglrenderer" reset -q --hard FETCH_HEAD
+for p in "$(cd "$(dirname "$0")/.." && pwd)"/patches/virglrenderer-*.patch; do
+    [ -f "$p" ] && git -C "$WORK/virglrenderer" apply "$p" && echo "   patched: $(basename "$p")"
+done
 [ -d "$WORK/depot_tools" ] || git clone -q --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WORK/depot_tools"
 
 echo "== ANGLE"

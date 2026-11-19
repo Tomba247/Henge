@@ -117,7 +117,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ios/deps-gpu
-          key: ios-gpu-deps-${{ hashFiles('Henge/ios/scripts/build-gpu-deps.sh') }}
+          key: ios-gpu-deps-${{ hashFiles('Henge/ios/scripts/build-gpu-deps.sh', 'Henge/ios/patches/**') }}
 
       - name: Use the GPU libraries
         if: steps.gpu-deps.outputs.cache-hit == 'true'
