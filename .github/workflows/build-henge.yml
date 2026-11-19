@@ -217,8 +217,8 @@ jobs:
           git push -q origin source
           echo "source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/source/source.json"
 
-      # The Linux machines (docs/linux-machine.md) beside the app, each a folder the app brings in: Henge-Ubuntu-Xfce.zip
-      # and Henge-Ubuntu-GNOME.zip, from the same Linux machine build. Only on branches with those builds; release files
+      # The Linux machines (docs/linux-machine.md) beside the app, each a folder the app brings in: Henge-Ubuntu-GNOME.zip,
+      # Henge-Kali.zip (Xfce) and Henge-Kali-GNOME.zip, from the same Linux machine build. Only on branches with those builds; release files
       # must be under 2 GiB, so they are compressed.
       - name: Attach the Linux machines to the release
         working-directory: Henge
@@ -251,6 +251,7 @@ jobs:
           fi
           for d in /tmp/lm/henge-ubuntu-*; do
             case "$d" in
+              *-kali-gnome-*) folder="Kali GNOME" zip=Henge-Kali-GNOME.zip what="Kali Linux rolling with GNOME, Firefox ESR and Kali's top 10 tools" ;;
               *-gnome-*) folder="Ubuntu GNOME" zip=Henge-Ubuntu-GNOME.zip what="Ubuntu 24.04 with Ubuntu's own desktop (GNOME, with Ubuntu's dock) and Firefox" ;;
               *-xfce-*) folder="Ubuntu Xfce" zip=Henge-Ubuntu-Xfce.zip what="Ubuntu 24.04 with the Xfce desktop and Firefox" ;;
               *-kali-*) folder="Kali Linux" zip=Henge-Kali.zip what="Kali Linux rolling with Kali's Xfce desktop, Firefox ESR and Kali's top 10 tools" ;;

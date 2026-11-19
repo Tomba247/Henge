@@ -172,6 +172,13 @@ if [ -n "$desktop" ]; then
     sleep 20
     if pgrep -u henge -x "$shell" >/dev/null; then echo "desktop: $desktop ($shell) up after about $i s"
     else echo "desktop: no $shell after $i s"; fi
+    if [ "$desktop" = gnome ]; then
+        echo "gnome: $(gnome-shell --version 2>&1 | head -1); gdm: $(systemctl is-active gdm 2>&1)"
+        # Why GNOME did not come up: GDM's, the session's and the shell's own words.
+        pgrep -u henge -x "$shell" >/dev/null ||
+            journalctl -b --no-pager -o cat | grep -iE "gdm|gnome-shell|gnome-session|mutter|wayland|logind|seat" | tail -80 | sed "s/^/journal: /"
+        echo "extensions: $(runuser -u henge -- env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u henge)/bus timeout 20 gnome-extensions list --enabled 2>&1 | tr "\n" " ")"
+    fi
     echo "=== henge-autotest: screenshot ==="
     sleep 2
     ps -eo comm= | grep -xE "Xorg|Xwayland|lightdm|gdm-.*|gnome-shell|gnome-session-b.*|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|nautilus|pulseaudio|pipewire|wireplumber|plank" | sort -u | tr "\n" " "
@@ -197,12 +204,13 @@ echo "state: $(systemctl is-system-running)"
 echo "failed units:"
 systemctl --failed --no-legend --no-pager
 echo "firefox: $(command -v firefox || command -v firefox-esr || echo none)"
-if command -v firefox >/dev/null; then
+ff=$(command -v firefox || command -v firefox-esr || true)
+if [ -n "$ff" ]; then
     # Firefox for real: its version, a page drawn offscreen, then a window on the desktop.
-    echo "firefox version: $(runuser -u henge -- env HOME=/home/henge timeout 60 firefox --version 2>&1 | tail -3 | tr "\n" ";")"
+    echo "firefox version: $(runuser -u henge -- env HOME=/home/henge timeout 60 "$ff" --version 2>&1 | tail -3 | tr "\n" ";")"
     echo "<html><body style='background:#e95420'><h1>henge</h1></body></html>" > /tmp/henge-ff.html
     chmod 644 /tmp/henge-ff.html
-    o=$(runuser -u henge -- env HOME=/home/henge MOZ_HEADLESS=1 timeout 240 firefox --screenshot /tmp/henge-ff.png file:///tmp/henge-ff.html 2>&1)
+    o=$(runuser -u henge -- env HOME=/home/henge MOZ_HEADLESS=1 timeout 240 "$ff" --screenshot /tmp/henge-ff.png file:///tmp/henge-ff.html 2>&1)
     echo "firefox headless: exit $? $(ls -l /tmp/henge-ff.png 2>/dev/null | awk '{print $5" bytes"}')"
     echo "$o" | tail -25 | sed "s/^/ff: /"
     if [ -n "$desktop" ]; then
@@ -210,7 +218,7 @@ if command -v firefox >/dev/null; then
         else fenv="WAYLAND_DISPLAY=wayland-0 DISPLAY=:0 XAUTHORITY=$xa"; fi
         runuser -u henge -- env HOME=/home/henge XDG_RUNTIME_DIR=/run/user/$u $fenv \
             DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$u/bus \
-            firefox file:///tmp/henge-ff.html > /tmp/henge-ff.log 2>&1 &
+            "$ff" file:///tmp/henge-ff.html > /tmp/henge-ff.log 2>&1 &
         sleep 90
         echo "firefox window: $(pgrep -u henge -c -f firefox) firefox processes after 90 s"
         tail -25 /tmp/henge-ff.log | sed "s/^/ffw: /"
@@ -343,6 +351,16 @@ if [ "$DESKTOP" = gnome ] && [ "$DISTRO" = kali ]; then
         gdm3 gnome-shell gnome-session nautilus gnome-terminal gnome-text-editor gnome-control-center eog \
         xwayland pipewire-pulse wireplumber dconf-cli libgl1-mesa-dri libegl-mesa0 mesa-utils fonts-dejavu-core
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get purge -y gnome-initial-setup 2>/dev/null || true
+    # A dock like Ubuntu's (Dash to Dock), when Kali's archive has one for its GNOME.
+    if chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnome-shell-extension-dashtodock; then
+        mkdir -p "$ROOT/etc/dconf/db/local.d" "$ROOT/etc/dconf/profile"
+        [ -f "$ROOT/etc/dconf/profile/user" ] || printf 'user-db:user\nsystem-db:local\n' > "$ROOT/etc/dconf/profile/user"
+        printf "[org/gnome/shell]\nenabled-extensions=['dash-to-dock@micxgx.gmail.com']\n\n[org/gnome/shell/extensions/dash-to-dock]\ndock-position='BOTTOM'\ndock-fixed=true\nextend-height=false\nanimate-show-apps=false\n" \
+            > "$ROOT/etc/dconf/db/local.d/10-henge-dock"
+        chroot "$ROOT" dconf update
+    else
+        echo "   no Dash to Dock in Kali's archive: GNOME's own dash (Activities) has the apps"
+    fi
     mkdir -p "$ROOT/etc/gdm3" "$ROOT/var/lib/AccountsService/users"
     printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=henge\n\n[security]\n\n[xdmcp]\n\n[chooser]\n\n[debug]\n' \
         > "$ROOT/etc/gdm3/daemon.conf"
