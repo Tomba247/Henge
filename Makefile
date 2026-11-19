@@ -140,6 +140,11 @@ IOS_CC = xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=17.0 -isy
 IOS_DEPS ?= $(if $(wildcard ios/deps/include/slirp/libslirp.h),$(CURDIR)/ios/deps,$(HOME)/Documents/Coding/Husk/build/ios-arm64/sysroot)
 IOS_CFLAGS = -std=c11 -Wall -Wextra -O3 -g -Icore -Ihost -Idevices -I$(IOS_DEPS)/include/slirp $(ENGINE_DEFS)
 IB = build/ios
+# The Linux machine's 3D (devices/vgpu_virgl.c) when the GPU libraries were built (ios/scripts/build-gpu-deps.sh):
+# virglrenderer on ANGLE, loaded at run time from the app's frameworks.
+ifneq ($(wildcard ios/deps-gpu/include/virgl/virglrenderer.h),)
+IOS_CFLAGS += -DHV_VIRGL -DHV_VIRGL_ANGLE -DHV_VIRGL_DLOPEN -Iios/deps-gpu/include/virgl -Iios/deps-gpu/include
+endif
 IOS_SRC = $(wildcard core/*.c) host/prof_ios.c host/fault_bench.c host/jit_region.c host/disk.c host/vm.c host/snapshot.c host/net_slirp.c host/dns_proxy.c host/share.c host/audio_mac.c host/hvsparse.c host/usb_host.c \
           $(filter-out devices/pvg_mac.m,$(wildcard devices/*.c))
 IOS_OBJ = $(patsubst %.c,$(IB)/%.o,$(IOS_SRC)) $(IB)/host/enter.o $(IB)/devices/pvg_metal.o
@@ -305,8 +310,8 @@ LX_SRC = $(filter-out core/window.c,$(wildcard core/*.c)) host/linux/window_stub
          devices/virtio_input.c devices/virtio_snd.c devices/xhci.c devices/fdt.c devices/linuxvirt.c devices/virtio_gpu.c devices/vgpu_virgl.c tools/hengelinux.c
 LX_OBJ = $(patsubst %.c,$(LXB)/%.o,$(LX_SRC)) $(LXB)/enter.o
 ifeq ($(LX_VIRGL),1)
-LXFLAGS += -DHV_VIRGL $(shell pkg-config --cflags virglrenderer)
-LX_LINK = $(shell pkg-config --libs virglrenderer)
+LXFLAGS += -DHV_VIRGL $(shell pkg-config --cflags virglrenderer egl)
+LX_LINK = $(shell pkg-config --libs virglrenderer egl)
 else
 LX_LINK = -static
 endif

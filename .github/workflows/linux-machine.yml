@@ -116,15 +116,30 @@ jobs:
         run: |
           set -uo pipefail
           cp --sparse=always machine/disk.img boot-test.img
-          HV_FB_DUMP=screen-virgl.ppm timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image --disk boot-test.img \
+          HV_FB_DUMP=screen-virgl.ppm HV_VGPU_LOG=0 timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image --disk boot-test.img \
               --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --virgl \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot-virgl.log
           rm -f boot-test.img
-          grep -E "^virgl:|virtio-gpu|virgl" boot-virgl.log | grep -v "^\[" | head -20
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said" boot-virgl.log | head -30
           sed -n '/henge-autotest: Ubuntu is up/,/henge-autotest: end/p' boot-virgl.log
           [ -f screen-virgl.ppm ] && python3 tools/linux/ppm2png.py screen-virgl.ppm screen-virgl.png
           grep -q "gl: .*virgl" boot-virgl.log
+
+      - name: Boot it with 3D the iPhone's way (own EGL contexts, OpenGL ES)
+        if: success()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          cp --sparse=always machine/disk.img boot-test.img
+          HV_FB_DUMP=screen-gles.ppm HV_VGPU_LOG=0 HV_VIRGL_OWN_EGL=1 timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
+              --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --virgl \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
+              < /dev/null 2>&1 | tee boot-gles.log
+          rm -f boot-test.img
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said" boot-gles.log | head -30
+          [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
+          grep -q "gl: .*virgl" boot-gles.log
 
       - name: Pack the disk
         if: always()
@@ -155,4 +170,6 @@ jobs:
             screen.png
             boot-virgl.log
             screen-virgl.png
+            boot-gles.log
+            screen-gles.png
           if-no-files-found: ignore

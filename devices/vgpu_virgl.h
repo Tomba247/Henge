@@ -13,7 +13,11 @@
    guest's commands come from whichever CPU rang the doorbell, so each call is
    handed to that thread and waited for. Fences are retired there too.
 
-   Built only with HV_VIRGL (make linux-test-virgl, or the app with
+   On Apple devices (HV_VIRGL_ANGLE) virglrenderer cannot open a display of its own: the display is ANGLE's
+   on Metal, made here, and virglrenderer asks for its contexts (as QEMU does in UTM). HV_VIRGL_OWN_EGL in the
+   environment takes that path on Linux too, with Mesa's surfaceless EGL, to try it without a phone.
+
+   Built only with HV_VIRGL (make linux-test LX_VIRGL=1, or the app with
    virglrenderer and ANGLE); without it hv_vgpu_virgl_create returns NULL. */
 typedef struct HvVgpuVirgl HvVgpuVirgl;
 

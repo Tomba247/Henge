@@ -104,6 +104,23 @@ jobs:
         working-directory: Henge
         run: zsh tools/build_ios_restore.sh
 
+      # The Linux machine's 3D: the GPU libraries the iOS GPU libraries workflow built (same key, same path),
+      # when it has run for this version of its script. Without them the Linux machine's GPU is 2D.
+      - name: GPU libraries (from the iOS GPU libraries workflow)
+        id: gpu-deps
+        uses: actions/cache/restore@v4
+        with:
+          path: ios/deps-gpu
+          key: ios-gpu-deps-${{ hashFiles('Henge/ios/scripts/build-gpu-deps.sh') }}
+
+      - name: Use the GPU libraries
+        if: steps.gpu-deps.outputs.cache-hit == 'true'
+        run: |
+          rm -rf Henge/ios/deps-gpu
+          mv ios/deps-gpu Henge/ios/deps-gpu
+          cat Henge/ios/deps-gpu/VERSIONS
+          ls Henge/ios/deps-gpu/Frameworks
+
       - name: Build the engine
         working-directory: Henge
         run: make ios-lib

@@ -1,5 +1,6 @@
 #include "vm.h"
 #include "linuxvirt.h"
+#include "vgpu_virgl.h"
 #include "pvg_lite.h"
 
 #include <TargetConditionals.h>
@@ -35,6 +36,8 @@ static HvLinuxVirt linux_vm;
 static int linux_mode;
 static _Atomic(uint8_t *) linux_fb; /* published only when the machine is ready, like display_pvg */
 static _Atomic(HvVirtioGpu *) linux_gpu; /* the same, for its virtio-gpu */
+static HvVgpu3d linux_gl;           /* its 3D renderer (virgl on ANGLE), when the app was built with one */
+static HvVgpuVirgl *linux_virgl;
 static _Atomic int input_stopping = 1;
 static void stop_pointer(void);
 /* UI display changes may arrive before or during the background machine creation. */
@@ -324,11 +327,14 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
                                 .fb_width = c->fb_width ? c->fb_width : 1280, .fb_height = c->fb_height ? c->fb_height : 800,
                                 .cmdline = c->linux_cmdline && *c->linux_cmdline ? c->linux_cmdline
                                                                                  : "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"};
+        /* 3D: virgl, on ANGLE (Metal) in the app; none without the GPU libraries (ios/scripts/build-gpu-deps.sh). */
+        if (lc.gpu && !getenv("HV_LINUX_NO_3D") && (linux_virgl = hv_vgpu_virgl_create(&linux_gl, 1))) lc.gl = &linux_gl;
         if (hv_linuxvirt_create(&linux_vm, &board, &m, cpus, &lc) != 0)
             return fail(err, errlen, "Cannot build the Linux machine (not enough memory for the guest's RAM?).");
+        hv_vgpu_virgl_bind(linux_virgl, linux_vm.gpu);
         if (hv_linuxvirt_boot_files(&linux_vm, &lc, c->linux_kernel, c->linux_initrd, err, errlen) != 0) return -1;
-        fprintf(stderr, "hengevm: Linux machine, %d CPUs, %llu MB, %ux%u screen, kernel %s\n", ncpus,
-                (unsigned long long)(ram >> 20), lc.fb_width, lc.fb_height, c->linux_kernel);
+        fprintf(stderr, "hengevm: Linux machine, %d CPUs, %llu MB, %ux%u screen (%s), kernel %s\n", ncpus,
+                (unsigned long long)(ram >> 20), lc.fb_width, lc.fb_height, !lc.gpu ? "framebuffer" : lc.gl ? "virtio-gpu, virgl 3D" : "virtio-gpu, 2D", c->linux_kernel);
     } else {
         if (hv_vmapple_create(&board, &m, cpus, (c->ram_mb ? c->ram_mb : 2048) << 20, &disk, &aux, &cfg, mac) != 0)
             return fail(err, errlen, "Cannot build the machine (not enough memory for the guest's RAM?).");
@@ -373,7 +379,10 @@ void hv_vm_destroy(void) {
     hv_net_detach();
     net_on = 0;
     hv_audio_detach();
-    hv_vmapple_destroy(&board); /* the Linux machine's devices too: they are in board */
+    hv_vmapple_destroy(&board); /* the Linux machine's devices too: they are in board, but for its GPU */
+    hv_virtio_gpu_destroy(linux_vm.gpu);
+    hv_vgpu_virgl_destroy(linux_virgl); /* after the GPU, which hands its resources back to it */
+    linux_virgl = NULL;
     memset(&linux_vm, 0, sizeof linux_vm);
     linux_mode = 0;
     hv_disk_close(&disk);

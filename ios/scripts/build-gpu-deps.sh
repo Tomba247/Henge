@@ -69,7 +69,9 @@ echo "== ANGLE"
     env -i PATH="$WORK/depot_tools:$PATH" HOME="$HOME" xcodebuild archive -archivePath ANGLE -scheme ANGLE \
         -sdk iphoneos -arch arm64 -configuration Release \
         WEBCORE_LIBRARY_DIR=/usr/local/lib NORMAL_UMBRELLA_FRAMEWORKS_DIR="" CODE_SIGNING_ALLOWED=NO \
-        GCC_TREAT_WARNINGS_AS_ERRORS=NO IPHONEOS_DEPLOYMENT_TARGET="$MINVER" -quiet
+        GCC_TREAT_WARNINGS_AS_ERRORS=NO IPHONEOS_DEPLOYMENT_TARGET="$MINVER" \
+        WK_LIBCPP_ASSERTIONS_CFLAGS= -quiet
+    # (WebKit's configuration asks for _LIBCPP_ENABLE_ASSERTIONS, which Xcode 27's libc++ refuses outright.)
     rsync -a ANGLE.xcarchive/Products/usr/local/lib/ "$PREFIX/lib/"
     rsync -a include/ "$PREFIX/include/"
 )
