@@ -117,6 +117,8 @@ int henge_vm_snapshot(uint8_t *bgra, int width, int height);
 void henge_vm_set_display_layer(void *layer);
 /// How many frames have gone to it.
 uint64_t henge_vm_gpu_frames(void);
+/* A Linux machine's display, so far: out[0] screen updates, out[1] 3D command buffers, out[2] their bytes. */
+void henge_vm_linux_stats(uint64_t *out);
 int henge_vm_boot_display(const uint8_t **pixels, int *width, int *height, int *stride);
 void henge_vm_free_display(const uint8_t *pixels);
 

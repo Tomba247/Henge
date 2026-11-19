@@ -96,6 +96,7 @@ struct HvVirtioGpu {
     uint8_t *cmd;
     uint32_t cmd_cap;
     int log;
+    _Atomic uint64_t submits, submit_bytes; /* 3D command buffers so far, and their bytes */
 };
 
 static uint32_t rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
@@ -461,6 +462,8 @@ static uint32_t command(HvVirtioGpu *g, const uint8_t *c, uint32_t len, uint8_t 
         if (!g->has_gl || alen < 8) { *type = RESP_ERR_UNSPEC; break; }
         uint32_t size = rd32(a);
         if (size > alen - 8) { *type = RESP_ERR_INVALID_PARAMETER; break; }
+        atomic_fetch_add(&g->submits, 1);
+        atomic_fetch_add(&g->submit_bytes, size);
         *type = g->gl.submit(g->gl.opaque, ctx, (void *)(a + 8), size) ? RESP_ERR_UNSPEC : RESP_OK_NODATA;
         break;
     }
@@ -654,6 +657,12 @@ uint64_t hv_virtio_gpu_frames(HvVirtioGpu *g) {
     uint64_t f = g->screen.frames;
     pthread_mutex_unlock(&g->mu);
     return f;
+}
+
+void hv_virtio_gpu_stats(HvVirtioGpu *g, uint64_t out[3]) {
+    out[0] = hv_virtio_gpu_frames(g);
+    out[1] = g ? atomic_load(&g->submits) : 0;
+    out[2] = g ? atomic_load(&g->submit_bytes) : 0;
 }
 
 void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, void (*present)(void *, const HvVgpuScreen *, uint32_t, uint32_t, uint32_t, uint32_t),

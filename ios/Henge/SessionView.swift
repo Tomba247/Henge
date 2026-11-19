@@ -720,6 +720,7 @@ struct SessionView: View {
         var lastBlocks = henge_vm_blocks()
         var lastTime = Date()
         var lastGPUFrames = henge_vm_gpu_frames()
+        var lastLinux = [UInt64](repeating: 0, count: 3)
         var tick = 0
         while !Task.isCancelled {
             state = henge_vm_state()
@@ -760,7 +761,16 @@ struct SessionView: View {
             tick += 1
             if tick % 10 == 0 {
                 let gpuFrames = henge_vm_gpu_frames()
-                HengeLog.log("perf", "blocks/s \(String(format: "%.0f", blocksPerSecond)), GPU frames/10s \(gpuFrames &- lastGPUFrames), "
+                // A Linux machine's screen: updates (frames) and 3D command buffers in these 10 s, how smooth it runs.
+                var linuxPart = ""
+                if henge_vm_is_linux() != 0 {
+                    var linux = [UInt64](repeating: 0, count: 3)
+                    henge_vm_linux_stats(&linux)
+                    linuxPart = "Linux frames/10s \(linux[0] &- lastLinux[0]), 3D commands/10s \(linux[1] &- lastLinux[1]) "
+                        + "(\((linux[2] &- lastLinux[2]) / 1024) KB), "
+                    lastLinux = linux
+                }
+                HengeLog.log("perf", "blocks/s \(String(format: "%.0f", blocksPerSecond)), \(linuxPart)GPU frames/10s \(gpuFrames &- lastGPUFrames), "
                              + "network tx \(framesOut), rx \(framesIn), dns \(henge_vm_dns(0)) answered \(henge_vm_dns(2)) unanswered, "
                              + "thermal \(Self.thermalLabel(heat))")
                 lastGPUFrames = gpuFrames

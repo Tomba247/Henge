@@ -44,6 +44,9 @@ extern void (*hv_prof_register)(void); /* debugging: each thread that will run g
 /* Frames go to this CAMetalLayer, drawn by the GPU, instead of hv_vm_boot_display. */
 void hv_vm_set_display_layer(void *layer);
 uint64_t hv_vm_gpu_frames(void);
+/* The Linux machine's display: screen updates, 3D command buffers and their bytes so far (0s for a Mac).
+   Not hv_vm_gpu_frames, which says the Mac's GPU has taken over the display. */
+void hv_vm_linux_stats(uint64_t out[3]);
 int hv_vm_ncpus(void);
 /* The machine is the Linux one (HvVmConfig.linux_kernel): no saving it (instant resume) yet. */
 int hv_vm_is_linux(void);

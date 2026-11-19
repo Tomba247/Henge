@@ -265,6 +265,10 @@ void hv_vm_set_display_layer(void *layer) {
     if (previous) CFRelease(previous);
 }
 
+void hv_vm_linux_stats(uint64_t out[3]) {
+    hv_virtio_gpu_stats(atomic_load_explicit(&linux_gpu, memory_order_acquire), out);
+}
+
 uint64_t hv_vm_gpu_frames(void) {
     HvPvgLite *pvg = atomic_load_explicit(&display_pvg, memory_order_acquire);
     return pvg ? hv_pvg_lite_gpu_frames(pvg) : 0;

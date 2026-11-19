@@ -66,6 +66,8 @@ void hv_virtio_gpu_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint6
 /* Any thread: a copy of the screen with the pointer drawn in, to free(). 0, or -1 when nothing is scanned out. */
 int hv_virtio_gpu_snapshot(HvVirtioGpu *g, uint8_t **pixels, uint32_t *width, uint32_t *height);
 uint64_t hv_virtio_gpu_frames(HvVirtioGpu *g);
+/* Screen updates (flushes), 3D command buffers and their bytes, so far. g may be NULL (all 0). */
+void hv_virtio_gpu_stats(HvVirtioGpu *g, uint64_t out[3]);
 /* Called after every flush with the screen locked (e.g. to hand the frame to Metal). */
 void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, void (*present)(void *opaque, const HvVgpuScreen *s, uint32_t x, uint32_t y,
                                                                   uint32_t w, uint32_t h), void *opaque);

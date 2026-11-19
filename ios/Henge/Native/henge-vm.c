@@ -468,6 +468,12 @@ void henge_vm_set_display_layer(void *layer) {
        Main-thread layer detachment need not wait for disk/GPU teardown. */
     hv_vm_set_display_layer(layer);
 }
+void henge_vm_linux_stats(uint64_t *out) {
+    out[0] = out[1] = out[2] = 0;
+    if (!lock_running()) return;
+    hv_vm_linux_stats(out);
+    pthread_rwlock_unlock(&api_lock);
+}
 uint64_t henge_vm_gpu_frames(void) {
     if (!lock_running()) return 0;
     uint64_t result = hv_vm_gpu_frames();
