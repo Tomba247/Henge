@@ -64,7 +64,7 @@ if [ "$DISTRO" = kali ]; then
     KALI=${KALI_ARCHIVE:-http://http.kali.org/kali}
     say "root file system: Kali rolling (arm64, debootstrap from $KALI)"
     kr=$(curl -fsSL "$KALI/dists/kali-rolling/main/binary-arm64/Packages.gz" | zcat |
-        awk '$1 == "Package:" { hit = ($2 == "kali-archive-keyring") } hit && $1 == "Filename:" { print $2; exit }')
+        awk '$1 == "Package:" { hit = ($2 == "kali-archive-keyring") } hit && $1 == "Filename:" && !f { f = $2 } END { print f }')
     [ -n "$kr" ] || { echo "kali-archive-keyring not found in $KALI" >&2; exit 1; }
     curl -fsSL "$KALI/$kr" -o "$WORK/keyring.deb"
     mkdir -p "$WORK/keyring" "$ROOT"
