@@ -132,12 +132,12 @@ jobs:
         run: |
           set -uo pipefail
           cp --sparse=always machine/disk.img boot-test.img
-          HV_FB_DUMP=screen-gles.ppm HV_VGPU_LOG=0 HV_VIRGL_OWN_EGL=1 timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
+          HV_FB_DUMP=screen-gles.ppm HV_VGPU_LOG=0 HV_VIRGL_OWN_EGL=1 HV_VIRGL_LOG=1 timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
               --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --virgl \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot-gles.log
           rm -f boot-test.img
-          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said" boot-gles.log | head -30
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said" boot-gles.log | head -60
           [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
           grep -q "gl: .*virgl" boot-gles.log
 

@@ -54,7 +54,7 @@ void hv_vgpu_virgl_destroy(HvVgpuVirgl *v) { (void)v; }
     X(virgl_renderer_resource_get_info)
 #define EGL_FNS(X)                                                                                                \
     X(eglGetProcAddress) X(eglInitialize) X(eglBindAPI) X(eglChooseConfig) X(eglCreateContext) X(eglMakeCurrent)    \
-    X(eglGetError) X(eglQueryString) X(eglDestroyContext) X(eglTerminate)
+    X(eglGetError) X(eglQueryString) X(eglDestroyContext) X(eglTerminate) X(eglGetCurrentContext)
 #define DECLARE(f) static __typeof__(&f) p_##f;
 VIRGL_FNS(DECLARE)
 EGL_FNS(DECLARE)
@@ -111,6 +111,7 @@ static int load_libraries(void) {
 #define eglQueryString p_eglQueryString
 #define eglDestroyContext p_eglDestroyContext
 #define eglTerminate p_eglTerminate
+#define eglGetCurrentContext p_eglGetCurrentContext
 #else
 static int load_libraries(void) { return 0; }
 #endif
@@ -215,7 +216,16 @@ static virgl_renderer_gl_context egl_create(void *cookie, int scanout, struct vi
     (void)scanout;
     HvVgpuVirgl *v = cookie;
     EGLint attrs[] = {EGL_CONTEXT_MAJOR_VERSION, p->major_ver ? p->major_ver : 3, EGL_CONTEXT_MINOR_VERSION, p->minor_ver, EGL_NONE};
-    EGLContext c = eglCreateContext(v->dpy, v->config, p->shared ? v->main_ctx : EGL_NO_CONTEXT, attrs);
+    /* "Shared" means with the context current now, as virglrenderer's own EGL and QEMU's do: virglrenderer makes its
+       context 0 unshared and then the guest's contexts while it is current, so all of them see the same textures.
+       (Sharing with a context of our own instead put the guest's drawing where context 0, which reads the screen
+       back, could not see it: a black screen.) */
+    EGLContext share = EGL_NO_CONTEXT;
+    if (p->shared) {
+        share = eglGetCurrentContext();
+        if (share == EGL_NO_CONTEXT) share = v->main_ctx;
+    }
+    EGLContext c = eglCreateContext(v->dpy, v->config, share, attrs);
     if (c == EGL_NO_CONTEXT && v->log) fprintf(stderr, "virgl: context %d.%d refused (%#x)\n", p->major_ver, p->minor_ver, eglGetError());
     return c == EGL_NO_CONTEXT ? NULL : (virgl_renderer_gl_context)c;
 }
@@ -471,7 +481,8 @@ static void j_submit(HvVgpuVirgl *v, void *a_) {
 static int submit(void *o, uint32_t ctx, void *cmd, uint32_t size) {
     Args a = {.u = {ctx, size}, .out = cmd};
     call(o, j_submit, &a);
-    if (a.r && ((HvVgpuVirgl *)o)->log) fprintf(stderr, "virgl: submit %u bytes on context %u -> %d\n", size, ctx, a.r);
+    static int told;
+    if (a.r && (((HvVgpuVirgl *)o)->log || told++ < 5)) fprintf(stderr, "virgl: submit %u bytes on context %u -> %d\n", size, ctx, a.r);
     return a.r;
 }
 
@@ -498,7 +509,8 @@ static void j_read(HvVgpuVirgl *v, void *a_) {
     memset(&info, 0, sizeof info);
     virgl_renderer_resource_get_info((int)res, &info);
     if (!info.virgl_format) {
-        if (v->log) fprintf(stderr, "virgl: no resource %u to show\n", res);
+        static int told;
+        if (v->log || !told++) fprintf(stderr, "virgl: no resource %u to show\n", res);
         a->r = -1;
         return;
     }

@@ -29,6 +29,13 @@ VIRGL_REPO=https://github.com/utmapp/virglrenderer.git
 VIRGL_COMMIT=dd0652b13e589c4c124ea79123a3adcd85173f4f
 
 mkdir -p "$WORK"
+# Python for the code generators, in an environment of its own: virglrenderer's format tables need PyYAML
+# (UTM's build checks for it, and for mako, which Mesa's generators use).
+[ -x "$WORK/venv/bin/python3" ] || python3 -m venv "$WORK/venv"
+"$WORK/venv/bin/python3" -m pip install -q --disable-pip-version-check pyyaml mako
+export PATH="$WORK/venv/bin:$PATH"
+PY="$WORK/venv/bin/python3"
+"$PY" -c 'import yaml, mako; print("python:", __import__("sys").version.split()[0], "with yaml and mako")'
 PREFIX="$WORK/prefix"
 rm -rf "$PREFIX"
 mkdir -p "$PREFIX/lib/pkgconfig" "$PREFIX/include"
@@ -116,6 +123,8 @@ nm = ['$(xcrun --sdk iphoneos -f nm)']
 ranlib = ['$(xcrun --sdk iphoneos -f ranlib)']
 strip = ['$(xcrun --sdk iphoneos -f strip)', '-x']
 pkg-config = ['$(command -v pkg-config)']
+python = ['$PY']
+python3 = ['$PY']
 [host_machine]
 system = '$1'
 cpu_family = 'aarch64'
@@ -146,7 +155,7 @@ meson_build ios "$WORK/libepoxy" -Dtests=false -Dglx=no -Degl=yes -Dx11=false -D
 
 echo "== virglrenderer"
 meson_build darwin "$WORK/virglrenderer" -Dtests=false -Dcheck-gl-errors=false -Dvenus=false -Dneptune=false \
-    -Dplatforms=egl -Dvideo=false
+    -Dplatforms=egl -Dvideo=false -Dvtest=false
 
 echo "== frameworks"
 # Each library as <name>.framework (what an iOS app may carry), named by @rpath, its imports of the others too.
