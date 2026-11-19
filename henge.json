@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.72",
+          "date": "2026-11-19T04:41:41Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] App build: wait for a Linux machine build still running before attaching its machines",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-72/Henge.ipa",
+          "size": 12169907,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.69",
           "date": "2026-11-19T04:12:03Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine: how smooth the screen runs, in the perf log",
@@ -165,11 +174,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.69",
-      "versionDate": "2026-11-19T04:12:03Z",
-      "versionDescription": "[claude/linux-runner-crash-flumcd] Linux machine: how smooth the screen runs, in the perf log",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-69/Henge.ipa",
-      "size": 12165586,
+      "buildVersion": "101.72",
+      "versionDate": "2026-11-19T04:41:41Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] App build: wait for a Linux machine build still running before attaching its machines",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-72/Henge.ipa",
+      "size": 12169907,
       "minOSVersion": "17.0"
     }
   ],
