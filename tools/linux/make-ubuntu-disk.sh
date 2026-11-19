@@ -272,7 +272,7 @@ LOOK
         > "$ROOT/etc/xdg/autostart/henge-look.desktop"
     # Plank's launchers: files, browser, terminal.
     mkdir -p "$ROOT/etc/skel/.config/plank/dock1/launchers"
-    for app in thunar firefox xfce4-terminal mousepad; do
+    for app in thunar firefox yt xfce4-terminal mousepad; do
         printf '[PlankDockItemPreferences]\nLauncher=file:///usr/share/applications/%s.desktop\n' "$app" \
             > "$ROOT/etc/skel/.config/plank/dock1/launchers/$app.dockitem"
     done
@@ -329,10 +329,10 @@ enable-animations=false
 
 [org.gnome.shell]
 welcome-dialog-last-shown-version='999'
-favorite-apps=['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+favorite-apps=['firefox.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
 
 [org.gnome.shell:ubuntu]
-favorite-apps=['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+favorite-apps=['firefox.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
 GS
     chroot "$ROOT" glib-compile-schemas /usr/share/glib-2.0/schemas
 fi
@@ -366,6 +366,25 @@ UNIT
         ln -sf /etc/systemd/system/henge-firefox.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-firefox.service"
     fi
     chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
+    # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,
+    # at 480p H.264, the cheapest video to decode on the guest's CPU.
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3
+    curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "$ROOT/usr/local/bin/yt-dlp"
+    chmod 755 "$ROOT/usr/local/bin/yt-dlp"
+    cat > "$ROOT/usr/local/bin/yt" <<'YT'
+#!/bin/sh
+# YouTube without a browser (tools/linux/make-ubuntu-disk.sh): search or a link, pick, play in mpv.
+q=$(zenity --entry --title=YouTube --text="Search YouTube or paste a link:") || exit
+case "$q" in http*) url=$q ;; *)
+  list=$(yt-dlp --flat-playlist --print "%(id)s|%(title)s" "ytsearch15:$q") || { zenity --error --text="YouTube search failed (try: sudo yt-dlp -U)"; exit 1; }
+  pick=$(echo "$list" | cut -d'|' -f2- | zenity --list --title=YouTube --column=Video --width=700 --height=500) || exit
+  url="https://youtu.be/$(echo "$list" | grep -F "|$pick" | head -1 | cut -d'|' -f1)" ;;
+esac
+exec mpv --ytdl-format='bv*[height<=480][vcodec^=avc1]+ba/b[height<=480]' --hwdec=no --cache=yes --force-window=immediate "$url"
+YT
+    chmod 755 "$ROOT/usr/local/bin/yt"
+    printf '[Desktop Entry]\nName=YouTube\nComment=Search and watch YouTube without a browser\nExec=yt\nIcon=mpv\nType=Application\nCategories=AudioVideo;Video;\n' \
+        > "$ROOT/usr/share/applications/yt.desktop"
     chroot "$ROOT" chown -R henge:henge /home/henge
     chroot "$ROOT" apt-get clean
     chroot "$ROOT" systemctl set-default graphical.target
