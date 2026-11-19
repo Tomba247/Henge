@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.75",
+          "date": "2026-11-19T19:24:04Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] YouTube app at 720p; pactl in the image",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-75/Henge.ipa",
+          "size": 12172327,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.74",
           "date": "2026-11-19T05:24:45Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine: the iPhone mouse as on the Mac (Madeira's way)",
@@ -183,11 +192,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.74",
-      "versionDate": "2026-11-19T05:24:45Z",
-      "versionDescription": "[claude/linux-runner-crash-flumcd] Linux machine: the iPhone mouse as on the Mac (Madeira's way)",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-74/Henge.ipa",
-      "size": 12171383,
+      "buildVersion": "101.75",
+      "versionDate": "2026-11-19T19:24:04Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] YouTube app at 720p; pactl in the image",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-75/Henge.ipa",
+      "size": 12172327,
       "minOSVersion": "17.0"
     }
   ],
