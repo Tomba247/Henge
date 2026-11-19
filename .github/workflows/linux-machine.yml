@@ -6,8 +6,9 @@
 # 1. builds tools/hengelinux, the engine with the Linux machine, for arm64 Linux;
 # 2. builds the machine's kernel (tools/linux/build-kernel.sh: 16 KB pages, what
 #    the engine runs fastest), cached between runs;
-# 3. makes an Ubuntu machine with tools/linux/make-ubuntu-disk.sh (optionally
-#    with the Xfce desktop: the runner runs the image's arm64 apt itself);
+# 3. makes an Ubuntu machine with tools/linux/make-ubuntu-disk.sh, with the Xfce
+#    desktop and with Ubuntu's GNOME desktop, one job each (the runner runs the
+#    image's arm64 apt itself);
 # 4. boots it on the engine, with virtio-gpu as its display (as the app), and henge.autotest on the kernel's command line:
 #    the image reports what came up on the serial console and powers off;
 # 5. uploads the machine folder (Image, disk.img.hvsparse, machine.json) for
@@ -24,9 +25,10 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: "Install the Xfce desktop"
-        type: boolean
-        default: true
+        description: "Desktop: both (Xfce and GNOME, one job each), xfce, gnome or none (a server)"
+        type: choice
+        options: [both, xfce, gnome, none]
+        default: both
       size:
         description: "Disk size"
         type: string
@@ -56,6 +58,11 @@ jobs:
   ubuntu:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 150
+    # One machine per desktop: Xfce (LightDM) and GNOME (Ubuntu's desktop, GDM), side by side on pushes.
+    strategy:
+      fail-fast: false
+      matrix:
+        desktop: ${{ fromJSON((inputs.desktop == 'xfce' && '["xfce"]') || (inputs.desktop == 'gnome' && '["gnome"]') || (inputs.desktop == 'none' && '["none"]') || '["xfce", "gnome"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +97,8 @@ jobs:
           set -euo pipefail
           kernel=""
           if [ -f kernel/Image ]; then kernel="--kernel-dir kernel"; fi
-          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '16G' }}" ${{ (github.event_name == 'push' || inputs.desktop) && '--desktop' || '' }} $kernel
+          case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; *) desktop="" ;; esac
+          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '16G' }}" $desktop $kernel
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine
           cat machine/machine.json
@@ -109,6 +117,8 @@ jobs:
           # The screen as the machine left it, as a PNG (what the app would have shown).
           [ -f screen.ppm ] && python3 tools/linux/ppm2png.py screen.ppm screen.png
           grep -q "henge-autotest: Ubuntu is up" boot.log
+          # A desktop machine is handed out only if its desktop came up.
+          if [ "${{ matrix.desktop }}" != none ]; then grep -q "^desktop: .* up after" boot.log; fi
 
       - name: Boot it again with 3D (virgl)
         if: success()
@@ -155,7 +165,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: henge-ubuntu-${{ (github.event_name == 'push' || inputs.desktop) && 'xfce' || 'server' }}-${{ github.sha }}
+          name: henge-ubuntu-${{ matrix.desktop == 'none' && 'server' || matrix.desktop }}-${{ github.sha }}
           path: machine/
           retention-days: 14
           compression-level: 0
@@ -164,7 +174,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: boot-log-${{ github.sha }}
+          name: boot-log-${{ matrix.desktop }}-${{ github.sha }}
           path: |
             boot.log
             screen.png

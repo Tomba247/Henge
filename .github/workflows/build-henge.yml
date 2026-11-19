@@ -201,9 +201,10 @@ jobs:
           git push -q origin source
           echo "source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/source/source.json"
 
-      # The Linux machine (docs/linux-machine.md) beside the app, as a folder the app brings in: Henge-Ubuntu-Xfce.zip.
-      # Only on branches with the Linux machine's builds; release files must be under 2 GiB, so it is compressed.
-      - name: Attach the Linux machine to the release
+      # The Linux machines (docs/linux-machine.md) beside the app, each a folder the app brings in: Henge-Ubuntu-Xfce.zip
+      # and Henge-Ubuntu-GNOME.zip, from the same Linux machine build. Only on branches with those builds; release files
+      # must be under 2 GiB, so they are compressed.
+      - name: Attach the Linux machines to the release
         working-directory: Henge
         env:
           GH_TOKEN: ${{ github.token }}
@@ -217,17 +218,26 @@ jobs:
                   -L 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
           fi
           if [ -z "$run" ] || [ "$run" = null ]; then echo "no Linux machine build on $GITHUB_REF_NAME: nothing to attach"; exit 0; fi
-          rm -rf /tmp/lm /tmp/lmz && mkdir -p /tmp/lm "/tmp/lmz/Ubuntu Xfce"
-          gh run download "$run" --repo "$GITHUB_REPOSITORY" -p 'henge-ubuntu-xfce-*' -D /tmp/lm || { echo "run $run has no Ubuntu Xfce machine"; exit 0; }
-          mv /tmp/lm/*/Image /tmp/lm/*/disk.img.hvsparse /tmp/lm/*/machine.json "/tmp/lmz/Ubuntu Xfce/"
-          rm -rf /tmp/lm
-          (cd /tmp/lmz && zip -6 -qr /tmp/Henge-Ubuntu-Xfce.zip "Ubuntu Xfce")
-          size=$(stat -f %z /tmp/Henge-Ubuntu-Xfce.zip)
-          echo "Henge-Ubuntu-Xfce.zip: $size bytes, from Linux machine run $run"
-          [ "$size" -lt 2147483648 ] || { echo "over GitHub's 2 GiB limit for a release file"; exit 1; }
-          gh release upload "$TAG" /tmp/Henge-Ubuntu-Xfce.zip --repo "$GITHUB_REPOSITORY"
-          { cat /tmp/notes.txt; echo; cat <<EOF
-          **Linux machine:** Henge-Ubuntu-Xfce.zip ($size bytes, from https://github.com/$GITHUB_REPOSITORY/actions/runs/$run) is Ubuntu 24.04 with the Xfce desktop and Firefox. Tap it in Files to unzip (about three times that size unzipped), then bring the **Ubuntu Xfce** folder into Henge as you bring in a Mac. It signs in as **henge** (no password, sudo works).
-          EOF
-          } > /tmp/notes-linux.txt
+          rm -rf /tmp/lm && mkdir -p /tmp/lm
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" -p 'henge-ubuntu-*' -D /tmp/lm || { echo "run $run has no Ubuntu machines"; exit 0; }
+          cp /tmp/notes.txt /tmp/notes-linux.txt
+          echo >> /tmp/notes-linux.txt
+          for d in /tmp/lm/henge-ubuntu-*; do
+            case "$d" in
+              *-gnome-*) folder="Ubuntu GNOME" zip=Henge-Ubuntu-GNOME.zip what="Ubuntu's own desktop (GNOME, with Ubuntu's dock)" ;;
+              *-xfce-*) folder="Ubuntu Xfce" zip=Henge-Ubuntu-Xfce.zip what="the Xfce desktop" ;;
+              *) continue ;;
+            esac
+            rm -rf /tmp/lmz && mkdir -p "/tmp/lmz/$folder"
+            mv "$d"/Image "$d"/disk.img.hvsparse "$d"/machine.json "/tmp/lmz/$folder/"
+            rm -rf "$d"
+            (cd /tmp/lmz && zip -6 -qr "/tmp/$zip" "$folder")
+            size=$(stat -f %z "/tmp/$zip")
+            echo "$zip: $size bytes, from Linux machine run $run"
+            [ "$size" -lt 2147483648 ] || { echo "$zip is over GitHub's 2 GiB limit for a release file"; exit 1; }
+            gh release upload "$TAG" "/tmp/$zip" --repo "$GITHUB_REPOSITORY"
+            rm -f "/tmp/$zip"
+            echo "- **$zip** ($size bytes): Ubuntu 24.04 with $what and Firefox. Tap it in Files to unzip (about three times that size unzipped), then bring the **$folder** folder into Henge as you bring in a Mac. It signs in as **henge** (no password, sudo works)." >> /tmp/notes-linux.txt
+          done
+          echo "(Linux machines from https://github.com/$GITHUB_REPOSITORY/actions/runs/$run)" >> /tmp/notes-linux.txt
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/notes-linux.txt

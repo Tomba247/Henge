@@ -7,13 +7,15 @@
 # the arm64 cloud root file system and the stock generic kernel, its modules
 # indexed (depmod) since nothing installs them as packages here.
 #
-#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 16G] [--desktop] [--pack] [--release noble] [--kernel-dir DIR]
+#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 16G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]
 #
 # --kernel-dir takes the kernel tools/linux/build-kernel.sh built (16 KB pages,
 # what HengeVM runs fastest: see henge-kernel.config) instead of Ubuntu's own
 # 4 KB generic kernel.
 #
-# --desktop installs Xfce with LightDM signing in on its own. That runs apt
+# --desktop installs Xfce with LightDM signing in on its own; --gnome installs
+# Ubuntu's own desktop (GNOME Shell with Ubuntu's dock and theme) with GDM signing
+# in on its own. Either runs apt
 # inside the image, so it needs a host that runs arm64 programs: an arm64
 # machine (GitHub's ubuntu-24.04-arm runners) or qemu-user registered with
 # binfmt_misc. --pack writes disk.img.hvsparse (holes left out) for moving it
@@ -22,7 +24,7 @@
 # image).
 set -euo pipefail
 
-OUT=""; SIZE=16G; DESKTOP=0; PACK=0; RELEASE=noble; KDIR=""
+OUT=""; SIZE=16G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""
 # The release's own kernel series (noble: 6.8, what the Linux machine is tried with), not the
 # newer hardware-enablement kernels the same archive also has. KSERIES=7.0.0 picks those.
 KSERIES=${KSERIES:-6.8.0}
@@ -31,7 +33,8 @@ CLOUD=${CLOUD:-https://cloud-images.ubuntu.com}
 while [ $# -gt 0 ]; do
     case "$1" in
         --size) SIZE=$2; shift ;;
-        --desktop) DESKTOP=1 ;;
+        --desktop) DESKTOP=xfce ;;
+        --gnome) DESKTOP=gnome ;;
         --pack) PACK=1 ;;
         --release) RELEASE=$2; shift ;;
         --kernel-dir) KDIR=$(cd "$2" && pwd); shift ;;
@@ -40,7 +43,7 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 16G] [--desktop] [--pack] [--release noble] [--kernel-dir DIR]" >&2; exit 2; }
+[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 16G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "$0: run as root (the image's files keep their owners)" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$OUT"
@@ -127,6 +130,57 @@ done
 # A self-test that only runs when the kernel's command line has henge.autotest (the
 # Linux machine workflow, .github/workflows/linux-machine.yml): reports to the serial
 # console what came up, then powers off.
+cat > "$ROOT/usr/local/bin/henge-autotest" <<'TEST'
+#!/bin/sh
+# The Linux machine's self-test (tools/linux/make-ubuntu-disk.sh): what came up, on the serial console.
+echo
+echo "=== henge-autotest: Ubuntu is up ==="
+. /etc/os-release
+echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"
+dm=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null)" .service)
+case "$dm" in
+    lightdm) desktop=xfce shell=xfce4-panel wait=120 ;;
+    gdm|gdm3) desktop=gnome shell=gnome-shell wait=300 ;;
+    *) desktop="" ;;
+esac
+if [ -n "$desktop" ]; then
+    i=0
+    while [ $i -lt $wait ] && ! pgrep -u henge -x "$shell" >/dev/null; do sleep 1; i=$((i + 1)); done
+    sleep 20
+    if pgrep -u henge -x "$shell" >/dev/null; then echo "desktop: $desktop ($shell) up after about $i s"
+    else echo "desktop: no $shell after $i s"; fi
+    echo "=== henge-autotest: screenshot ==="
+    sleep 2
+    ps -eo comm= | grep -xE "Xorg|Xwayland|lightdm|gdm-.*|gnome-shell|gnome-session-b.*|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|nautilus|pulseaudio|pipewire|wireplumber|plank" | sort -u | tr "\n" " "
+    echo
+    echo "display: $(for d in /sys/class/drm/card[0-9]; do basename "$(readlink -f $d/device/driver)"; done | tr "\n" " ")"
+    u=$(id -u henge)
+    if [ "$desktop" = xfce ]; then
+        grep -hE "LoadModule: .(modesetting|fbdev).|glamor|Output .* connected|using drmmode|Not using" /var/log/Xorg.0.log 2>/dev/null | cut -d"]" -f2- | sed "s/^/xorg:/" | head -8
+        g=$(DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 timeout 90 glxinfo -B 2>&1)
+    else
+        for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+            echo "session $s: $(loginctl show-session "$s" -p Name -p Type -p Desktop -p Class -p State 2>/dev/null | tr "\n" " ")"
+        done
+        journalctl -b -o cat --no-pager _COMM=gnome-shell 2>/dev/null | grep -iE "device|render|gpu|egl|kms|software|llvmpipe|virgl|error|fail" | head -15 | sed "s/^/shell: /"
+        xa=$(ls /run/user/$u/.mutter-Xwaylandauth.* 2>/dev/null | head -1)
+        [ -n "$xa" ] || xa=/run/user/$u/gdm/Xauthority
+        g=$(runuser -u henge -- env DISPLAY=:0 XAUTHORITY="$xa" XDG_RUNTIME_DIR=/run/user/$u timeout 90 glxinfo -B 2>&1)
+    fi
+    echo "gl: $(echo "$g" | grep -E "OpenGL renderer|OpenGL version|direct rendering" | tr -s " " | tr "\n" ";")"
+    echo "$g" | grep -q "OpenGL renderer" || echo "glxinfo said: $(echo "$g" | tail -6 | tr "\n" ";")"
+fi
+echo "state: $(systemctl is-system-running)"
+echo "failed units:"
+systemctl --failed --no-legend --no-pager
+echo "firefox: $(command -v firefox || echo none)"
+echo "input:"
+grep -h "^N:" /proc/bus/input/devices
+ip -brief address
+snap version 2>&1 | head -2
+echo "=== henge-autotest: end ==="
+TEST
+chmod 755 "$ROOT/usr/local/bin/henge-autotest"
 cat > "$ROOT/etc/systemd/system/henge-autotest.service" <<'UNIT'
 [Unit]
 Description=Henge Linux machine self-test
@@ -137,7 +191,7 @@ After=multi-user.target
 Type=oneshot
 StandardOutput=tty
 TTYPath=/dev/ttyAMA0
-ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; if systemctl -q is-enabled lightdm 2>/dev/null; then for i in $(seq 1 120); do pgrep -x xfce4-panel >/dev/null && break; sleep 1; done; sleep 15; echo "desktop: $(pgrep -x xfce4-panel >/dev/null && echo "Xfce panel up after about $i s" || echo "no Xfce panel after 120 s")"; echo "=== henge-autotest: screenshot ==="; sleep 2; ps -eo comm= | grep -xE "Xorg|lightdm|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|pulseaudio|plank" | sort | uniq | tr "\n" " "; echo; echo "display: $(for d in /sys/class/drm/card[0-9]; do basename "$(readlink -f $d/device/driver)"; done | tr "\n" " ")"; grep -hE "LoadModule: .(modesetting|fbdev).|glamor|Output .* connected|using drmmode|Not using" /var/log/Xorg.0.log 2>/dev/null | cut -d"]" -f2- | sed "s/^/xorg:/" | head -8; g=$(DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 timeout 90 glxinfo -B 2>&1); echo "gl: $(echo "$g" | grep -E "OpenGL renderer|OpenGL version|direct rendering" | tr -s " " | tr "\n" ";")"; echo "$g" | grep -q "OpenGL renderer" || echo "glxinfo said: $(echo "$g" | tail -6 | tr "\n" ";")"; fi; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "firefox: $(command -v firefox || echo none)"; echo "input:"; grep -h "^N:" /proc/bus/input/devices; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
+ExecStart=/usr/local/bin/henge-autotest
 ExecStartPost=/bin/systemctl poweroff
 
 [Install]
@@ -145,50 +199,25 @@ WantedBy=multi-user.target
 UNIT
 ln -sf /etc/systemd/system/henge-autotest.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-autotest.service"
 
-if [ "$DESKTOP" = 1 ]; then
+if [ -n "$DESKTOP" ]; then
     if ! chroot "$ROOT" /bin/true 2>/dev/null; then
-        echo "--desktop: this host cannot run the image's arm64 programs (use an arm64 machine, or register qemu-user with binfmt_misc)" >&2
+        echo "--$DESKTOP: this host cannot run the image's arm64 programs (use an arm64 machine, or register qemu-user with binfmt_misc)" >&2
         exit 1
     fi
-    say "desktop: Xfce with LightDM signing in as henge"
     for m in dev dev/pts proc sys run; do mkdir -p "$ROOT/$m"; mount --bind "/$m" "$ROOT/$m"; done
     mv "$ROOT/etc/resolv.conf" "$ROOT/etc/resolv.conf.image" 2>/dev/null || true
     cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
+fi
+
+if [ "$DESKTOP" = xfce ]; then
+    say "desktop: Xfce with LightDM signing in as henge"
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         xubuntu-core lightdm lightdm-gtk-greeter xserver-xorg-video-fbdev xserver-xorg-input-libinput \
         pulseaudio pavucontrol fonts-dejavu-core \
         yaru-theme-gtk yaru-theme-icon yaru-theme-sound fonts-ubuntu ubuntu-wallpapers plank \
         xfce4-terminal mousepad ristretto xfce4-screenshooter \
         libgl1-mesa-dri libegl-mesa0 mesa-utils
-    # Firefox as a deb from Mozilla's own repository: Ubuntu's firefox package only installs the snap,
-    # which cannot be installed into an image being built.
-    mkdir -p "$ROOT/etc/apt/keyrings"
-    curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o "$ROOT/etc/apt/keyrings/packages.mozilla.org.asc"
-    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
-        > "$ROOT/etc/apt/sources.list.d/mozilla.list"
-    printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > "$ROOT/etc/apt/preferences.d/mozilla"
-    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
-    if ! chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y firefox; then
-        echo "   Mozilla's firefox deb not available: the snap is installed at first boot instead"
-        rm -f "$ROOT/etc/apt/sources.list.d/mozilla.list" "$ROOT/etc/apt/preferences.d/mozilla"
-        cat > "$ROOT/etc/systemd/system/henge-firefox.service" <<'UNIT'
-[Unit]
-Description=Install Firefox (snap) once the network is up
-After=snapd.seeded.service network-online.target
-ConditionPathExists=!/var/lib/henge-firefox-done
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/snap install firefox
-ExecStartPost=/usr/bin/touch /var/lib/henge-firefox-done
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-        ln -sf /etc/systemd/system/henge-firefox.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-firefox.service"
-    fi
-    chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
     # Ubuntu's look on Xfce: Yaru theme and icons, Ubuntu font and wallpaper, a dock (plank) at the
     # bottom. Set per user on first sign-in (xfconf), so Xubuntu's defaults stay underneath.
     cat > "$ROOT/usr/local/bin/henge-look" <<'LOOK'
@@ -228,9 +257,96 @@ LOOK
     done
     cp -a "$ROOT/etc/skel/.config/plank" "$ROOT/home/henge/.config/" 2>/dev/null || { mkdir -p "$ROOT/home/henge/.config"; cp -a "$ROOT/etc/skel/.config/plank" "$ROOT/home/henge/.config/"; }
     chroot "$ROOT" chown -R henge:henge /home/henge/.config
-    chroot "$ROOT" apt-get clean
     mkdir -p "$ROOT/etc/lightdm/lightdm.conf.d"
     printf '[Seat:*]\nautologin-user=henge\nautologin-session=xfce\n' > "$ROOT/etc/lightdm/lightdm.conf.d/50-henge.conf"
+fi
+
+if [ "$DESKTOP" = gnome ]; then
+    say "desktop: GNOME (Ubuntu's desktop) with GDM signing in as henge"
+    # Ubuntu's own desktop, without what it only recommends (printing, the snap store, ...): GNOME Shell with
+    # Ubuntu's session, dock and Yaru theme, and the usual apps.
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ubuntu-desktop-minimal gdm3 ubuntu-session gnome-shell gnome-session \
+        gnome-shell-extension-ubuntu-dock gnome-shell-extension-appindicator \
+        yaru-theme-gnome-shell yaru-theme-gtk yaru-theme-icon yaru-theme-sound fonts-ubuntu ubuntu-wallpapers ubuntu-wallpapers-noble \
+        nautilus gnome-terminal gnome-text-editor eog gnome-calculator gnome-system-monitor file-roller gnome-control-center gnome-tweaks \
+        xwayland pipewire-pulse wireplumber dconf-cli \
+        libgl1-mesa-dri libegl-mesa0 mesa-utils
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get purge -y gnome-initial-setup 2>/dev/null || true
+    # GDM signs henge in on its own, into Ubuntu's session (GNOME on Wayland; GDM falls back to Xorg itself).
+    mkdir -p "$ROOT/etc/gdm3" "$ROOT/var/lib/AccountsService/users"
+    printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=henge\n\n[security]\n\n[xdmcp]\n\n[chooser]\n\n[debug]\n' \
+        > "$ROOT/etc/gdm3/custom.conf"
+    printf '[User]\nSession=ubuntu\nSystemAccount=false\n' > "$ROOT/var/lib/AccountsService/users/henge"
+    chmod 600 "$ROOT/var/lib/AccountsService/users/henge"
+    # No first-run setup or welcome tour; no screen lock or blanking (the phone has its own); Firefox (Mozilla's
+    # deb) in the dock; no animations while the guest draws with the CPU (Settings > Accessibility turns them on).
+    mkdir -p "$ROOT/home/henge/.config" "$ROOT/etc/skel/.config"
+    echo yes > "$ROOT/home/henge/.config/gnome-initial-setup-done"
+    echo yes > "$ROOT/etc/skel/.config/gnome-initial-setup-done"
+    cat > "$ROOT/usr/share/glib-2.0/schemas/99_henge.gschema.override" <<'GS'
+[org.gnome.desktop.session]
+idle-delay=0
+
+[org.gnome.desktop.screensaver]
+lock-enabled=false
+idle-activation-enabled=false
+
+[org.gnome.desktop.lockdown]
+disable-lock-screen=true
+
+[org.gnome.settings-daemon.plugins.power]
+sleep-inactive-ac-type='nothing'
+sleep-inactive-battery-type='nothing'
+idle-dim=false
+
+[org.gnome.desktop.interface]
+enable-animations=false
+
+[org.gnome.desktop.interface:ubuntu]
+enable-animations=false
+
+[org.gnome.shell]
+welcome-dialog-last-shown-version='999'
+favorite-apps=['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+
+[org.gnome.shell:ubuntu]
+favorite-apps=['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+GS
+    chroot "$ROOT" glib-compile-schemas /usr/share/glib-2.0/schemas
+fi
+
+if [ -n "$DESKTOP" ]; then
+    # Firefox as a deb from Mozilla's own repository: Ubuntu's firefox package only installs the snap,
+    # which cannot be installed into an image being built.
+    mkdir -p "$ROOT/etc/apt/keyrings"
+    curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o "$ROOT/etc/apt/keyrings/packages.mozilla.org.asc"
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
+        > "$ROOT/etc/apt/sources.list.d/mozilla.list"
+    printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > "$ROOT/etc/apt/preferences.d/mozilla"
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
+    if ! chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y firefox; then
+        echo "   Mozilla's firefox deb not available: the snap is installed at first boot instead"
+        rm -f "$ROOT/etc/apt/sources.list.d/mozilla.list" "$ROOT/etc/apt/preferences.d/mozilla"
+        cat > "$ROOT/etc/systemd/system/henge-firefox.service" <<'UNIT'
+[Unit]
+Description=Install Firefox (snap) once the network is up
+After=snapd.seeded.service network-online.target
+ConditionPathExists=!/var/lib/henge-firefox-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/snap install firefox
+ExecStartPost=/usr/bin/touch /var/lib/henge-firefox-done
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        ln -sf /etc/systemd/system/henge-firefox.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-firefox.service"
+    fi
+    chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
+    chroot "$ROOT" chown -R henge:henge /home/henge
+    chroot "$ROOT" apt-get clean
     chroot "$ROOT" systemctl set-default graphical.target
     rm -f "$ROOT/etc/resolv.conf"
     mv "$ROOT/etc/resolv.conf.image" "$ROOT/etc/resolv.conf" 2>/dev/null || true
@@ -243,7 +359,8 @@ truncate -s "$SIZE" "$OUT/disk.img"
 mkfs.ext4 -q -F -L henge-root -d "$ROOT" "$OUT/disk.img"
 
 NAME="Ubuntu ${RELEASE^}"
-[ "$DESKTOP" = 1 ] && NAME="$NAME (Xfce)"
+[ "$DESKTOP" = xfce ] && NAME="$NAME (Xfce)"
+[ "$DESKTOP" = gnome ] && NAME="$NAME (GNOME)"
 cat > "$OUT/machine.json" <<JSON
 {"kind": "linux", "name": "$NAME", "ramMB": 4096, "kernel": "Image", "kernelVersion": "$KVER",
  "cmdline": "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"}

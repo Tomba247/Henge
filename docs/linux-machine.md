@@ -94,8 +94,13 @@ as it is: the arm64 cloud root file system and the stock generic kernel (the
 release's own series, 6.8 for 24.04), the kernel uncompressed (`Image`) and its
 modules indexed with `depmod` (they are not installed as packages, so nothing
 else would). A `henge` user with no password signs in on the consoles and has
-sudo; the network is DHCP on virtio-net; `--desktop` adds Xfce with LightDM
-signing in by itself (apt runs inside the image, so that needs an arm64 host).
+sudo; the network is DHCP on virtio-net. `--desktop` adds Xfce with LightDM
+signing in by itself, restyled after Ubuntu (Yaru, the Ubuntu font, a dock);
+`--gnome` adds Ubuntu's own desktop, GNOME Shell with Ubuntu's session, dock and
+theme, GDM signing in by itself, without the first-run setup, the welcome tour,
+the screen lock or animations (Settings > Accessibility turns those back on).
+Both get Firefox as Mozilla's deb (Ubuntu's firefox package is the snap). apt
+runs inside the image, so these need an arm64 host.
 
 ```sh
 sudo tools/linux/make-ubuntu-disk.sh ~/Ubuntu --size 24G --desktop --pack
@@ -106,9 +111,12 @@ and `machine.json` with `"kind": "linux"` and the kernel's command line.
 
 `.github/workflows/linux-machine.yml` does the same on a GitHub-hosted arm64
 runner, where the engine runs natively: it builds `tools/hengelinux`, makes the
-machine, boots it with `henge.autotest` on the command line (a unit in the image
-then reports what came up on the serial console and powers off), and uploads the
-folder as an artifact.
+Xfce and the GNOME machine (a job each), boots each with `henge.autotest` on the
+command line (`/usr/local/bin/henge-autotest` in the image then reports what came
+up on the serial console, asks for a screenshot and powers off), again with virgl
+3D both ways, and uploads each folder as an artifact if its desktop came up. The
+app's build attaches them to its release as `Henge-Ubuntu-Xfce.zip` and
+`Henge-Ubuntu-GNOME.zip`.
 
 ## In the app
 
