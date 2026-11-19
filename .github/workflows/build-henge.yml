@@ -15,7 +15,12 @@ name: Build Henge IPA
 
 # Manual only (Actions tab > Build Henge IPA > Run workflow): pushes to main don't build an IPA.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      linux_run:
+        description: "Linux machine build to attach as Henge-Ubuntu-Xfce.zip (run id; empty: the newest good one on this branch, if any)"
+        type: string
+        default: ""
 
 env:
   HUSK: ${{ github.workspace }}/Husk
@@ -33,6 +38,7 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: write # the release and the app source branch (the last step)
+      actions: read   # the Linux machine's build, attached to the release
 
     steps:
       - name: Check out Henge (this fork)
@@ -194,3 +200,34 @@ jobs:
             commit -qam "Add $GITHUB_REF_NAME $VERSION ($BUILD)"
           git push -q origin source
           echo "source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/source/source.json"
+
+      # The Linux machine (docs/linux-machine.md) beside the app, as a folder the app brings in: Henge-Ubuntu-Xfce.zip.
+      # Only on branches with the Linux machine's builds; release files must be under 2 GiB, so it is compressed.
+      - name: Attach the Linux machine to the release
+        working-directory: Henge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINUX_RUN: ${{ inputs.linux_run }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
+          run="$LINUX_RUN"
+          if [ -z "$run" ]; then
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow linux-machine.yml --branch "$GITHUB_REF_NAME" --status success \
+                  -L 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
+          fi
+          if [ -z "$run" ] || [ "$run" = null ]; then echo "no Linux machine build on $GITHUB_REF_NAME: nothing to attach"; exit 0; fi
+          rm -rf /tmp/lm /tmp/lmz && mkdir -p /tmp/lm "/tmp/lmz/Ubuntu Xfce"
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" -p 'henge-ubuntu-xfce-*' -D /tmp/lm || { echo "run $run has no Ubuntu Xfce machine"; exit 0; }
+          mv /tmp/lm/*/Image /tmp/lm/*/disk.img.hvsparse /tmp/lm/*/machine.json "/tmp/lmz/Ubuntu Xfce/"
+          rm -rf /tmp/lm
+          (cd /tmp/lmz && zip -6 -qr /tmp/Henge-Ubuntu-Xfce.zip "Ubuntu Xfce")
+          size=$(stat -f %z /tmp/Henge-Ubuntu-Xfce.zip)
+          echo "Henge-Ubuntu-Xfce.zip: $size bytes, from Linux machine run $run"
+          [ "$size" -lt 2147483648 ] || { echo "over GitHub's 2 GiB limit for a release file"; exit 1; }
+          gh release upload "$TAG" /tmp/Henge-Ubuntu-Xfce.zip --repo "$GITHUB_REPOSITORY"
+          { cat /tmp/notes.txt; echo; cat <<EOF
+          **Linux machine:** Henge-Ubuntu-Xfce.zip ($size bytes, from https://github.com/$GITHUB_REPOSITORY/actions/runs/$run) is Ubuntu 24.04 with the Xfce desktop and Firefox. Tap it in Files to unzip (about three times that size unzipped), then bring the **Ubuntu Xfce** folder into Henge as you bring in a Mac. It signs in as **henge** (no password, sudo works).
+          EOF
+          } > /tmp/notes-linux.txt
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/notes-linux.txt
