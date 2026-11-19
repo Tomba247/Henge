@@ -175,6 +175,26 @@ echo "state: $(systemctl is-system-running)"
 echo "failed units:"
 systemctl --failed --no-legend --no-pager
 echo "firefox: $(command -v firefox || echo none)"
+if command -v firefox >/dev/null; then
+    # Firefox for real: its version, a page drawn offscreen, then a window on the desktop.
+    echo "firefox version: $(runuser -u henge -- env HOME=/home/henge timeout 60 firefox --version 2>&1 | tail -3 | tr "\n" ";")"
+    echo "<html><body style='background:#e95420'><h1>henge</h1></body></html>" > /tmp/henge-ff.html
+    chmod 644 /tmp/henge-ff.html
+    o=$(runuser -u henge -- env HOME=/home/henge MOZ_HEADLESS=1 timeout 240 firefox --screenshot /tmp/henge-ff.png file:///tmp/henge-ff.html 2>&1)
+    echo "firefox headless: exit $? $(ls -l /tmp/henge-ff.png 2>/dev/null | awk '{print $5" bytes"}')"
+    echo "$o" | tail -25 | sed "s/^/ff: /"
+    if [ -n "$desktop" ]; then
+        if [ "$desktop" = xfce ]; then fenv="DISPLAY=:0"
+        else fenv="WAYLAND_DISPLAY=wayland-0 DISPLAY=:0 XAUTHORITY=$xa"; fi
+        runuser -u henge -- env HOME=/home/henge XDG_RUNTIME_DIR=/run/user/$u $fenv \
+            DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$u/bus \
+            firefox file:///tmp/henge-ff.html > /tmp/henge-ff.log 2>&1 &
+        sleep 90
+        echo "firefox window: $(pgrep -u henge -c -f firefox) firefox processes after 90 s"
+        tail -25 /tmp/henge-ff.log | sed "s/^/ffw: /"
+    fi
+    dmesg | grep -iE "firefox|Web Content|Isolated|GPU Process|segfault|unhandled|traps" | tail -15 | sed "s/^/kernel: /"
+fi
 echo "input:"
 grep -h "^N:" /proc/bus/input/devices
 ip -brief address
