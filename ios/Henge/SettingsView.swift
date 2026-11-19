@@ -20,6 +20,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.syncWaitKey) private var syncWait = true
     @AppStorage(EngineTuning.vblankKey) private var vblank = false
     @AppStorage(EngineTuning.windowKey) private var el0window = false
+    @AppStorage(EngineTuning.linux3DKey) private var linux3D = true
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB
     @AppStorage(DeskAppearance.key) private var appearance = DeskAppearance.system
@@ -157,6 +158,12 @@ struct SettingsView: View {
                     Text("A bigger code cache empties less often and takes more memory (about 1.75 times its size); Henge picks one by its memory limit: 1.5 GB where there is plenty, 512 MB where there is little. Applies the next time Henge opens. If JIT stops turning on, or a Mac closes Henge during setup, choose a smaller one.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("macOS draws a frame for every refresh: 30 Hz leaves the most of the emulated CPU to apps, at the cost of choppier animation; 60 Hz is smoother. Faster disk writes order them without waiting for a full sync; a sudden power loss could lose the last ones. Quicker wake keeps an idle CPU watching for work for 50 µs, at some battery cost. Superblocks let translated code run past conditional branches. Changes apply the next time a Mac starts.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Desk.card)
+                Section("Linux") {
+                    Toggle("3D graphics on the GPU", isOn: $linux3D)
+                    Text("A Linux machine's OpenGL runs on the phone's GPU (virgl, drawn with Metal through ANGLE) when this build of Henge carries the GPU libraries. Off, Linux draws with the CPU. Applies the next time a Linux machine starts.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)
