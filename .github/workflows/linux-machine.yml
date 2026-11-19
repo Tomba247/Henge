@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           kernel=""
           if [ -f kernel/Image ]; then kernel="--kernel-dir kernel"; fi
-          case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; kali) desktop="--kali --gnome" ;; *) desktop="" ;; esac
+          case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; kali) desktop="--kali --desktop" ;; *) desktop="" ;; esac
           sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '60G' }}" $desktop $kernel
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine

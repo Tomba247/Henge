@@ -244,7 +244,7 @@ jobs:
             case "$d" in
               *-gnome-*) folder="Ubuntu GNOME" zip=Henge-Ubuntu-GNOME.zip what="Ubuntu 24.04 with Ubuntu's own desktop (GNOME, with Ubuntu's dock) and Firefox" ;;
               *-xfce-*) folder="Ubuntu Xfce" zip=Henge-Ubuntu-Xfce.zip what="Ubuntu 24.04 with the Xfce desktop and Firefox" ;;
-              *-kali-*) folder="Kali Linux" zip=Henge-Kali-GNOME.zip what="Kali Linux rolling with GNOME, Firefox ESR and Kali's top 10 tools" ;;
+              *-kali-*) folder="Kali Linux" zip=Henge-Kali.zip what="Kali Linux rolling with Kali's Xfce desktop, Firefox ESR and Kali's top 10 tools" ;;
               *) continue ;;
             esac
             rm -rf /tmp/lmz && mkdir -p "/tmp/lmz/$folder"

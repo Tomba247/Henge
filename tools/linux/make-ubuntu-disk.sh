@@ -265,7 +265,7 @@ if [ -n "$DESKTOP" ]; then
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
 fi
 
-if [ "$DESKTOP" = xfce ]; then
+if [ "$DESKTOP" = xfce ] && [ "$DISTRO" = ubuntu ]; then
     say "desktop: Xfce with LightDM signing in as henge"
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         xubuntu-core lightdm lightdm-gtk-greeter xserver-xorg-video-fbdev xserver-xorg-input-libinput \
@@ -317,6 +317,21 @@ LOOK
 fi
 
 BROWSER=firefox
+if [ "$DESKTOP" = xfce ] && [ "$DISTRO" = kali ]; then
+    # Kali's own default desktop (Xfce, Kali's theme and menu), LightDM signing in as henge.
+    say "desktop: Kali's Xfce with LightDM signing in as henge, and Kali's top 10 tools"
+    BROWSER=firefox-esr
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        kali-desktop-xfce kali-linux-core kali-tools-top10 firefox-esr \
+        xfce4 xfce4-terminal thunar mousepad lightdm lightdm-gtk-greeter \
+        xserver-xorg-core xserver-xorg-video-fbdev xserver-xorg-input-libinput x11-xserver-utils \
+        pipewire-pulse wireplumber pavucontrol libgl1-mesa-dri libegl-mesa0 mesa-utils fonts-dejavu-core
+    mkdir -p "$ROOT/etc/lightdm/lightdm.conf.d"
+    printf '[Seat:*]\nautologin-user=henge\nautologin-session=xfce\n' > "$ROOT/etc/lightdm/lightdm.conf.d/50-henge.conf"
+    chroot "$ROOT" groupadd -rf autologin && chroot "$ROOT" gpasswd -a henge autologin >/dev/null
+    chroot "$ROOT" systemctl enable lightdm 2>/dev/null || true
+    ln -sf /lib/systemd/system/lightdm.service "$ROOT/etc/systemd/system/display-manager.service"
+fi
 if [ "$DESKTOP" = gnome ] && [ "$DISTRO" = kali ]; then
     say "desktop: Kali's GNOME with GDM signing in as henge, and Kali's top 10 tools"
     BROWSER=firefox-esr
