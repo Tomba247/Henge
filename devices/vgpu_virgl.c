@@ -153,6 +153,7 @@ struct HvVgpuVirgl {
        buffers, fences and frames to show go on without waiting (post), so its CPU runs while the GPU works. */
     struct Job *head, *tail;
     int queued;
+    int async; /* HV_VIRGL_ASYNC: posted work goes on without the guest waiting (else every job waits, as before) */
     int stopping, started, ok, gles;
     HvVirtioGpu *gpu;
     _Atomic uint64_t last_fence; /* the newest fence asked for, all 64 bits */
@@ -351,8 +352,8 @@ static void call(HvVgpuVirgl *v, void (*job)(HvVgpuVirgl *, void *), void *arg) 
 
 /* Queues job(arg) without waiting; arg is malloc'd and freed after the job. */
 static void post(HvVgpuVirgl *v, void (*job)(HvVgpuVirgl *, void *), void *arg) {
-    Job *j = calloc(1, sizeof *j);
-    if (!j) { /* no memory: run it in order the slow way */
+    Job *j = v->async ? calloc(1, sizeof *j) : NULL;
+    if (!j) { /* not asked for (or no memory): the guest waits, as it always did */ /* no memory: run it in order the slow way */
         call(v, job, arg);
         free(arg);
         return;
@@ -668,6 +669,7 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
         return NULL;
     }
     pthread_mutex_init(&v->mu, NULL);
+    v->async = getenv("HV_VIRGL_ASYNC") != NULL;
     pthread_cond_init(&v->wake, NULL);
     pthread_cond_init(&v->done_cv, NULL);
     if (pthread_create(&v->thread, NULL, render_thread, v) != 0) {
@@ -702,7 +704,7 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
     gl->read_pixels = read_pixels;
 #if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
     gl->native_texture = native_texture;
-    if (!getenv("HV_VIRGL_SYNC_PRESENT")) gl->present = present;
+    if (v->async) gl->present = present;
 #endif
     gl->drain = drain;
     fprintf(stderr, "virgl: renderer started (%s%s)\n", gles || v->own_egl ? "OpenGL ES" : "OpenGL", v->own_egl ? ", own EGL contexts" : "");

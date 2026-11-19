@@ -13,6 +13,7 @@ enum EngineTuning {
     static let vblankKey = "henge.perf.vblank"
     static let windowKey = "henge.perf.el0window"
     static let linux3DKey = "henge.linux.3d"
+    static let linuxGPUAsyncKey = "henge.linux.gpuAsync"
 
     static let defaults: [String: String] = [
         // 60, not 120: every frame macOS draws is emulated and replayed, so 120 Hz
@@ -45,6 +46,8 @@ enum EngineTuning {
         if d.bool(forKey: windowKey) { env["HV_EL0_WINDOW"] = "34" } else { unsetenv("HV_EL0_WINDOW") }
         // A Linux machine's 3D (virgl on ANGLE, devices/vgpu_virgl.c), when the app carries the GPU libraries. On unless switched off.
         if d.object(forKey: linux3DKey) as? Bool == false { env["HV_LINUX_NO_3D"] = "1" } else { unsetenv("HV_LINUX_NO_3D") }
+        // Experimental: Linux's 3D work queued without its CPU waiting for the GPU (devices/vgpu_virgl.c). Off unless switched on.
+        if d.bool(forKey: linuxGPUAsyncKey) { env["HV_VIRGL_ASYNC"] = "1" } else { unsetenv("HV_VIRGL_ASYNC") }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         // GPU command trace: on while Documents/trace-on exists (it is checked every frame, so it can be toggled live).
         env["HV_PVG_TRACE_FILE"] = docs.appendingPathComponent("trace-on").path
