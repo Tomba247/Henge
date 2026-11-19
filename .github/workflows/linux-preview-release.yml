@@ -1,12 +1,12 @@
 # .github/workflows/linux-preview-release.yml
 #
-# Publishes the Linux machine preview as a pre-release (tag linux-preview) on this fork: Henge.ipa
+# Publishes the Linux machine preview as a pre-release (tag linux-preview-<run>) on this fork: Henge.ipa
 # as a plain file, which Safari downloads straight (and can resume, unlike a zipped build
 # artifact), and the Ubuntu Xfce machine as Henge-Ubuntu-Xfce.zip (a folder the app brings in).
 # It takes the files from the builds named below rather than building them again.
 #
 # Runs on pushes to the Linux machine's branch that change this file, or by hand once it is on
-# the default branch. Replaces an earlier linux-preview release.
+# the default branch.
 
 name: Linux preview release
 
@@ -64,7 +64,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release delete linux-preview --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          # A new tag each run, as the app's own build does: recreating a deleted release's tag was refused (HTTP 403).
+          TAG="linux-preview-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           ipa=$(stat -c %s out/Henge.ipa); ub=$(stat -c %s out/Henge-Ubuntu-Xfce.zip)
           cat > notes.md <<EOF
           Henge with the **Linux machine** (docs/linux-machine.md on the branch claude/linux-runner-crash-flumcd): Ubuntu 24.04 with the Xfce desktop on Henge's engine. A preview: tried on GitHub's arm64 runners, not yet on a phone.
@@ -75,6 +76,6 @@ jobs:
 
           Firefox is in the dock and the Applications menu. Trackpad: one finger moves the pointer, two scroll, tap clicks, two-finger tap right-clicks, the volume press is the left button. No GPU acceleration yet; no instant resume for Linux.
           EOF
-          gh release create linux-preview --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
               --title "Linux machine preview" --notes-file notes.md \
               out/Henge.ipa out/Henge-Ubuntu-Xfce.zip out/SHA256SUMS
