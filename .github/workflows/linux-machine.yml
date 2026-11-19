@@ -32,7 +32,7 @@ on:
       size:
         description: "Disk size"
         type: string
-        default: "24G"
+        default: "60G"
       cpus:
         description: "CPUs for the boot test"
         type: string
@@ -98,7 +98,7 @@ jobs:
           kernel=""
           if [ -f kernel/Image ]; then kernel="--kernel-dir kernel"; fi
           case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; *) desktop="" ;; esac
-          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '16G' }}" $desktop $kernel
+          sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '60G' }}" $desktop $kernel
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine
           cat machine/machine.json

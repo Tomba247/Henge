@@ -7,7 +7,7 @@
 # the arm64 cloud root file system and the stock generic kernel, its modules
 # indexed (depmod) since nothing installs them as packages here.
 #
-#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 16G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]
+#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 60G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]
 #
 # --kernel-dir takes the kernel tools/linux/build-kernel.sh built (16 KB pages,
 # what HengeVM runs fastest: see henge-kernel.config) instead of Ubuntu's own
@@ -24,7 +24,7 @@
 # image).
 set -euo pipefail
 
-OUT=""; SIZE=16G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""
+OUT=""; SIZE=60G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""
 # The release's own kernel series (noble: 6.8, what the Linux machine is tried with), not the
 # newer hardware-enablement kernels the same archive also has. KSERIES=7.0.0 picks those.
 KSERIES=${KSERIES:-6.8.0}
@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 16G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]" >&2; exit 2; }
+[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 60G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "$0: run as root (the image's files keep their owners)" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$OUT"
