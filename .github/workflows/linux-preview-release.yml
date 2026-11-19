@@ -21,8 +21,8 @@ permissions:
   actions: read
 
 env:
-  IPA_RUN: "44421194885"    # Build Henge IPA, commit b8ce7a7 (Linux machine with virtio input)
-  LINUX_RUN: "44424818565"  # Linux machine, commit a40a90c (Ubuntu 24.04 Xfce, 16 KB kernel, desktop checked)
+  IPA_RUN: "44442186983"    # Build Henge IPA, commit df28db3 (Linux screen at 60 Hz)
+  LINUX_RUN: "44442406973"  # Linux machine, commit 23c7459 (Ubuntu 24.04 Xfce with Firefox and Ubuntu's look)
 
 jobs:
   release:
@@ -70,7 +70,7 @@ jobs:
           2. **Henge-Ubuntu-Xfce.zip** ($ub bytes): check the size once it is downloaded, tap it in Files to unzip, and bring the **Ubuntu Xfce** folder into Henge as you bring in a Mac.
           3. Start it: Linux's text, then the desktop, signed in as **henge** (no password, sudo works).
 
-          Trackpad: one finger moves the pointer, two scroll, tap clicks, two-finger tap right-clicks, the volume press is the left button. No GPU acceleration yet; no instant resume for Linux.
+          Firefox is in the dock and the Applications menu. Trackpad: one finger moves the pointer, two scroll, tap clicks, two-finger tap right-clicks, the volume press is the left button. No GPU acceleration yet; no instant resume for Linux.
           EOF
           gh release create linux-preview --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
               --title "Linux machine preview" --notes-file notes.md \
