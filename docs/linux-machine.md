@@ -21,7 +21,8 @@ handed over in x0, and there is no boot ROM.
 | PSCI 1.0 over HVC | — | `arm,psci-1.0` (CPU_ON, power off, reset) |
 | PCIe ECAM / 32-bit window | 0x40000000 / 0x50000000 | `pci-host-ecam-generic`, INTx: slot s is SPI 0x20 + s |
 | virtio-pci block, network, input | PCIe | `virtio_blk`, `virtio_net`, `virtio_input` |
-| simple-framebuffer (optional) | top of RAM | `simpledrm` / `simplefb` |
+| virtio-gpu (the display; 3D with virgl) | PCIe | `virtio_gpu` (DRM/KMS; Mesa's virgl driver in the guest) |
+| simple-framebuffer (instead, with `HV_LINUX_FB`) | top of RAM | `simpledrm` / `simplefb` |
 | RAM | 0x70000000 | — |
 
 The CPU starts at EL1 (HengeVM plays EL2), as on a VM host without nested
@@ -123,9 +124,10 @@ What runs on the phone, and how:
   is set; its devices are in the virtual Mac's board, so the input, disk,
   network and sound code is the Mac's. Guest RAM comes from
   `hv_vmapple_alloc_ram`, outside the app's footprint where iOS allows it.
-- **Display:** the simple-framebuffer, handed to `BootDisplay.swift` through
-  `hv_vm_boot_display` (32-bit BGRA, as the Mac's boot framebuffer). The guest
-  draws with the CPU: no GPU acceleration yet.
+- **Display:** virtio-gpu (see "The GPU" below), its screen handed to
+  `BootDisplay.swift` through `hv_vm_boot_display` (32-bit BGRA, a copy with
+  the pointer drawn in). `HV_LINUX_FB` in the environment brings back the
+  simple-framebuffer instead.
 - **Input:** for now the virtio keyboard and mouse (`host/vm.c`, "Input for the
   Linux machine"): keys from the app's on-screen and hardware keyboards go to the
   virtio keyboard; on the iPhone trackpad one finger moves the pointer, two
@@ -139,9 +141,39 @@ What runs on the phone, and how:
   tolerates the same events.
 - **Network and sound:** virtio-net on the user-mode network, virtio-snd.
 
+## The GPU
+
+`devices/virtio_gpu.c` is a virtio-gpu device, which Linux's `virtio_gpu` DRM
+driver drives: the guest has a real KMS display (modes up to 4K, page flips, a
+hardware pointer) and Xorg uses its `modesetting` driver.
+
+- **2D:** the guest's resources are kept in host memory, filled from its pages
+  by TRANSFER_TO_HOST_2D; RESOURCE_FLUSH on the scanned-out one copies the
+  damaged rectangle to the screen.
+- **3D (virgl):** with a renderer (`HvVgpu3d`, filled by `devices/vgpu_virgl.c`)
+  the device offers `VIRTIO_GPU_F_VIRGL` and the two virgl capsets, and passes
+  contexts, 3D resources, transfers, command buffers and fences to
+  virglrenderer, which runs the guest's Gallium commands on the host's OpenGL
+  or OpenGL ES. virglrenderer and its GL contexts live on a thread of their own;
+  scanned-out 3D resources are read back for the screen.
+  - On a Linux host (`make linux-test LX_VIRGL=1`, `hengelinux --virgl`) it uses
+    the host's Mesa through surfaceless EGL. On GitHub's arm64 runner Xorg in the
+    guest reports *glamor X acceleration enabled on virgl*.
+  - On iOS there is no Mesa: the renderer is virglrenderer on ANGLE, which draws
+    with Metal (as UTM does). `ios/scripts/build-gpu-deps.sh` builds ANGLE,
+    libepoxy and virglrenderer from UTM's forks as frameworks (the *iOS GPU
+    libraries* workflow, cached for the app's build); the app embeds them and
+    the engine loads them when a Linux machine starts (`HV_VIRGL_DLOPEN`),
+    making the EGL display on ANGLE's Metal backend and handing virglrenderer
+    its contexts (`HV_VIRGL_ANGLE`). Without them the GPU is 2D.
+    `HV_VIRGL_OWN_EGL=1 hengelinux --virgl` takes that path on Linux, with
+    Mesa's EGL, and the CI boots it too.
+
+Next for the GPU: the screen as a Metal texture (UTM's virglrenderer can hand
+out a resource's `MTLTexture`) rather than read back, a CAMetalLayer for it, and
+the display following the app's window size.
+
 ## Next
 
 - Try it on a phone.
-- A virtio-gpu device: with virglrenderer on ANGLE/Metal, OpenGL in the guest
-  would run on the phone's GPU, as LinuxRunner does it.
 - Saving a Linux machine (instant resume).
