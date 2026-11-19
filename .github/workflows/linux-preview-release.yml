@@ -1,0 +1,77 @@
+# .github/workflows/linux-preview-release.yml
+#
+# Publishes the Linux machine preview as a pre-release (tag linux-preview) on this fork: Henge.ipa
+# as a plain file, which Safari downloads straight (and can resume, unlike a zipped build
+# artifact), and the Ubuntu Xfce machine as Henge-Ubuntu-Xfce.zip (a folder the app brings in).
+# It takes the files from the builds named below rather than building them again.
+#
+# Runs on pushes to the Linux machine's branch that change this file, or by hand once it is on
+# the default branch. Replaces an earlier linux-preview release.
+
+name: Linux preview release
+
+on:
+  push:
+    branches: ["claude/linux-runner-crash-flumcd"]
+    paths: [".github/workflows/linux-preview-release.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  IPA_RUN: "44421194885"    # Build Henge IPA, commit b8ce7a7 (Linux machine with virtio input)
+  LINUX_RUN: "44424818565"  # Linux machine, commit a40a90c (Ubuntu 24.04 Xfce, 16 KB kernel, desktop checked)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The app
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.IPA_RUN }}
+          github-token: ${{ github.token }}
+          pattern: Henge-ipa-*
+          path: dl/ipa
+
+      - name: The Ubuntu machine
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.LINUX_RUN }}
+          github-token: ${{ github.token }}
+          pattern: henge-ubuntu-xfce-*
+          path: dl/ubuntu
+
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          mkdir -p out "Ubuntu Xfce"
+          cp dl/ipa/*/Henge.ipa out/Henge.ipa
+          cp dl/ubuntu/*/Image dl/ubuntu/*/disk.img.hvsparse dl/ubuntu/*/machine.json "Ubuntu Xfce/"
+          # Stored, not compressed: the disk is already holes-out, and unzipping on the phone stays quick.
+          zip -0 -r out/Henge-Ubuntu-Xfce.zip "Ubuntu Xfce"
+          ls -la out "Ubuntu Xfce"
+          (cd out && sha256sum Henge.ipa Henge-Ubuntu-Xfce.zip > SHA256SUMS)
+          cat out/SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete linux-preview --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          ipa=$(stat -c %s out/Henge.ipa); ub=$(stat -c %s out/Henge-Ubuntu-Xfce.zip)
+          cat > notes.md <<EOF
+          Henge with the **Linux machine** (docs/linux-machine.md on the branch claude/linux-runner-crash-flumcd): Ubuntu 24.04 with the Xfce desktop on Henge's engine. A preview: tried on GitHub's arm64 runners, not yet on a phone.
+
+          1. **Henge.ipa** ($ipa bytes): install it as you install Henge. It includes league-el0.
+          2. **Henge-Ubuntu-Xfce.zip** ($ub bytes): check the size once it is downloaded, tap it in Files to unzip, and bring the **Ubuntu Xfce** folder into Henge as you bring in a Mac.
+          3. Start it: Linux's text, then the desktop, signed in as **henge** (no password, sudo works).
+
+          Trackpad: one finger moves the pointer, two scroll, tap clicks, two-finger tap right-clicks, the volume press is the left button. No GPU acceleration yet; no instant resume for Linux.
+          EOF
+          gh release create linux-preview --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Linux machine preview" --notes-file notes.md \
+              out/Henge.ipa out/Henge-Ubuntu-Xfce.zip out/SHA256SUMS
