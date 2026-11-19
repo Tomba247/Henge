@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.81",
+          "date": "2026-11-19T21:14:49Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine self-test: the console's sign-in no longer cuts it off\n(built from 687b2ce339729f49f330db5a427275f6c4bd3fe8)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-81/Henge.ipa",
+          "size": 12173522,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.80",
           "date": "2026-11-19T20:54:36Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] App release: when the token may not tag this commit, tag the newest earlier release's commit\n(built from 67681bf2d981b30a6f633dc4065e6fd082e64bc4)",
@@ -366,15 +375,6 @@
           "localizedDescription": "[league-el0] Experimental: direct app memory tries smaller windows when 16 GB a CPU does not fit (the phone refused the fourth)",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-26/Henge.ipa",
           "size": 9656362,
-          "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.25",
-          "date": "2026-11-13T05:36:52Z",
-          "localizedDescription": "[league-el0] Experimental: direct app memory (upstream #157 prototype), boot crash fixed",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-25/Henge.ipa",
-          "size": 9656058,
           "minOSVersion": "17.0"
         }
       ],
