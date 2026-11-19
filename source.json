@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.76",
+          "date": "2026-11-19T19:33:26Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] GPU: not waiting for the GPU is a switch, off by default",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-76/Henge.ipa",
+          "size": 12172752,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.75",
           "date": "2026-11-19T19:24:04Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] YouTube app at 720p; pactl in the image",
