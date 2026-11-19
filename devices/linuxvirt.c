@@ -124,7 +124,14 @@ static uint8_t *make_dtb(HvLinuxVirt *b, const HvLinuxVirtConfig *c, size_t *len
     char uart_path[64];
     snprintf(uart_path, sizeof uart_path, "/pl011@%llx", (unsigned long long)LV_UART);
     hv_fdt_begin(&f, "chosen");
-    hv_fdt_str(&f, "bootargs", c->cmdline ? c->cmdline : "console=ttyAMA0");
+    /* kpti=0: with KASLR and no E0PD, Linux unmaps itself at EL0 (KPTI) and switches TTBR1 on every exception entry
+       and return; each switch empties the engine's whole TLB (about 217,000 a second measured on the phone). The
+       engine has no Meltdown to guard against. HV_LINUX_KPTI keeps it on. */
+    const char *args = c->cmdline ? c->cmdline : "console=ttyAMA0";
+    char bootargs[1024];
+    if (!strstr(args, "kpti=") && !getenv("HV_LINUX_KPTI")) snprintf(bootargs, sizeof bootargs, "%s kpti=0", args);
+    else snprintf(bootargs, sizeof bootargs, "%s", args);
+    hv_fdt_str(&f, "bootargs", bootargs);
     hv_fdt_str(&f, "stdout-path", uart_path);
     if (b->initrd_size) {
         hv_fdt_u64(&f, "linux,initrd-start", b->initrd_pa);
