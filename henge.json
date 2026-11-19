@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.80",
+          "date": "2026-11-19T20:54:36Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] App release: when the token may not tag this commit, tag the newest earlier release's commit\n(built from 67681bf2d981b30a6f633dc4065e6fd082e64bc4)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-80/Henge.ipa",
+          "size": 12173462,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.78",
           "date": "2026-11-19T19:44:43Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Kali Linux machine (GNOME) beside Ubuntu GNOME, in the same builds and releases",
@@ -187,15 +196,6 @@
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-28/Henge.ipa",
           "size": 9649632,
           "minOSVersion": "17.0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.24",
-          "date": "2026-11-13T05:36:26Z",
-          "localizedDescription": "[league] Each build is numbered a small step past upstream's, released, and listed in the app source",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-24/Henge.ipa",
-          "size": 9652769,
-          "minOSVersion": "17.0"
         }
       ],
       "appPermissions": {
@@ -210,11 +210,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.78",
-      "versionDate": "2026-11-19T19:44:43Z",
-      "versionDescription": "[claude/linux-runner-crash-flumcd] Kali Linux machine (GNOME) beside Ubuntu GNOME, in the same builds and releases",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-78/Henge.ipa",
-      "size": 12173274,
+      "buildVersion": "101.80",
+      "versionDate": "2026-11-19T20:54:36Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] App release: when the token may not tag this commit, tag the newest earlier release's commit\n(built from 67681bf2d981b30a6f633dc4065e6fd082e64bc4)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-80/Henge.ipa",
+      "size": 12173462,
       "minOSVersion": "17.0"
     }
   ],
