@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.65",
+          "date": "2026-11-19T02:13:38Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine screen at 60 Hz, one copy a frame",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-65/Henge.ipa",
+          "size": 9790168,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.64",
           "date": "2026-11-18T23:35:59Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine: input through virtio, USB off for now, desktop image on push",
