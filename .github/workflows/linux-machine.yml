@@ -25,10 +25,10 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: "Desktop: both (Xfce and GNOME, one job each), xfce, gnome or none (a server)"
+        description: "Desktop: gnome (the default on push), both, xfce or none (a server)"
         type: choice
-        options: [both, xfce, gnome, none]
-        default: both
+        options: [gnome, both, xfce, none]
+        default: gnome
       size:
         description: "Disk size"
         type: string
@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        desktop: ${{ fromJSON((inputs.desktop == 'xfce' && '["xfce"]') || (inputs.desktop == 'gnome' && '["gnome"]') || (inputs.desktop == 'none' && '["none"]') || '["xfce", "gnome"]') }}
+        desktop: ${{ fromJSON((inputs.desktop == 'xfce' && '["xfce"]') || (inputs.desktop == 'gnome' && '["gnome"]') || (inputs.desktop == 'none' && '["none"]') || (inputs.desktop == 'both' && '["xfce", "gnome"]') || '["gnome"]') }}
     steps:
       - uses: actions/checkout@v4
 
