@@ -242,8 +242,9 @@ jobs:
           fi
           for d in /tmp/lm/henge-ubuntu-*; do
             case "$d" in
-              *-gnome-*) folder="Ubuntu GNOME" zip=Henge-Ubuntu-GNOME.zip what="Ubuntu's own desktop (GNOME, with Ubuntu's dock)" ;;
-              *-xfce-*) folder="Ubuntu Xfce" zip=Henge-Ubuntu-Xfce.zip what="the Xfce desktop" ;;
+              *-gnome-*) folder="Ubuntu GNOME" zip=Henge-Ubuntu-GNOME.zip what="Ubuntu 24.04 with Ubuntu's own desktop (GNOME, with Ubuntu's dock) and Firefox" ;;
+              *-xfce-*) folder="Ubuntu Xfce" zip=Henge-Ubuntu-Xfce.zip what="Ubuntu 24.04 with the Xfce desktop and Firefox" ;;
+              *-kali-*) folder="Kali Linux" zip=Henge-Kali-GNOME.zip what="Kali Linux rolling with GNOME, Firefox ESR and Kali's top 10 tools" ;;
               *) continue ;;
             esac
             rm -rf /tmp/lmz && mkdir -p "/tmp/lmz/$folder"
@@ -252,10 +253,10 @@ jobs:
             (cd /tmp/lmz && zip -6 -qr "/tmp/$zip" "$folder")
             size=$(stat -f %z "/tmp/$zip")
             echo "$zip: $size bytes, from Linux machine run $run"
-            [ "$size" -lt 2147483648 ] || { echo "$zip is over GitHub's 2 GiB limit for a release file"; exit 1; }
+            [ "$size" -lt 2147483648 ] || { echo "::warning::$zip is over GitHub's 2 GiB limit for a release file: left out"; rm -f "/tmp/$zip"; continue; }
             gh release upload "$TAG" "/tmp/$zip" --repo "$GITHUB_REPOSITORY"
             rm -f "/tmp/$zip"
-            echo "- **$zip** ($size bytes): Ubuntu 24.04 with $what and Firefox. Tap it in Files to unzip (about three times that size unzipped), then bring the **$folder** folder into Henge as you bring in a Mac. It signs in as **henge** (no password, sudo works)." >> /tmp/notes-linux.txt
+            echo "- **$zip** ($size bytes): $what. Tap it in Files to unzip (about three times that size unzipped), then bring the **$folder** folder into Henge as you bring in a Mac. It signs in as **henge** (no password, sudo works)." >> /tmp/notes-linux.txt
           done
           echo "(Linux machines from https://github.com/$GITHUB_REPOSITORY/actions/runs/$run)" >> /tmp/notes-linux.txt
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/notes-linux.txt

@@ -24,7 +24,7 @@
 # image).
 set -euo pipefail
 
-OUT=""; SIZE=60G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""
+OUT=""; SIZE=60G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""; DISTRO=ubuntu
 # The release's own kernel series (noble: 6.8, what the Linux machine is tried with), not the
 # newer hardware-enablement kernels the same archive also has. KSERIES=7.0.0 picks those.
 KSERIES=${KSERIES:-6.8.0}
@@ -35,6 +35,7 @@ while [ $# -gt 0 ]; do
         --size) SIZE=$2; shift ;;
         --desktop) DESKTOP=xfce ;;
         --gnome) DESKTOP=gnome ;;
+        --kali) DISTRO=kali ;;
         --pack) PACK=1 ;;
         --release) RELEASE=$2; shift ;;
         --kernel-dir) KDIR=$(cd "$2" && pwd); shift ;;
@@ -58,11 +59,28 @@ trap cleanup EXIT
 
 say() { echo "== $*"; }
 
+if [ "$DISTRO" = kali ]; then
+    # Kali rolling (Debian testing underneath), bootstrapped with Kali's own signing key.
+    KALI=${KALI_ARCHIVE:-http://http.kali.org/kali}
+    say "root file system: Kali rolling (arm64, debootstrap from $KALI)"
+    kr=$(curl -fsSL "$KALI/dists/kali-rolling/main/binary-arm64/Packages.gz" | zcat |
+        awk '$1 == "Package:" { hit = ($2 == "kali-archive-keyring") } hit && $1 == "Filename:" { print $2; exit }')
+    [ -n "$kr" ] || { echo "kali-archive-keyring not found in $KALI" >&2; exit 1; }
+    curl -fsSL "$KALI/$kr" -o "$WORK/keyring.deb"
+    mkdir -p "$WORK/keyring" "$ROOT"
+    dpkg-deb -x "$WORK/keyring.deb" "$WORK/keyring"
+    debootstrap --arch=arm64 --keyring="$WORK/keyring/usr/share/keyrings/kali-archive-keyring.gpg" \
+        --include=kali-archive-keyring,systemd-sysv,sudo,ca-certificates,curl,iproute2,iputils-ping,network-manager,dbus,locales,less,nano,kmod,udev \
+        kali-rolling "$ROOT" "$KALI" /usr/share/debootstrap/scripts/sid
+    echo "deb $KALI kali-rolling main contrib non-free non-free-firmware" > "$ROOT/etc/apt/sources.list"
+    mkdir -p "$ROOT/boot"
+else
 say "root file system: Ubuntu $RELEASE cloud image (arm64)"
 curl -fsSL "$CLOUD/$RELEASE/current/$RELEASE-server-cloudimg-arm64-root.tar.xz" -o "$WORK/root.tar.xz"
 mkdir -p "$ROOT"
 tar -C "$ROOT" --numeric-owner -xJf "$WORK/root.tar.xz"
 rm "$WORK/root.tar.xz"
+fi
 
 if [ -n "$KDIR" ]; then
     KVER=$(cat "$KDIR/release")
@@ -99,11 +117,13 @@ fi
 
 say "settings"
 # No cloud to ask for user data; the machine is configured here instead.
-touch "$ROOT/etc/cloud/cloud-init.disabled"
+[ -d "$ROOT/etc/cloud" ] && touch "$ROOT/etc/cloud/cloud-init.disabled"
 echo "/dev/vda / ext4 discard,commit=30,errors=remount-ro 0 1" > "$ROOT/etc/fstab"
-echo henge-ubuntu > "$ROOT/etc/hostname"
-printf '127.0.0.1 localhost\n127.0.1.1 henge-ubuntu\n' > "$ROOT/etc/hosts"
-# The network: virtio-net on Henge's user-mode network, by DHCP.
+HOST=henge-$DISTRO
+echo $HOST > "$ROOT/etc/hostname"
+printf '127.0.0.1 localhost\n127.0.1.1 %s\n' $HOST > "$ROOT/etc/hosts"
+# The network: virtio-net on Henge's user-mode network, by DHCP (Kali: NetworkManager does it on its own).
+if [ "$DISTRO" = ubuntu ]; then
 cat > "$ROOT/etc/netplan/01-henge.yaml" <<'YAML'
 network:
   version: 2
@@ -116,8 +136,10 @@ network:
 YAML
 chmod 600 "$ROOT/etc/netplan/01-henge.yaml"
 ln -sf /dev/null "$ROOT/etc/systemd/system/systemd-networkd-wait-online.service"
+fi
 # The user: henge, no password, an administrator (sudo).
-useradd -R "$ROOT" -m -s /bin/bash -G adm,sudo,audio,video,plugdev,input henge
+groups=$(for g in adm sudo audio video plugdev input netdev; do grep -q "^$g:" "$ROOT/etc/group" && printf '%s,' $g; done)
+useradd -R "$ROOT" -m -s /bin/bash -G "${groups%,}" henge
 passwd -R "$ROOT" -d henge >/dev/null
 echo 'henge ALL=(ALL) NOPASSWD:ALL' > "$ROOT/etc/sudoers.d/henge"
 chmod 440 "$ROOT/etc/sudoers.d/henge"
@@ -174,7 +196,7 @@ fi
 echo "state: $(systemctl is-system-running)"
 echo "failed units:"
 systemctl --failed --no-legend --no-pager
-echo "firefox: $(command -v firefox || echo none)"
+echo "firefox: $(command -v firefox || command -v firefox-esr || echo none)"
 if command -v firefox >/dev/null; then
     # Firefox for real: its version, a page drawn offscreen, then a window on the desktop.
     echo "firefox version: $(runuser -u henge -- env HOME=/home/henge timeout 60 firefox --version 2>&1 | tail -3 | tr "\n" ";")"
@@ -294,7 +316,22 @@ LOOK
     printf '[Seat:*]\nautologin-user=henge\nautologin-session=xfce\n' > "$ROOT/etc/lightdm/lightdm.conf.d/50-henge.conf"
 fi
 
-if [ "$DESKTOP" = gnome ]; then
+BROWSER=firefox
+if [ "$DESKTOP" = gnome ] && [ "$DISTRO" = kali ]; then
+    say "desktop: Kali's GNOME with GDM signing in as henge, and Kali's top 10 tools"
+    BROWSER=firefox-esr
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        kali-desktop-gnome kali-linux-core kali-tools-top10 firefox-esr \
+        gdm3 gnome-shell gnome-session nautilus gnome-terminal gnome-text-editor gnome-control-center eog \
+        xwayland pipewire-pulse wireplumber dconf-cli libgl1-mesa-dri libegl-mesa0 mesa-utils fonts-dejavu-core
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get purge -y gnome-initial-setup 2>/dev/null || true
+    mkdir -p "$ROOT/etc/gdm3" "$ROOT/var/lib/AccountsService/users"
+    printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=henge\n\n[security]\n\n[xdmcp]\n\n[chooser]\n\n[debug]\n' \
+        > "$ROOT/etc/gdm3/daemon.conf"
+    printf '[User]\nSession=gnome\nSystemAccount=false\n' > "$ROOT/var/lib/AccountsService/users/henge"
+    chmod 600 "$ROOT/var/lib/AccountsService/users/henge"
+fi
+if [ "$DESKTOP" = gnome ] && [ "$DISTRO" = ubuntu ]; then
     say "desktop: GNOME (Ubuntu's desktop) with GDM signing in as henge"
     # Ubuntu's own desktop, without what it only recommends (printing, the snap store, ...): GNOME Shell with
     # Ubuntu's session, dock and Yaru theme, and the usual apps.
@@ -312,6 +349,8 @@ if [ "$DESKTOP" = gnome ]; then
         > "$ROOT/etc/gdm3/custom.conf"
     printf '[User]\nSession=ubuntu\nSystemAccount=false\n' > "$ROOT/var/lib/AccountsService/users/henge"
     chmod 600 "$ROOT/var/lib/AccountsService/users/henge"
+fi
+if [ "$DESKTOP" = gnome ]; then
     # No first-run setup or welcome tour; no screen lock or blanking (the phone has its own); Firefox (Mozilla's
     # deb) in the dock; no animations while the guest draws with the CPU (Settings > Accessibility turns them on).
     mkdir -p "$ROOT/home/henge/.config" "$ROOT/etc/skel/.config"
@@ -341,15 +380,16 @@ enable-animations=false
 
 [org.gnome.shell]
 welcome-dialog-last-shown-version='999'
-favorite-apps=['firefox.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+favorite-apps=['BROWSER.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
 
 [org.gnome.shell:ubuntu]
-favorite-apps=['firefox.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+favorite-apps=['BROWSER.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
 GS
+    sed -i "s/'BROWSER.desktop'/'$BROWSER.desktop'/" "$ROOT/usr/share/glib-2.0/schemas/99_henge.gschema.override"
     chroot "$ROOT" glib-compile-schemas /usr/share/glib-2.0/schemas
 fi
 
-if [ -n "$DESKTOP" ]; then
+if [ -n "$DESKTOP" ] && [ "$DISTRO" = ubuntu ]; then
     # Firefox as a deb from Mozilla's own repository: Ubuntu's firefox package only installs the snap,
     # which cannot be installed into an image being built.
     mkdir -p "$ROOT/etc/apt/keyrings"
@@ -378,6 +418,8 @@ UNIT
         ln -sf /etc/systemd/system/henge-firefox.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-firefox.service"
     fi
     chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
+fi
+if [ -n "$DESKTOP" ]; then
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,
     # at 720p H.264 (the self-test decodes 720p at about 6 times real time on the engine).
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3 ffmpeg pulseaudio-utils
@@ -432,6 +474,7 @@ truncate -s "$SIZE" "$OUT/disk.img"
 mkfs.ext4 -q -F -L henge-root -d "$ROOT" "$OUT/disk.img"
 
 NAME="Ubuntu ${RELEASE^}"
+[ "$DISTRO" = kali ] && NAME="Kali Linux"
 [ "$DESKTOP" = xfce ] && NAME="$NAME (Xfce)"
 [ "$DESKTOP" = gnome ] && NAME="$NAME (GNOME)"
 cat > "$OUT/machine.json" <<JSON

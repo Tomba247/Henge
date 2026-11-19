@@ -27,7 +27,7 @@ on:
       desktop:
         description: "Desktop: gnome (the default on push), both, xfce or none (a server)"
         type: choice
-        options: [gnome, both, xfce, none]
+        options: [gnome, kali, both, xfce, none]
         default: gnome
       size:
         description: "Disk size"
@@ -62,14 +62,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        desktop: ${{ fromJSON((inputs.desktop == 'xfce' && '["xfce"]') || (inputs.desktop == 'gnome' && '["gnome"]') || (inputs.desktop == 'none' && '["none"]') || (inputs.desktop == 'both' && '["xfce", "gnome"]') || '["gnome"]') }}
+        desktop: ${{ fromJSON((inputs.desktop == 'xfce' && '["xfce"]') || (inputs.desktop == 'gnome' && '["gnome"]') || (inputs.desktop == 'none' && '["none"]') || (inputs.desktop == 'kali' && '["kali"]') || (inputs.desktop == 'both' && '["xfce", "gnome"]') || '["gnome", "kali"]') }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
+          sudo apt-get install -y -qq debootstrap build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
               libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config
 
       - name: Build the engine with the Linux machine (native arm64)
@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           kernel=""
           if [ -f kernel/Image ]; then kernel="--kernel-dir kernel"; fi
-          case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; *) desktop="" ;; esac
+          case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; kali) desktop="--kali --gnome" ;; *) desktop="" ;; esac
           sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '60G' }}" $desktop $kernel
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine
