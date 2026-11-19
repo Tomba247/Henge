@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "machine.h"
+#include "virtio_gpu.h"
 #include "vmapple.h"
 
 /* A generic arm64 machine for Linux guests, on the same engine and devices as
@@ -18,7 +19,7 @@
    ECAM PCIe host with INTx, and on it virtio-pci block, network, input and
    sound, and the xHCI controller with the virtual Mac's USB keyboard and Magic
    Trackpad 2 (usbhid, hid-magicmouse). An optional simple-framebuffer at the
-   top of RAM is the display. See docs/linux-machine.md.
+   top of RAM, or virtio-gpu (devices/virtio_gpu.h), is the display. See docs/linux-machine.md.
 
    The devices live in an HvVmapple, the virtual Mac's board, so the code that
    feeds the Mac input, disks, network and sound serves this machine unchanged;
@@ -30,6 +31,9 @@ typedef struct HvLinuxVirt {
     uint8_t *fb;
     uint32_t fb_width, fb_height;
     uint64_t fb_pa;
+    /* virtio-gpu, the display when there is one (no framebuffer then). Kept here, not in the
+       board, so the virtual Mac's saved-state layout (host/snapshot.c) is unchanged. */
+    HvVirtioGpu *gpu;
     /* Where the boot images went (guest physical). */
     uint64_t kernel_pa, dtb_pa, initrd_pa, initrd_size;
 } HvLinuxVirt;
@@ -41,7 +45,9 @@ typedef struct HvLinuxVirtConfig {
     const uint8_t *mac;     /* virtio-net MAC, or NULL for no network device */
     int usb;                /* the xHCI controller with the USB keyboard and trackpad */
     int sound;              /* virtio-snd */
-    uint32_t fb_width, fb_height; /* 0 x 0: no framebuffer */
+    uint32_t fb_width, fb_height; /* 0 x 0: no framebuffer; with gpu, the size the display prefers */
+    int gpu;                /* virtio-gpu instead of the framebuffer */
+    const HvVgpu3d *gl;     /* and its 3D renderer (virgl), or NULL for 2D */
     const char *cmdline;    /* kernel command line */
 } HvLinuxVirtConfig;
 

@@ -34,6 +34,7 @@ static HvVmapple board = {.ram_fd = -1};
 static HvLinuxVirt linux_vm;
 static int linux_mode;
 static _Atomic(uint8_t *) linux_fb; /* published only when the machine is ready, like display_pvg */
+static _Atomic(HvVirtioGpu *) linux_gpu; /* the same, for its virtio-gpu */
 static _Atomic int input_stopping = 1;
 static void stop_pointer(void);
 /* UI display changes may arrive before or during the background machine creation. */
@@ -74,6 +75,15 @@ int hv_vm_is_linux(void) { return machine_created && linux_mode; }
    Found by scanning page starts for one whose physBase is the RAM base. */
 int hv_vm_boot_display(HvBootDisplay *d) {
     /* The Linux machine's screen is its simple-framebuffer: a8r8g8b8 is BGRA in memory, as here. */
+    d->owned = 0;
+    HvVirtioGpu *gpu = atomic_load_explicit(&linux_gpu, memory_order_acquire);
+    if (gpu) { /* what Linux's GPU driver scans out, with its pointer drawn in */
+        uint8_t *shot;
+        uint32_t w, h;
+        if (hv_virtio_gpu_snapshot(gpu, &shot, &w, &h) != 0) return -1;
+        d->pixels = shot, d->width = w, d->height = h, d->stride = w * 4, d->owned = 1;
+        return 0;
+    }
     uint8_t *fb = atomic_load_explicit(&linux_fb, memory_order_acquire);
     if (fb) {
         d->pixels = fb;
@@ -310,6 +320,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         if (hv_vmapple_alloc_ram(&board, ram) != 0) return fail(err, errlen, "Not enough memory for the guest's RAM.");
         /* .usb: the xHCI controller's transfer events confuse Linux's driver (docs/linux-machine.md): off for now. */
         HvLinuxVirtConfig lc = {.ncpus = ncpus, .ram_size = ram, .disk = &disk, .mac = mac, .usb = 0, .sound = !c->no_sound,
+                                .gpu = !getenv("HV_LINUX_FB"),
                                 .fb_width = c->fb_width ? c->fb_width : 1280, .fb_height = c->fb_height ? c->fb_height : 800,
                                 .cmdline = c->linux_cmdline && *c->linux_cmdline ? c->linux_cmdline
                                                                                  : "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"};
@@ -317,7 +328,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
             return fail(err, errlen, "Cannot build the Linux machine (not enough memory for the guest's RAM?).");
         if (hv_linuxvirt_boot_files(&linux_vm, &lc, c->linux_kernel, c->linux_initrd, err, errlen) != 0) return -1;
         fprintf(stderr, "hengevm: Linux machine, %d CPUs, %llu MB, %ux%u screen, kernel %s\n", ncpus,
-                (unsigned long long)(ram >> 20), linux_vm.fb_width, linux_vm.fb_height, c->linux_kernel);
+                (unsigned long long)(ram >> 20), lc.fb_width, lc.fb_height, c->linux_kernel);
     } else {
         if (hv_vmapple_create(&board, &m, cpus, (c->ram_mb ? c->ram_mb : 2048) << 20, &disk, &aux, &cfg, mac) != 0)
             return fail(err, errlen, "Cannot build the machine (not enough memory for the guest's RAM?).");
@@ -339,6 +350,7 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
     if (display_layer_set && board.pvg) hv_pvg_lite_set_layer(board.pvg, (void *)display_layer);
     atomic_store_explicit(&display_pvg, board.pvg, memory_order_release);
     atomic_store_explicit(&linux_fb, linux_mode ? linux_vm.fb : NULL, memory_order_release);
+    atomic_store_explicit(&linux_gpu, linux_mode ? linux_vm.gpu : NULL, memory_order_release);
     os_unfair_lock_unlock(&display_lock);
     atomic_store(&input_stopping, 0);
     return 0;
@@ -355,6 +367,7 @@ void hv_vm_destroy(void) {
     os_unfair_lock_lock(&display_lock);
     atomic_store_explicit(&display_pvg, NULL, memory_order_release);
     atomic_store_explicit(&linux_fb, NULL, memory_order_release);
+    atomic_store_explicit(&linux_gpu, NULL, memory_order_release);
     os_unfair_lock_unlock(&display_lock);
     stop_pointer();
     hv_net_detach();

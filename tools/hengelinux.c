@@ -5,10 +5,12 @@
    (make linux-test, which also runs under qemu-aarch64 on an x86 host).
 
      hengelinux --kernel Image [--initrd initrd] [--disk disk.img] [--ram MB]
-                [--cpus N] [--append "console=ttyAMA0 ..."] [--fb WxH] [--usb]
+                [--cpus N] [--append "console=ttyAMA0 ..."] [--fb WxH] [--usb] [--gpu]
 
    --usb adds the xHCI controller with the USB keyboard and trackpad, which
-   Linux's driver does not get along with yet (docs/linux-machine.md).
+   Linux's driver does not get along with yet (docs/linux-machine.md). --gpu
+   makes virtio-gpu the display (--fb then the size it prefers) instead of the
+   framebuffer.
 */
 #include <errno.h>
 #include <pthread.h>
@@ -37,15 +39,27 @@ static atomic_int screen_saved;
 /* The framebuffer as a PPM image at $HV_FB_DUMP. */
 static void save_screen(const char *when) {
     const char *path = getenv("HV_FB_DUMP");
-    FILE *pf = path && lv.fb ? fopen(path, "wb") : NULL;
-    if (!pf) return;
-    fprintf(pf, "P6\n%u %u\n255\n", lv.fb_width, lv.fb_height);
-    for (uint64_t i = 0; i < (uint64_t)lv.fb_width * lv.fb_height; i++) {
-        const uint8_t *px = lv.fb + i * 4; /* a8r8g8b8: B, G, R, A in memory */
+    uint8_t *shot = NULL;
+    const uint8_t *pixels = lv.fb;
+    uint32_t w = lv.fb_width, h = lv.fb_height;
+    if (lv.gpu) { /* what virtio-gpu scans out, with the pointer */
+        pixels = hv_virtio_gpu_snapshot(lv.gpu, &shot, &w, &h) == 0 ? shot : NULL;
+        if (!pixels) fprintf(stderr, "\nhengelinux: virtio-gpu has nothing on screen (%s)\n", when);
+    }
+    FILE *pf = path && pixels ? fopen(path, "wb") : NULL;
+    if (!pf) {
+        free(shot);
+        return;
+    }
+    fprintf(pf, "P6\n%u %u\n255\n", w, h);
+    for (uint64_t i = 0; i < (uint64_t)w * h; i++) {
+        const uint8_t *px = pixels + i * 4; /* B, G, R, A in memory */
         uint8_t rgb[3] = {px[2], px[1], px[0]};
         fwrite(rgb, 1, 3, pf);
     }
     fclose(pf);
+    free(shot);
+    if (lv.gpu) fprintf(stderr, "\nhengelinux: virtio-gpu screen %ux%u, %llu frames\n", w, h, (unsigned long long)hv_virtio_gpu_frames(lv.gpu));
     atomic_store(&screen_saved, 1);
     fprintf(stderr, "\nhengelinux: framebuffer (%s) written to %s\n", when, path);
 }
@@ -139,7 +153,7 @@ int main(int argc, char **argv) {
     uint64_t ram_mb = 1024;
     int ncpus = 1;
     unsigned fbw = 0, fbh = 0;
-    int usb = 0;
+    int usb = 0, gpu = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
         if (!strcmp(a, "--kernel") && v) kernel = v, i++;
@@ -150,8 +164,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--cpus") && v) ncpus = atoi(v), i++;
         else if (!strcmp(a, "--fb") && v) sscanf(v, "%ux%u", &fbw, &fbh), i++;
         else if (!strcmp(a, "--usb")) usb = 1;
+        else if (!strcmp(a, "--gpu")) gpu = 1;
         else {
-            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb]\n", argv[0]);
+            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb] [--gpu]\n", argv[0]);
             return 2;
         }
     }
@@ -175,7 +190,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     m.log = getenv("HV_LOG") != NULL;
-    HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL, .usb = usb, .sound = 1,
+    HvLinuxVirtConfig cfg = {.ncpus = ncpus, .ram_size = ram_mb << 20, .disk = disk_path ? &disk : NULL, .usb = usb, .sound = 1, .gpu = gpu,
                              .fb_width = fbw, .fb_height = fbh, .cmdline = append};
     char err[200];
     if (hv_linuxvirt_create(&lv, &board, &m, cpus, &cfg) != 0) {

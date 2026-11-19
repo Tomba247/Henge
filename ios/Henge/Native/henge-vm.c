@@ -480,9 +480,9 @@ int henge_vm_boot_display(const uint8_t **pixels, int *width, int *height, int *
     int result = -1;
     if (hv_vm_boot_display(&d) == 0) {
         size_t bytes = (size_t)d.stride * d.height;
-        uint8_t *copy = malloc(bytes);
+        uint8_t *copy = d.owned ? (uint8_t *)d.pixels : malloc(bytes); /* the GPU screen is already a copy */
         if (copy) {
-            memcpy(copy, d.pixels, bytes);
+            if (!d.owned) memcpy(copy, d.pixels, bytes);
             *pixels = copy;
             *width = (int)d.width;
             *height = (int)d.height;

@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef HENGEVM_VIRTIO_GPU_H
+#define HENGEVM_VIRTIO_GPU_H
+
+#include <pthread.h>
+#include <stdint.h>
+
+#include "virtio.h"
+
+/* virtio-gpu (device type 16) for the Linux machine: Linux's virtio_gpu DRM
+   driver, so the guest has a real display (modes, page flips, a hardware
+   pointer, damage) instead of a firmware framebuffer.
+
+   2D: the guest's resources live in host memory, filled from guest pages by
+   TRANSFER_TO_HOST_2D; RESOURCE_FLUSH on the scanned-out resource copies the
+   damaged rectangle into the screen, a BGRA image the host reads
+   (hv_virtio_gpu_snapshot, or a presenter called on every flush).
+
+   3D (virgl) goes to a backend when one is set (hv_virtio_gpu_set_3d, before the
+   guest starts): the device then offers VIRTIO_GPU_F_VIRGL and hands the 3D
+   commands to it. Commands run when the driver notifies, on that CPU's thread,
+   with the device lock held. */
+
+typedef struct HvVirtioGpu HvVirtioGpu;
+
+/* A 3D renderer (virglrenderer, devices/vgpu_virgl.c). Resource ids are the guest's.
+   Each returns 0 or a VIRTIO_GPU_RESP_ERR_* code. */
+typedef struct HvVgpu3d {
+    void *opaque;
+    uint32_t ncapsets;
+    int (*capset_info)(void *o, uint32_t index, uint32_t *id, uint32_t *max_version, uint32_t *max_size);
+    int (*capset)(void *o, uint32_t id, uint32_t version, void *out, uint32_t size);
+    int (*ctx_create)(void *o, uint32_t ctx, uint32_t context_init, const char *name, uint32_t name_len);
+    void (*ctx_destroy)(void *o, uint32_t ctx);
+    void (*ctx_attach)(void *o, uint32_t ctx, uint32_t res);
+    void (*ctx_detach)(void *o, uint32_t ctx, uint32_t res);
+    int (*resource_create_3d)(void *o, uint32_t res, const uint32_t args[10]); /* target format bind width height depth array_size last_level nr_samples flags */
+    int (*resource_create_2d)(void *o, uint32_t res, uint32_t format, uint32_t width, uint32_t height);
+    void (*resource_unref)(void *o, uint32_t res);
+    /* The guest pages behind a resource: iov of host pointers. */
+    int (*attach_backing)(void *o, uint32_t res, void **iov_base, uint32_t *iov_len, uint32_t n);
+    void (*detach_backing)(void *o, uint32_t res);
+    int (*transfer)(void *o, int to_host, uint32_t ctx, uint32_t res, const uint32_t box[6], uint32_t level, uint32_t stride,
+                    uint32_t layer_stride, uint64_t offset);
+    int (*submit)(void *o, uint32_t ctx, void *cmd, uint32_t size);
+    /* A fence: done() is called (from poll) once the commands before it have run. */
+    int (*create_fence)(void *o, uint32_t ctx, uint32_t ring, uint64_t fence);
+    void (*poll)(void *o);
+    /* A resource's pixels as BGRA rows into out (width * 4 per row), for the screen. 0 if it could. */
+    int (*read_pixels)(void *o, uint32_t res, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint8_t *out, uint32_t out_stride);
+} HvVgpu3d;
+
+typedef struct HvVgpuScreen {
+    uint32_t width, height; /* 0 x 0: nothing scanned out */
+    uint8_t *pixels;        /* BGRA, width * 4 per row */
+    uint64_t frames;        /* flushes so far */
+} HvVgpuScreen;
+
+HvVirtioGpu *hv_virtio_gpu_create(HvMachine *m, HvPcie *bus, uint32_t width, uint32_t height, const HvVgpu3d *gl);
+void hv_virtio_gpu_destroy(HvVirtioGpu *g);
+/* Fences the 3D backend has finished: from the board's tick. Device lock held. */
+void hv_virtio_gpu_poll(HvVirtioGpu *g);
+/* The 3D backend says a fence is done (any thread). */
+void hv_virtio_gpu_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint64_t fence);
+
+/* Any thread: a copy of the screen with the pointer drawn in, to free(). 0, or -1 when nothing is scanned out. */
+int hv_virtio_gpu_snapshot(HvVirtioGpu *g, uint8_t **pixels, uint32_t *width, uint32_t *height);
+uint64_t hv_virtio_gpu_frames(HvVirtioGpu *g);
+/* Called after every flush with the screen locked (e.g. to hand the frame to Metal). */
+void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, void (*present)(void *opaque, const HvVgpuScreen *s, uint32_t x, uint32_t y,
+                                                                  uint32_t w, uint32_t h), void *opaque);
+/* The pointer: its image (BGRA 64 x 64, hot spot) and where it is, as the guest last set them. */
+int hv_virtio_gpu_cursor(HvVirtioGpu *g, uint8_t out[64 * 64 * 4], uint32_t *hot_x, uint32_t *hot_y, int32_t *x, int32_t *y);
+/* The size the guest is told its display prefers (e.g. the phone turned): a display change event. Any thread. */
+void hv_virtio_gpu_set_size(HvVirtioGpu *g, uint32_t width, uint32_t height);
+
+#endif

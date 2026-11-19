@@ -23,7 +23,8 @@ typedef struct HvVmConfig {
     /* The Linux machine (devices/linuxvirt.c, docs/linux-machine.md) instead of the virtual Mac when
        linux_kernel is set: an uncompressed arm64 Image, an initrd (or NULL) and the kernel's command
        line (NULL: the root file system on disk, /dev/vda). rom and aux are not used; the screen is a
-       framebuffer fb_width x fb_height (0: 1280 x 800), which hv_vm_boot_display hands out. */
+       display is virtio-gpu preferring fb_width x fb_height (0: 1280 x 800), or with HV_LINUX_FB set in the
+       environment a framebuffer that size; hv_vm_boot_display hands either out. */
     const char *linux_kernel, *linux_initrd, *linux_cmdline;
     uint32_t fb_width, fb_height;
     /* JIT memory the host already has (iOS: granted by a debugger), or NULL to map it here. */
@@ -54,6 +55,7 @@ int hv_vm_is_linux(void);
 typedef struct HvBootDisplay {
     const uint8_t *pixels;
     uint32_t width, height, stride;
+    int owned; /* pixels is a copy made for the caller, to free() (the Linux machine's GPU screen) */
 } HvBootDisplay;
 int hv_vm_boot_display(HvBootDisplay *d);
 

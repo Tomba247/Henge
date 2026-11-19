@@ -1028,6 +1028,7 @@ static void *cpu_thread(void *unused) {
             FILE *f = fopen(getenv("HV_BOOT_DISPLAY_DUMP"), "wb");
             if (f) fwrite(bd.pixels, 1, (size_t)bd.stride * bd.height, f), fclose(f);
             fprintf(stderr, "hengevm: boot display %ux%u stride %u written\n", bd.width, bd.height, bd.stride);
+            if (bd.owned) free((void *)bd.pixels);
         } else {
             fprintf(stderr, "hengevm: no boot display found\n");
         }

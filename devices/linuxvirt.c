@@ -31,7 +31,8 @@
 
 /* As the virtual Mac's tick (devices/vmapple.c): each CPU's timer, and on CPU 0 the devices' work. */
 static uint64_t tick(HvMachine *m, HvCpu *cpu) {
-    HvVmapple *b = ((HvLinuxVirt *)m->tick_opaque)->board;
+    HvLinuxVirt *lv = m->tick_opaque;
+    HvVmapple *b = lv->board;
     if (cpu->index != 0) return hv_timer_update(b->gic, cpu); /* its own timer: the GIC's lock only */
     hv_dev_lock(m);
     uint64_t deadline = hv_timer_update(b->gic, cpu);
@@ -42,6 +43,7 @@ static uint64_t tick(HvMachine *m, HvCpu *cpu) {
     hv_virtio_input_poll(b->keyboard);
     hv_virtio_input_poll(b->mouse);
     hv_virtio_snd_poll(b->snd);
+    hv_virtio_gpu_poll(lv->gpu);
     hv_dev_unlock(m);
     return deadline;
 }
@@ -78,7 +80,11 @@ int hv_linuxvirt_create(HvLinuxVirt *lv, HvVmapple *b, HvMachine *m, HvCpu *cpus
     b->keyboard = hv_virtio_input_create(m, b->pcie, HV_VINPUT_KEYBOARD);
     b->mouse = hv_virtio_input_create(m, b->pcie, HV_VINPUT_MOUSE);
     if (c->sound) b->snd = hv_virtio_snd_create(m, b->pcie);
-    if (c->fb_width && c->fb_height) {
+    if (c->gpu) {
+        /* The last slot: the display. Linux's virtio_gpu leaves a firmware framebuffer alone (virtio-gpu-pci is no VGA
+           device), and two displays would confuse Xorg, so the console waits for the driver instead. */
+        if (!(lv->gpu = hv_virtio_gpu_create(m, b->pcie, c->fb_width, c->fb_height, c->gl))) return -1;
+    } else if (c->fb_width && c->fb_height) {
         uint64_t bytes = ((uint64_t)c->fb_width * c->fb_height * 4 + 0x1fffff) & ~0x1fffffull;
         if (bytes >= c->ram_size / 2) return -1;
         lv->fb_width = c->fb_width, lv->fb_height = c->fb_height;
@@ -350,6 +356,7 @@ void hv_linuxvirt_destroy(HvLinuxVirt *lv) {
     if (!b) return;
     hv_virtio_blk_destroy(b->root_blk);
     if (b->snd) { free(b->snd->ring); free(b->snd); }
+    hv_virtio_gpu_destroy(lv->gpu);
     if (b->keyboard) { pthread_mutex_destroy(&b->keyboard->mu); free(b->keyboard); }
     if (b->mouse) { pthread_mutex_destroy(&b->mouse->mu); free(b->mouse); }
     if (b->usb) { pthread_mutex_destroy(&b->usb->mu); free(b->usb); }

@@ -8,7 +8,7 @@
 #    the engine runs fastest), cached between runs;
 # 3. makes an Ubuntu machine with tools/linux/make-ubuntu-disk.sh (optionally
 #    with the Xfce desktop: the runner runs the image's arm64 apt itself);
-# 4. boots it on the engine with henge.autotest on the kernel's command line:
+# 4. boots it on the engine, with virtio-gpu as its display (as the app), and henge.autotest on the kernel's command line:
 #    the image reports what came up on the serial console and powers off;
 # 5. uploads the machine folder (Image, disk.img.hvsparse, machine.json) for
 #    the app to import, and the boot log.
@@ -45,6 +45,7 @@ on:
       - "core/**"
       - "devices/linuxvirt.*"
       - "devices/fdt.*"
+      - "devices/virtio_gpu.*"
       - "host/linux/**"
       - "tools/hengelinux.c"
       - "tools/linux/**"
@@ -95,7 +96,7 @@ jobs:
           # A copy, so the machine handed out has never been booted.
           cp --sparse=always machine/disk.img boot-test.img
           HV_FB_DUMP=screen.ppm timeout 3600 build/linux/hengelinux --kernel machine/Image --disk boot-test.img \
-              --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 \
+              --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --gpu \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot.log
           rm -f boot-test.img
