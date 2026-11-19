@@ -137,7 +137,7 @@ After=multi-user.target
 Type=oneshot
 StandardOutput=tty
 TTYPath=/dev/ttyAMA0
-ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; if systemctl -q is-enabled lightdm 2>/dev/null; then for i in $(seq 1 120); do pgrep -x xfce4-panel >/dev/null && break; sleep 1; done; sleep 15; echo "desktop: $(pgrep -x xfce4-panel >/dev/null && echo "Xfce panel up after about $i s" || echo "no Xfce panel after 120 s")"; echo "=== henge-autotest: screenshot ==="; sleep 2; ps -eo comm= | grep -xE "Xorg|lightdm|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|pulseaudio" | sort | uniq | tr "\n" " "; echo; fi; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "input:"; grep -h "^N:" /proc/bus/input/devices; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
+ExecStart=/bin/sh -c 'echo; echo "=== henge-autotest: Ubuntu is up ==="; . /etc/os-release; echo "$PRETTY_NAME, kernel $(uname -r), PID 1 is $(cat /proc/1/comm)"; if systemctl -q is-enabled lightdm 2>/dev/null; then for i in $(seq 1 120); do pgrep -x xfce4-panel >/dev/null && break; sleep 1; done; sleep 15; echo "desktop: $(pgrep -x xfce4-panel >/dev/null && echo "Xfce panel up after about $i s" || echo "no Xfce panel after 120 s")"; echo "=== henge-autotest: screenshot ==="; sleep 2; ps -eo comm= | grep -xE "Xorg|lightdm|xfce4-session|xfce4-panel|xfwm4|xfdesktop|Thunar|pulseaudio" | sort | uniq | tr "\n" " "; echo; fi; echo "state: $(systemctl is-system-running)"; echo "failed units:"; systemctl --failed --no-legend --no-pager; echo "firefox: $(command -v firefox || echo none)"; echo "input:"; grep -h "^N:" /proc/bus/input/devices; ip -brief address; snap version 2>&1 | head -2; echo "=== henge-autotest: end ==="'
 ExecStartPost=/bin/systemctl poweroff
 
 [Install]
@@ -157,7 +157,76 @@ if [ "$DESKTOP" = 1 ]; then
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         xubuntu-core lightdm lightdm-gtk-greeter xserver-xorg-video-fbdev xserver-xorg-input-libinput \
-        pulseaudio pavucontrol fonts-dejavu-core
+        pulseaudio pavucontrol fonts-dejavu-core \
+        yaru-theme-gtk yaru-theme-icon yaru-theme-sound fonts-ubuntu ubuntu-wallpapers plank \
+        xfce4-terminal mousepad ristretto xfce4-screenshooter
+    # Firefox as a deb from Mozilla's own repository: Ubuntu's firefox package only installs the snap,
+    # which cannot be installed into an image being built.
+    mkdir -p "$ROOT/etc/apt/keyrings"
+    curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o "$ROOT/etc/apt/keyrings/packages.mozilla.org.asc"
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
+        > "$ROOT/etc/apt/sources.list.d/mozilla.list"
+    printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > "$ROOT/etc/apt/preferences.d/mozilla"
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
+    if ! chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y firefox; then
+        echo "   Mozilla's firefox deb not available: the snap is installed at first boot instead"
+        rm -f "$ROOT/etc/apt/sources.list.d/mozilla.list" "$ROOT/etc/apt/preferences.d/mozilla"
+        cat > "$ROOT/etc/systemd/system/henge-firefox.service" <<'UNIT'
+[Unit]
+Description=Install Firefox (snap) once the network is up
+After=snapd.seeded.service network-online.target
+ConditionPathExists=!/var/lib/henge-firefox-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/snap install firefox
+ExecStartPost=/usr/bin/touch /var/lib/henge-firefox-done
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        ln -sf /etc/systemd/system/henge-firefox.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-firefox.service"
+    fi
+    chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
+    # Ubuntu's look on Xfce: Yaru theme and icons, Ubuntu font and wallpaper, a dock (plank) at the
+    # bottom. Set per user on first sign-in (xfconf), so Xubuntu's defaults stay underneath.
+    cat > "$ROOT/usr/local/bin/henge-look" <<'LOOK'
+#!/bin/sh
+# Ubuntu's look for Xfce, once per user (tools/linux/make-ubuntu-disk.sh).
+mark="$HOME/.config/henge-look-1"
+if [ ! -e "$mark" ]; then
+    sleep 2
+    x() { xfconf-query -c "$1" -p "$2" --create -t "$3" -s "$4"; }
+    x xsettings /Net/ThemeName string Yaru-dark
+    x xsettings /Net/IconThemeName string Yaru
+    x xsettings /Gtk/FontName string "Ubuntu 11"
+    x xsettings /Gtk/MonospaceFontName string "Ubuntu Mono 13"
+    x xfwm4 /general/theme string Default-xhdpi
+    x xfwm4 /general/title_font string "Ubuntu Bold 11"
+    x xfwm4 /general/button_layout string "O|HMC"
+    x xfce4-panel /panels/panel-1/background-style uint 1
+    x xfce4-panel /panels/panel-1/background-rgba string "rgba(0,0,0,0.85)" 2>/dev/null || true
+    wall=$(ls /usr/share/backgrounds/*Numbat*.png /usr/share/backgrounds/warty-final-ubuntu.png 2>/dev/null | head -1)
+    if [ -n "$wall" ]; then
+        for p in $(xfconf-query -c xfce4-desktop -l | grep '/last-image$'); do xfconf-query -c xfce4-desktop -p "$p" -s "$wall"; done
+        x xfce4-desktop /backdrop/screen0/monitorVirtual-1/workspace0/last-image string "$wall"
+    fi
+    x xfce4-desktop /desktop-icons/style int 0
+    mkdir -p "$HOME/.config" && touch "$mark"
+fi
+pgrep -u "$(id -u)" -x plank >/dev/null || exec plank
+LOOK
+    chmod 755 "$ROOT/usr/local/bin/henge-look"
+    printf '[Desktop Entry]\nType=Application\nName=Henge look\nExec=/usr/local/bin/henge-look\nOnlyShowIn=XFCE;\n' \
+        > "$ROOT/etc/xdg/autostart/henge-look.desktop"
+    # Plank's launchers: files, browser, terminal.
+    mkdir -p "$ROOT/etc/skel/.config/plank/dock1/launchers"
+    for app in thunar firefox xfce4-terminal mousepad; do
+        printf '[PlankDockItemPreferences]\nLauncher=file:///usr/share/applications/%s.desktop\n' "$app" \
+            > "$ROOT/etc/skel/.config/plank/dock1/launchers/$app.dockitem"
+    done
+    cp -a "$ROOT/etc/skel/.config/plank" "$ROOT/home/henge/.config/" 2>/dev/null || { mkdir -p "$ROOT/home/henge/.config"; cp -a "$ROOT/etc/skel/.config/plank" "$ROOT/home/henge/.config/"; }
+    chroot "$ROOT" chown -R henge:henge /home/henge/.config
     chroot "$ROOT" apt-get clean
     mkdir -p "$ROOT/etc/lightdm/lightdm.conf.d"
     printf '[Seat:*]\nautologin-user=henge\nautologin-session=xfce\n' > "$ROOT/etc/lightdm/lightdm.conf.d/50-henge.conf"
