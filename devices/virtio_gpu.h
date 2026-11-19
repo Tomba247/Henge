@@ -51,6 +51,11 @@ typedef struct HvVgpu3d {
     /* The GPU texture behind a 3D resource, once what was drawn into it is finished, retained for the caller (on
        Apple an MTLTexture, released with CFRelease); *y0top: its rows are stored bottom first. NULL: none (read_pixels). */
     void *(*native_texture)(void *o, uint32_t res, int *y0top);
+    /* The same without waiting (NULL: not offered): once the GPU has drawn what came before, show(ctx, texture,
+       y0top) runs on the renderer's thread, texture NULL when there is none; ctx is copied (at most 64 bytes). */
+    int (*present)(void *o, uint32_t res, void (*show)(void *ctx, void *texture, int y0top), const void *ctx, size_t ctx_size);
+    /* Waits until everything asked of the renderer so far has run (NULL: nothing runs later). */
+    void (*drain)(void *o);
 } HvVgpu3d;
 
 typedef struct HvVgpuScreen {

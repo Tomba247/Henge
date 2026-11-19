@@ -149,10 +149,11 @@ struct HvVgpuVirgl {
     pthread_t thread;
     pthread_mutex_t mu;
     pthread_cond_t wake, done_cv;
-    void (*job)(HvVgpuVirgl *, void *);
-    void *arg;
-    int job_done, stopping, started, ok, gles;
-    pthread_mutex_t call_mu; /* one caller at a time */
+    /* Work for the render thread, in order (under mu): calls that answer wait for theirs (call); the guest's command
+       buffers, fences and frames to show go on without waiting (post), so its CPU runs while the GPU works. */
+    struct Job *head, *tail;
+    int queued;
+    int stopping, started, ok, gles;
     HvVirtioGpu *gpu;
     _Atomic uint64_t last_fence; /* the newest fence asked for, all 64 bits */
     _Atomic int fences_out;
@@ -168,6 +169,14 @@ struct HvVgpuVirgl {
 };
 
 /* --- the render thread --- */
+
+typedef struct Job {
+    void (*fn)(HvVgpuVirgl *, void *);
+    void *arg;
+    int async, done;
+    struct Job *next;
+} Job;
+#define MAX_QUEUED 256 /* posted jobs waiting: a guest that gets this far ahead waits for the GPU */
 
 static void write_fence(void *cookie, uint32_t fence) {
     HvVgpuVirgl *v = cookie;
@@ -277,8 +286,9 @@ static void *render_thread(void *arg) {
         pthread_mutex_unlock(&v->mu);
         return NULL;
     }
-    while (!v->stopping) {
-        if (!v->job) {
+    while (!v->stopping || v->head) {
+        if (!v->head) {
+            if (v->stopping) break;
             /* Idle: retire fences every millisecond while any are out, else sleep until called. */
             if (atomic_load(&v->fences_out)) {
                 struct timespec ts;
@@ -290,15 +300,21 @@ static void *render_thread(void *arg) {
                 pthread_cond_wait(&v->wake, &v->mu);
             }
         }
-        if (v->job) {
-            void (*job)(HvVgpuVirgl *, void *) = v->job;
-            void *a = v->arg;
+        while (v->head) {
+            Job *j = v->head;
+            v->head = j->next;
+            if (!v->head) v->tail = NULL;
+            if (j->async) v->queued--;
             pthread_mutex_unlock(&v->mu);
-            job(v, a);
+            j->fn(v, j->arg);
+            if (j->async) {
+                free(j->arg);
+                free(j);
+            }
             pthread_mutex_lock(&v->mu);
-            v->job = NULL;
-            v->job_done = 1;
+            if (!j->async) j->done = 1; /* the caller's own Job: it frees nothing */
             pthread_cond_broadcast(&v->done_cv);
+            if (atomic_load(&v->fences_out)) break; /* retire fences between jobs too */
         }
         if (atomic_load(&v->fences_out)) {
             pthread_mutex_unlock(&v->mu);
@@ -316,16 +332,42 @@ static void *render_thread(void *arg) {
     return NULL;
 }
 
-/* Runs job(arg) on the render thread and waits for it. */
-static void call(HvVgpuVirgl *v, void (*job)(HvVgpuVirgl *, void *), void *arg) {
-    pthread_mutex_lock(&v->call_mu);
-    pthread_mutex_lock(&v->mu);
-    v->job = job, v->arg = arg, v->job_done = 0;
+static void enqueue(HvVgpuVirgl *v, Job *j) {
+    j->next = NULL;
+    if (v->tail) v->tail->next = j;
+    else v->head = j;
+    v->tail = j;
     pthread_cond_signal(&v->wake);
-    while (!v->job_done) pthread_cond_wait(&v->done_cv, &v->mu);
-    pthread_mutex_unlock(&v->mu);
-    pthread_mutex_unlock(&v->call_mu);
 }
+
+/* Runs job(arg) on the render thread after everything before it, and waits for it. */
+static void call(HvVgpuVirgl *v, void (*job)(HvVgpuVirgl *, void *), void *arg) {
+    Job j = {.fn = job, .arg = arg};
+    pthread_mutex_lock(&v->mu);
+    enqueue(v, &j);
+    while (!j.done) pthread_cond_wait(&v->done_cv, &v->mu);
+    pthread_mutex_unlock(&v->mu);
+}
+
+/* Queues job(arg) without waiting; arg is malloc'd and freed after the job. */
+static void post(HvVgpuVirgl *v, void (*job)(HvVgpuVirgl *, void *), void *arg) {
+    Job *j = calloc(1, sizeof *j);
+    if (!j) { /* no memory: run it in order the slow way */
+        call(v, job, arg);
+        free(arg);
+        return;
+    }
+    j->fn = job, j->arg = arg, j->async = 1;
+    pthread_mutex_lock(&v->mu);
+    while (v->queued >= MAX_QUEUED && !v->stopping) pthread_cond_wait(&v->done_cv, &v->mu);
+    v->queued++;
+    enqueue(v, j);
+    pthread_mutex_unlock(&v->mu);
+}
+
+static void j_nothing(HvVgpuVirgl *v, void *a) { (void)v, (void)a; }
+/* Waits until everything queued so far has run. */
+static void drain(void *o) { call(o, j_nothing, NULL); }
 
 /* --- the renderer interface, each call marshalled to the render thread --- */
 
@@ -482,17 +524,24 @@ static int transfer(void *o, int to_host, uint32_t ctx, uint32_t res, const uint
     return a.r;
 }
 
+/* A command buffer, copied: the guest's CPU goes on while the render thread decodes it. */
+typedef struct SubmitArgs {
+    uint32_t ctx, size;
+    uint8_t cmd[];
+} SubmitArgs;
 static void j_submit(HvVgpuVirgl *v, void *a_) {
-    (void)v;
-    Args *a = a_;
-    a->r = virgl_renderer_submit_cmd(a->out, (int)a->u[0], (int)(a->u[1] / 4));
+    SubmitArgs *a = a_;
+    int r = virgl_renderer_submit_cmd(a->cmd, (int)a->ctx, (int)(a->size / 4));
+    static int told;
+    if (r && (v->log || told++ < 5)) fprintf(stderr, "virgl: submit %u bytes on context %u -> %d\n", a->size, a->ctx, r);
 }
 static int submit(void *o, uint32_t ctx, void *cmd, uint32_t size) {
-    Args a = {.u = {ctx, size}, .out = cmd};
-    call(o, j_submit, &a);
-    static int told;
-    if (a.r && (((HvVgpuVirgl *)o)->log || told++ < 5)) fprintf(stderr, "virgl: submit %u bytes on context %u -> %d\n", size, ctx, a.r);
-    return a.r;
+    SubmitArgs *a = malloc(sizeof *a + size);
+    if (!a) return -1;
+    a->ctx = ctx, a->size = size;
+    memcpy(a->cmd, cmd, size);
+    post(o, j_submit, a);
+    return 0;
 }
 
 static void j_fence(HvVgpuVirgl *v, void *a_) {
@@ -503,9 +552,11 @@ static void j_fence(HvVgpuVirgl *v, void *a_) {
 }
 static int create_fence(void *o, uint32_t ctx, uint32_t ring, uint64_t fence) {
     (void)ring;
-    Args a = {.u = {ctx}, .u64 = fence};
-    call(o, j_fence, &a);
-    return a.r;
+    Args *a = calloc(1, sizeof *a);
+    if (!a) return -1;
+    a->u[0] = ctx, a->u64 = fence;
+    post(o, j_fence, a); /* in order after the commands it fences; it signals when the GPU gets there */
+    return 0;
 }
 
 #if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
@@ -534,6 +585,28 @@ static void *native_texture(void *o, uint32_t res, int *y0top) {
     call(o, j_native, &a);
     *y0top = (int)a.u[1];
     return a.out;
+}
+/* The same, without waiting: once the GPU has finished the frame, show(texture) runs on the render thread. */
+typedef struct PresentArgs {
+    Args a;
+    void (*show)(void *ctx, void *texture, int y0top);
+    uint8_t ctx[64];
+} PresentArgs;
+static void j_present(HvVgpuVirgl *v, void *a_) {
+    PresentArgs *p = a_;
+    j_native(v, &p->a);
+    p->show(p->ctx, p->a.out, (int)p->a.u[1]); /* NULL: no texture */
+}
+static int present(void *o, uint32_t res, void (*show)(void *ctx, void *texture, int y0top), const void *ctx, size_t ctx_size) {
+    PresentArgs *p = calloc(1, sizeof *p);
+    if (!p || ctx_size > sizeof p->ctx) {
+        free(p);
+        return -1;
+    }
+    p->a.u[0] = res, p->show = show;
+    memcpy(p->ctx, ctx, ctx_size);
+    post(o, j_present, p);
+    return 0;
 }
 #endif
 
@@ -595,7 +668,6 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
         return NULL;
     }
     pthread_mutex_init(&v->mu, NULL);
-    pthread_mutex_init(&v->call_mu, NULL);
     pthread_cond_init(&v->wake, NULL);
     pthread_cond_init(&v->done_cv, NULL);
     if (pthread_create(&v->thread, NULL, render_thread, v) != 0) {
@@ -630,7 +702,9 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
     gl->read_pixels = read_pixels;
 #if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
     gl->native_texture = native_texture;
+    if (!getenv("HV_VIRGL_SYNC_PRESENT")) gl->present = present;
 #endif
+    gl->drain = drain;
     fprintf(stderr, "virgl: renderer started (%s%s)\n", gles || v->own_egl ? "OpenGL ES" : "OpenGL", v->own_egl ? ", own EGL contexts" : "");
     return v;
 }

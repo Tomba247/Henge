@@ -182,6 +182,16 @@ void hv_vgpu_to_bgra(uint32_t format, const uint8_t *s, uint8_t *d, uint32_t n) 
 }
 
 /* The resource's rectangle (in resource coordinates) into the screen. */
+/* A 3D frame on its way to the presenter: shown from the renderer's thread once the GPU has drawn it. */
+typedef struct Showing {
+    HvVgpuPresenter pres;
+    uint32_t width, height, sx, sy, sw, sh;
+} Showing;
+static void show_texture(void *ctx, void *texture, int y0top) {
+    Showing *s = ctx;
+    if (texture) s->pres.texture(s->pres.opaque, texture, s->width, s->height, s->sx, s->sy, s->sw, s->sh, y0top);
+}
+
 static void update_screen(HvVirtioGpu *g, Res *r, uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
     pthread_mutex_lock(&g->mu);
     HvVgpuScreen *s = &g->screen;
@@ -205,10 +215,15 @@ static void update_screen(HvVirtioGpu *g, Res *r, uint32_t x, uint32_t y, uint32
         /* A presenter that takes GPU textures shows the scanout as it is, nothing copied; the screen's pixels are
            refreshed now and then for snapshots (the app's preview). */
         void *tex = NULL;
-        int y0top = 0;
-        if (g->has_pres && g->pres.texture && g->gl.native_texture) tex = g->gl.native_texture(g->gl.opaque, r->id, &y0top);
-        if (tex) {
-            g->pres.texture(g->pres.opaque, tex, r->width, r->height, g->sx, g->sy, s->width, s->height, y0top);
+        int y0top = 0, posted = 0;
+        if (g->has_pres && g->pres.texture && g->gl.present) {
+            /* Without waiting: the guest's CPU goes on while the GPU finishes the frame. */
+            Showing sh = {g->pres, r->width, r->height, g->sx, g->sy, s->width, s->height};
+            posted = g->gl.present(g->gl.opaque, r->id, show_texture, &sh, sizeof sh) == 0;
+        }
+        if (!posted && g->has_pres && g->pres.texture && g->gl.native_texture) tex = g->gl.native_texture(g->gl.opaque, r->id, &y0top);
+        if (tex) g->pres.texture(g->pres.opaque, tex, r->width, r->height, g->sx, g->sy, s->width, s->height, y0top);
+        if (posted || tex) {
             struct timespec ts;
             clock_gettime(CLOCK_MONOTONIC, &ts);
             uint64_t now = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
@@ -700,6 +715,8 @@ void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, const HvVgpuPresenter *p) {
     if (p) g->pres = *p;
     g->readback_ns = 0;
     pthread_mutex_unlock(&g->mu);
+    /* Frames already on their way to the old presenter get there before it goes. */
+    if (!p && g->has_gl && g->gl.drain) g->gl.drain(g->gl.opaque);
 }
 
 void hv_virtio_gpu_pointer_at(HvVirtioGpu *g, double x, double y) {
