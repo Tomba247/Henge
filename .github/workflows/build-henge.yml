@@ -195,8 +195,17 @@ jobs:
           BUILD=$(plutil -extract CFBundleVersion raw ios/Henge/Info.plist)
           TAG="${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}"
           git log -1 --format=%s | cut -c1-300 > /tmp/notes.txt
-          gh release create "$TAG" /Users/runner/Desktop/Henge.ipa /Users/runner/Desktop/Henge.tipa --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "Henge $VERSION ($BUILD) from $GITHUB_REF_NAME" --notes-file /tmp/notes.txt --prerelease
+          # The build's token may not make a tag on a commit that changes workflow files (HTTP 403): the tag then goes on
+          # the newest earlier release's commit; the app in it is still this build ($GITHUB_SHA, in the notes).
+          echo "(built from $GITHUB_SHA)" >> /tmp/notes.txt
+          if ! gh release create "$TAG" /Users/runner/Desktop/Henge.ipa /Users/runner/Desktop/Henge.tipa --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "Henge $VERSION ($BUILD) from $GITHUB_REF_NAME" --notes-file /tmp/notes.txt --prerelease; then
+            prev=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+            at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$prev" -q .object.sha)
+            echo "release on $GITHUB_SHA refused; tagging it on $at ($prev's commit) instead"
+            gh release create "$TAG" /Users/runner/Desktop/Henge.ipa /Users/runner/Desktop/Henge.tipa --repo "$GITHUB_REPOSITORY" \
+              --target "$at" --title "Henge $VERSION ($BUILD) from $GITHUB_REF_NAME" --notes-file /tmp/notes.txt --prerelease
+          fi
           SIZE=$(stat -f %z /Users/runner/Desktop/Henge.ipa)
           git clone --depth 1 --branch source "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/source
           cd /tmp/source
