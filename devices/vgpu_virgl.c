@@ -114,6 +114,24 @@ static int load_libraries(void) {
 #else
 static int load_libraries(void) { return 0; }
 #endif
+#include <dlfcn.h>
+
+/* libepoxy (inside virglrenderer) opens EGL and OpenGL ES by these names when a GLES context is current, and abort()s
+   the process if it cannot (seen: "Couldn't open libGLESv2.so.2" on a host without it). Open them the same way first:
+   a library it would not find then means a 2D GPU, not the app gone. */
+static int epoxy_finds_gles(void) {
+#ifdef __APPLE__
+    static const char *const names[] = {"EGL.framework/EGL", "GLESv2.framework/GLESv2"}; /* how UTM's libepoxy names ANGLE */
+#else
+    static const char *const names[] = {"libEGL.so.1", "libGLESv2.so.2"};
+#endif
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++)
+        if (!dlopen(names[i], RTLD_LAZY | RTLD_LOCAL)) {
+            fprintf(stderr, "virgl: %s does not open as libepoxy opens it (%s): no 3D\n", names[i], dlerror());
+            return 0;
+        }
+    return 1;
+}
 
 /* virglrenderer only declares it: x, y, z, w, h, d, as the virtio-gpu box (QEMU passes that the same way). */
 struct virgl_box {
@@ -522,6 +540,10 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
     v->own_egl = getenv("HV_VIRGL_OWN_EGL") != NULL;
 #endif
     v->dpy = EGL_NO_DISPLAY, v->main_ctx = EGL_NO_CONTEXT;
+    if ((v->own_egl || v->gles) && !epoxy_finds_gles()) {
+        free(v);
+        return NULL;
+    }
     pthread_mutex_init(&v->mu, NULL);
     pthread_mutex_init(&v->call_mu, NULL);
     pthread_cond_init(&v->wake, NULL);

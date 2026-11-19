@@ -72,10 +72,12 @@ echo "== ANGLE"
         GCC_TREAT_WARNINGS_AS_ERRORS=NO IPHONEOS_DEPLOYMENT_TARGET="$MINVER" \
         WK_LIBCPP_ASSERTIONS_CFLAGS= -quiet
     # (WebKit's configuration asks for _LIBCPP_ENABLE_ASSERTIONS, which Xcode 27's libc++ refuses outright.)
+    find ANGLE.xcarchive/Products -maxdepth 4 | head -40
     rsync -a ANGLE.xcarchive/Products/usr/local/lib/ "$PREFIX/lib/"
     rsync -a include/ "$PREFIX/include/"
 )
 ls -la "$PREFIX/lib"
+ls "$PREFIX/include" "$PREFIX/include/EGL"
 # pkg-config files for what epoxy and virglrenderer look for.
 for pc in egl:EGL glesv2:GLESv2; do
     name=${pc%%:*} lib=${pc##*:}
@@ -99,12 +101,12 @@ needs_exe_wrapper = true
 has_function_pipe2 = false
 has_function_dup3 = false
 [built-in options]
-c_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-O2']
-cpp_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-O2']
-objc_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-O2']
-c_link_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH']
-cpp_link_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH']
-objc_link_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH']
+c_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-O2', '-I$PREFIX/include']
+cpp_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-O2', '-I$PREFIX/include']
+objc_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-O2', '-I$PREFIX/include']
+c_link_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-L$PREFIX/lib']
+cpp_link_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-L$PREFIX/lib']
+objc_link_args = ['-target', 'arm64-apple-ios$MINVER', '-isysroot', '$SDKPATH', '-L$PREFIX/lib']
 [binaries]
 c = ['$CC']
 cpp = ['$CXX']

@@ -63,7 +63,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
-              libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri pkg-config
+              libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config
 
       - name: Build the engine with the Linux machine (native arm64)
         run: |
