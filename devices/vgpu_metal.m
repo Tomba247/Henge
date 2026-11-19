@@ -16,13 +16,13 @@ static NSString *const shaders =
      "using namespace metal;\n"
      "struct V { float4 p [[position]]; float2 uv; };\n"
      /* A rectangle (x, y, w, h in clip space, y up) with texture coordinates (u0, v0, u1, v1), v0 its top row. */
-     "vertex V quad(uint vid [[vertex_id]], constant float4 &r [[buffer(0)]], constant float4 &t [[buffer(1)]]) {\n"
+     "vertex V rect_vs(uint vid [[vertex_id]], constant float4 &r [[buffer(0)]], constant float4 &t [[buffer(1)]]) {\n"
      "  float2 c = float2(float(vid & 1), float(vid >> 1));\n"
      "  V o; o.p = float4(r.x + c.x * r.z, r.y + (1 - c.y) * r.w, 0, 1);\n"
      "  o.uv = float2(mix(t.x, t.z, c.x), mix(t.y, t.w, c.y)); return o; }\n"
-     "fragment float4 screen(V v [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
+     "fragment float4 screen_fs(V v [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
      "  return float4(t.sample(s, v.uv).rgb, 1); }\n"
-     "fragment float4 pointer(V v [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
+     "fragment float4 pointer_fs(V v [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {\n"
      "  return t.sample(s, v.uv); }\n";
 
 @interface HvVgpuMetalImpl : NSObject {
@@ -62,11 +62,11 @@ static NSString *const shaders =
         return NO;
     }
     MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
-    d.vertexFunction = [lib newFunctionWithName:@"quad"];
-    d.fragmentFunction = [lib newFunctionWithName:@"screen"];
+    d.vertexFunction = [lib newFunctionWithName:@"rect_vs"];
+    d.fragmentFunction = [lib newFunctionWithName:@"screen_fs"];
     d.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     screen_pipe = [device newRenderPipelineStateWithDescriptor:d error:&err];
-    d.fragmentFunction = [lib newFunctionWithName:@"pointer"];
+    d.fragmentFunction = [lib newFunctionWithName:@"pointer_fs"];
     d.colorAttachments[0].blendingEnabled = YES; /* the pointer's image is premultiplied, as DRM's are */
     d.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
     d.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;

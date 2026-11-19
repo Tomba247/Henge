@@ -111,6 +111,7 @@ network:
     henge:
       match:
         driver: virtio_net
+      renderer: networkd
       dhcp4: true
 YAML
 chmod 600 "$ROOT/etc/netplan/01-henge.yaml"

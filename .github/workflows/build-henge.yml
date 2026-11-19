@@ -127,6 +127,13 @@ jobs:
           cat Henge/ios/deps-gpu/VERSIONS
           ls Henge/ios/deps-gpu/Frameworks
 
+      - name: Compile the Linux screen's Metal shaders (they are otherwise only compiled on the phone)
+        working-directory: Henge
+        run: |
+          python3 -c 'import re,sys; s=open("devices/vgpu_metal.m").read(); b=s[s.index("shaders ="):s.index("\";\n", s.index("shaders ="))+1]; src="".join(re.findall(r"\"((?:[^\"\\]|\\.)*)\"", b)); open("/tmp/vgpu.metal","w").write(src.encode().decode("unicode_escape"))'
+          cat /tmp/vgpu.metal
+          xcrun -sdk iphoneos metal -c /tmp/vgpu.metal -o /tmp/vgpu.air
+
       - name: Build the engine
         working-directory: Henge
         run: make ios-lib
