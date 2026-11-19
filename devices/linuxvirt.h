@@ -34,6 +34,8 @@ typedef struct HvLinuxVirt {
     /* virtio-gpu, the display when there is one (no framebuffer then). Kept here, not in the
        board, so the virtual Mac's saved-state layout (host/snapshot.c) is unchanged. */
     HvVirtioGpu *gpu;
+    /* The absolute pointer (after the display, so the other slots stay where they were). */
+    HvVirtioInput *tablet;
     /* Where the boot images went (guest physical). */
     uint64_t kernel_pa, dtb_pa, initrd_pa, initrd_size;
 } HvLinuxVirt;

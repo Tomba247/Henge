@@ -44,6 +44,7 @@ static uint64_t tick(HvMachine *m, HvCpu *cpu) {
     hv_virtio_input_poll(b->mouse);
     hv_virtio_snd_poll(b->snd);
     hv_virtio_gpu_poll(lv->gpu);
+    hv_virtio_input_poll(lv->tablet);
     hv_dev_unlock(m);
     return deadline;
 }
@@ -91,6 +92,7 @@ int hv_linuxvirt_create(HvLinuxVirt *lv, HvVmapple *b, HvMachine *m, HvCpu *cpus
         lv->fb_pa = LV_MEM + c->ram_size - bytes;
         lv->fb = b->ram + (lv->fb_pa - LV_MEM);
     }
+    lv->tablet = hv_virtio_input_create(m, b->pcie, HV_VINPUT_TABLET);
     m->tick = tick;
     m->timer_tick = timer_tick;
     m->tick_opaque = lv;
@@ -357,6 +359,7 @@ void hv_linuxvirt_destroy(HvLinuxVirt *lv) {
     hv_virtio_blk_destroy(b->root_blk);
     if (b->snd) { free(b->snd->ring); free(b->snd); }
     hv_virtio_gpu_destroy(lv->gpu);
+    if (lv->tablet) { pthread_mutex_destroy(&lv->tablet->mu); free(lv->tablet); lv->tablet = NULL; }
     if (b->keyboard) { pthread_mutex_destroy(&b->keyboard->mu); free(b->keyboard); }
     if (b->mouse) { pthread_mutex_destroy(&b->mouse->mu); free(b->mouse); }
     if (b->usb) { pthread_mutex_destroy(&b->usb->mu); free(b->usb); }

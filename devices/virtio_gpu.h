@@ -88,6 +88,9 @@ typedef struct HvVgpuPresenter {
 /* Any thread; NULL takes it away. */
 void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, const HvVgpuPresenter *p);
 /* The pointer: its image (BGRA 64 x 64, hot spot) and where it is, as the guest last set them. */
+/* Any thread: draw the pointer at (x, y), fractions of the screen, instead of where the guest has it (the
+   iPhone's pointer, shown at once while the guest catches up); x < 0 gives the place back to the guest. */
+void hv_virtio_gpu_pointer_at(HvVirtioGpu *g, double x, double y);
 int hv_virtio_gpu_cursor(HvVirtioGpu *g, uint8_t out[64 * 64 * 4], uint32_t *hot_x, uint32_t *hot_y, int32_t *x, int32_t *y);
 /* The size the guest is told its display prefers (e.g. the phone turned): a display change event. Any thread. */
 void hv_virtio_gpu_set_size(HvVirtioGpu *g, uint32_t width, uint32_t height);

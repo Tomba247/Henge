@@ -86,6 +86,7 @@ struct HvVirtioGpu {
     int cursor_on;
     uint32_t hot_x, hot_y;
     int32_t cur_x, cur_y;
+    _Atomic uint32_t host_at; /* where the host draws the pointer (x | y << 16, screen pixels), or ~0: the guest's place */
     HvVgpuPresenter pres; /* under mu */
     int has_pres;
     uint64_t readback_ns; /* when the screen's pixels were last read back while a presenter shows textures */
@@ -603,6 +604,7 @@ void hv_virtio_gpu_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint6
 
 HvVirtioGpu *hv_virtio_gpu_create(HvMachine *m, HvPcie *bus, uint32_t width, uint32_t height, const HvVgpu3d *gl) {
     HvVirtioGpu *g = calloc(1, sizeof *g);
+    if (g) atomic_store(&g->host_at, 0xffffffff);
     if (!g) return NULL;
     if (gl) {
         g->gl = *gl;
@@ -636,6 +638,13 @@ void hv_virtio_gpu_destroy(HvVirtioGpu *g) {
     free(g);
 }
 
+/* Under mu: where the pointer is drawn, the host's place when it set one. */
+static void pointer_place(HvVirtioGpu *g, int32_t *x, int32_t *y) {
+    uint32_t at = atomic_load(&g->host_at);
+    if (at == 0xffffffff) *x = g->cur_x, *y = g->cur_y;
+    else *x = (int32_t)(at & 0xffff), *y = (int32_t)(at >> 16);
+}
+
 int hv_virtio_gpu_snapshot(HvVirtioGpu *g, uint8_t **pixels, uint32_t *width, uint32_t *height) {
     if (!g) return -1;
     pthread_mutex_lock(&g->mu);
@@ -648,7 +657,9 @@ int hv_virtio_gpu_snapshot(HvVirtioGpu *g, uint8_t **pixels, uint32_t *width, ui
     memcpy(copy, s->pixels, (size_t)s->width * s->height * 4);
     uint32_t w = s->width, h = s->height;
     if (g->cursor_on) { /* the pointer, blended in */
-        int32_t ox = g->cur_x - (int32_t)g->hot_x, oy = g->cur_y - (int32_t)g->hot_y;
+        int32_t cx0, cy0;
+        pointer_place(g, &cx0, &cy0);
+        int32_t ox = cx0 - (int32_t)g->hot_x, oy = cy0 - (int32_t)g->hot_y;
         for (int32_t cy = 0; cy < 64; cy++) {
             int32_t py = oy + cy;
             if (py < 0 || py >= (int32_t)h) continue;
@@ -691,11 +702,29 @@ void hv_virtio_gpu_set_presenter(HvVirtioGpu *g, const HvVgpuPresenter *p) {
     pthread_mutex_unlock(&g->mu);
 }
 
+void hv_virtio_gpu_pointer_at(HvVirtioGpu *g, double x, double y) {
+    if (!g) return;
+    uint32_t at = 0xffffffff;
+    pthread_mutex_lock(&g->mu);
+    uint32_t w = g->screen.width, h = g->screen.height;
+    if (x >= 0 && y >= 0 && w && h) {
+        if (x > 1) x = 1;
+        if (y > 1) y = 1;
+        at = ((uint32_t)(x * (w - 1) + 0.5) & 0xffff) | ((uint32_t)(y * (h - 1) + 0.5) & 0xffff) << 16;
+    }
+    atomic_store(&g->host_at, at);
+    int pres = g->has_pres && g->pres.cursor;
+    HvVgpuPresenter p = g->pres;
+    pthread_mutex_unlock(&g->mu);
+    if (pres) p.cursor(p.opaque); /* the arrow in its new place now, not when the guest moves it */
+}
+
 int hv_virtio_gpu_cursor(HvVirtioGpu *g, uint8_t out[64 * 64 * 4], uint32_t *hot_x, uint32_t *hot_y, int32_t *x, int32_t *y) {
     pthread_mutex_lock(&g->mu);
     int on = g->cursor_on;
     if (on) memcpy(out, g->cursor, sizeof g->cursor);
-    *hot_x = g->hot_x, *hot_y = g->hot_y, *x = g->cur_x, *y = g->cur_y;
+    *hot_x = g->hot_x, *hot_y = g->hot_y;
+    pointer_place(g, x, y);
     pthread_mutex_unlock(&g->mu);
     return on;
 }

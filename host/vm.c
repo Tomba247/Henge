@@ -949,11 +949,24 @@ void hv_vm_touch_button(int down) {
 }
 
 void hv_vm_pointer_at(double x, double y) {
-    if (linux_mode) return; /* no absolute pointer device on the Linux machine yet: the mouse moves it */
+    if (linux_mode) { /* the tablet: Linux's pointer goes there */
+        if (x < 0) x = 0;
+        if (x > 1) x = 1;
+        if (y < 0) y = 0;
+        if (y > 1) y = 1;
+        hv_virtio_input_send(linux_vm.tablet, HV_EV_ABS, HV_ABS_X, (int32_t)(x * HV_TABLET_MAX + 0.5));
+        hv_virtio_input_send(linux_vm.tablet, HV_EV_ABS, HV_ABS_Y, (int32_t)(y * HV_TABLET_MAX + 0.5));
+        hv_virtio_input_send(linux_vm.tablet, HV_EV_SYN, 0, 0);
+        return;
+    }
     hv_xhci_pointer(board.usb, (int)(x * HV_PTR_MAX + 0.5), (int)(y * HV_PTR_MAX + 0.5));
 }
 
 void hv_vm_cursor_at(double x, double y) {
+    if (linux_mode) { /* drawn where the iPhone's pointer is, at once (Madeira's way) */
+        hv_virtio_gpu_pointer_at(linux_vm.gpu, x, y);
+        return;
+    }
     uint32_t at = 0xffffffff;
     uint32_t mw = 0, mh = 0;
     hv_pvg_lite_mode(&mw, &mh);
