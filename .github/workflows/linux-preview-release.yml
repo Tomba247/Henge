@@ -50,8 +50,11 @@ jobs:
           mkdir -p out "Ubuntu Xfce"
           cp dl/ipa/*/Henge.ipa out/Henge.ipa
           cp dl/ubuntu/*/Image dl/ubuntu/*/disk.img.hvsparse dl/ubuntu/*/machine.json "Ubuntu Xfce/"
-          # Stored, not compressed: the disk is already holes-out, and unzipping on the phone stays quick.
-          zip -0 -r out/Henge-Ubuntu-Xfce.zip "Ubuntu Xfce"
+          # Compressed: a release file must be under 2 GiB, and the disk with Firefox is 2.4 GB packed.
+          zip -6 -r out/Henge-Ubuntu-Xfce.zip "Ubuntu Xfce"
+          size=$(stat -c %s out/Henge-Ubuntu-Xfce.zip)
+          echo "machine zip: $size bytes"
+          [ "$size" -lt 2147483648 ] || { echo "still over GitHub's 2 GiB limit for a release file"; exit 1; }
           ls -la out "Ubuntu Xfce"
           (cd out && sha256sum Henge.ipa Henge-Ubuntu-Xfce.zip > SHA256SUMS)
           cat out/SHA256SUMS
@@ -67,7 +70,7 @@ jobs:
           Henge with the **Linux machine** (docs/linux-machine.md on the branch claude/linux-runner-crash-flumcd): Ubuntu 24.04 with the Xfce desktop on Henge's engine. A preview: tried on GitHub's arm64 runners, not yet on a phone.
 
           1. **Henge.ipa** ($ipa bytes): install it as you install Henge. It includes league-el0.
-          2. **Henge-Ubuntu-Xfce.zip** ($ub bytes): check the size once it is downloaded, tap it in Files to unzip, and bring the **Ubuntu Xfce** folder into Henge as you bring in a Mac.
+          2. **Henge-Ubuntu-Xfce.zip** ($ub bytes): check the size once it is downloaded, tap it in Files to unzip (it is about twice that size unzipped, so leave room), and bring the **Ubuntu Xfce** folder into Henge as you bring in a Mac.
           3. Start it: Linux's text, then the desktop, signed in as **henge** (no password, sudo works).
 
           Firefox is in the dock and the Applications menu. Trackpad: one finger moves the pointer, two scroll, tap clicks, two-finger tap right-clicks, the volume press is the left button. No GPU acceleration yet; no instant resume for Linux.
