@@ -379,8 +379,8 @@ UNIT
     fi
     chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,
-    # at 480p H.264, the cheapest video to decode on the guest's CPU.
-    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3 ffmpeg
+    # at 720p H.264 (the self-test decodes 720p at about 6 times real time on the engine).
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3 ffmpeg pulseaudio-utils
     # Sample videos for the self-test's playback speed check (H.264 as YouTube sends it, 30 fps, 10 s each).
     mkdir -p "$ROOT/usr/local/share/henge"
     for h in 360 480 720; do
@@ -399,7 +399,7 @@ case "$q" in http*) url=$q ;; *)
   pick=$(echo "$list" | cut -d'|' -f2- | zenity --list --title=YouTube --column=Video --width=700 --height=500) || exit
   url="https://youtu.be/$(echo "$list" | grep -F "|$pick" | head -1 | cut -d'|' -f1)" ;;
 esac
-exec mpv --ytdl-format='bv*[height<=480][vcodec^=avc1]+ba/b[height<=480]' --hwdec=no --cache=yes --force-window=immediate "$url"
+exec mpv --ytdl-format='bv*[height<=720][vcodec^=avc1]+ba/b[height<=720]' --hwdec=no --cache=yes --force-window=immediate "$url"
 YT
     chmod 755 "$ROOT/usr/local/bin/yt"
     printf '[Desktop Entry]\nName=YouTube\nComment=Search and watch YouTube without a browser\nExec=yt\nIcon=mpv\nType=Application\nCategories=AudioVideo;Video;\n' \
