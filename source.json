@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.66",
+          "date": "2026-11-19T03:20:41Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine: virgl 3D for virtio-gpu through virglrenderer",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-66/Henge.ipa",
+          "size": 9796604,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.65",
           "date": "2026-11-19T02:13:38Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Linux machine screen at 60 Hz, one copy a frame",
