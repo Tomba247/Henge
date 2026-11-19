@@ -218,6 +218,13 @@ jobs:
                   -L 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
           fi
           if [ -z "$run" ] || [ "$run" = null ]; then echo "no Linux machine build on $GITHUB_REF_NAME: nothing to attach"; exit 0; fi
+          # A Linux machine build still running (started alongside this one): its machines, once it is done (up to an hour).
+          for i in $(seq 1 120); do
+            st=$(gh run view "$run" --repo "$GITHUB_REPOSITORY" --json status --jq .status 2>/dev/null || echo unknown)
+            [ "$st" = completed ] && break
+            echo "waiting for Linux machine run $run ($st)"
+            sleep 30
+          done
           rm -rf /tmp/lm && mkdir -p /tmp/lm
           gh run download "$run" --repo "$GITHUB_REPOSITORY" -p 'henge-ubuntu-*' -D /tmp/lm || { echo "run $run has no Ubuntu machines"; exit 0; }
           cp /tmp/notes.txt /tmp/notes-linux.txt
