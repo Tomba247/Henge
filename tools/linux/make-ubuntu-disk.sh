@@ -195,6 +195,18 @@ if command -v firefox >/dev/null; then
     fi
     dmesg | grep -iE "firefox|Web Content|Isolated|GPU Process|segfault|unhandled|traps" | tail -15 | sed "s/^/kernel: /"
 fi
+# Video: how fast this CPU decodes YouTube-like H.264 (300 frames, as fast as it can; 30 fps is real time).
+for f in /usr/local/share/henge/sample*.mp4; do
+    [ -f "$f" ] || continue
+    t0=$(date +%s.%N)
+    timeout 200 mpv --no-config --vo=null --ao=null --untimed --hwdec=no --really-quiet "$f" 2>/dev/null
+    t1=$(date +%s.%N)
+    echo "video $(basename "$f" .mp4): $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "300 frames in %.1f s, %.1f fps", b - a, 300 / (b - a) }')"
+done
+if [ -n "$desktop" ]; then
+    echo "sound: $(runuser -u henge -- env XDG_RUNTIME_DIR=/run/user/$u pactl info 2>&1 | grep -E "Server Name|Default Sink" | tr "\n" ";")"
+    runuser -u henge -- env XDG_RUNTIME_DIR=/run/user/$u pactl list short sinks 2>&1 | head -3 | sed "s/^/sink: /"
+fi
 echo "input:"
 grep -h "^N:" /proc/bus/input/devices
 ip -brief address
@@ -368,7 +380,14 @@ UNIT
     chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,
     # at 480p H.264, the cheapest video to decode on the guest's CPU.
-    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3 ffmpeg
+    # Sample videos for the self-test's playback speed check (H.264 as YouTube sends it, 30 fps, 10 s each).
+    mkdir -p "$ROOT/usr/local/share/henge"
+    for h in 360 480 720; do
+        w=$(( (h * 16 / 9 + 1) / 2 * 2 ))
+        chroot "$ROOT" ffmpeg -loglevel error -y -f lavfi -i "testsrc2=size=${w}x${h}:rate=30" -t 10 \
+            -c:v libx264 -preset veryfast -profile:v main -pix_fmt yuv420p "/usr/local/share/henge/sample$h.mp4" || true
+    done
     curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "$ROOT/usr/local/bin/yt-dlp"
     chmod 755 "$ROOT/usr/local/bin/yt-dlp"
     cat > "$ROOT/usr/local/bin/yt" <<'YT'
