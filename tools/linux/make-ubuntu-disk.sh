@@ -385,6 +385,20 @@ YT
     chmod 755 "$ROOT/usr/local/bin/yt"
     printf '[Desktop Entry]\nName=YouTube\nComment=Search and watch YouTube without a browser\nExec=yt\nIcon=mpv\nType=Application\nCategories=AudioVideo;Video;\n' \
         > "$ROOT/usr/share/applications/yt.desktop"
+    # Quiet in the background (the guest's CPUs are slow): no automatic updates or update checks, no modem or
+    # multipath daemons, no activity accounting, no file indexer. Updates: sudo apt update && sudo apt upgrade.
+    for u in unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer fwupd-refresh.timer motd-news.timer \
+             man-db.timer ModemManager.service packagekit.service multipathd.service multipathd.socket \
+             sysstat-collect.timer sysstat-summary.timer update-notifier-download.timer update-notifier-motd.timer; do
+        ln -sf /dev/null "$ROOT/etc/systemd/system/$u"
+    done
+    mkdir -p "$ROOT/etc/systemd/user"
+    for u in tracker-miner-fs-3.service tracker-extract-3.service tracker-miner-fs-control-3.service tracker-writeback-3.service; do
+        ln -sf /dev/null "$ROOT/etc/systemd/user/$u"
+    done
+    for a in update-notifier gnome-software-service org.gnome.Software tracker-miner-fs-3; do
+        [ -f "$ROOT/etc/xdg/autostart/$a.desktop" ] && echo "Hidden=true" >> "$ROOT/etc/xdg/autostart/$a.desktop"
+    done
     chroot "$ROOT" chown -R henge:henge /home/henge
     chroot "$ROOT" apt-get clean
     chroot "$ROOT" systemctl set-default graphical.target
