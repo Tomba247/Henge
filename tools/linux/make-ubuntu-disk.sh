@@ -240,14 +240,17 @@ cat > "$ROOT/etc/systemd/system/henge-autotest.service" <<'UNIT'
 [Unit]
 Description=Henge Linux machine self-test
 ConditionKernelCommandLine=henge.autotest
-After=multi-user.target
+After=multi-user.target serial-getty@ttyAMA0.service
+# The console's sign-in would hang the serial port up under the test (Kali starts it after the test): it stays off.
+Conflicts=serial-getty@ttyAMA0.service
 
 [Service]
 Type=oneshot
 StandardOutput=tty
 TTYPath=/dev/ttyAMA0
-ExecStart=/usr/local/bin/henge-autotest
-ExecStartPost=/bin/systemctl poweroff
+TTYVHangup=no
+ExecStart=/bin/sh -c 'trap "" HUP; exec /usr/local/bin/henge-autotest'
+ExecStopPost=/bin/systemctl poweroff
 
 [Install]
 WantedBy=multi-user.target
