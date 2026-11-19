@@ -433,7 +433,12 @@ if [ -n "$DESKTOP" ] && [ "$DISTRO" = ubuntu ]; then
     echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
         > "$ROOT/etc/apt/sources.list.d/mozilla.list"
     printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > "$ROOT/etc/apt/preferences.d/mozilla"
-    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
+    # Mozilla's repository is sometimes caught mid-sync (its lists do not match their Release file): try again.
+    for try in 1 2 3 4 5; do
+        chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update && break
+        [ $try = 5 ] && exit 1
+        echo "   apt-get update failed (try $try): again in $((try * 20)) s"; sleep $((try * 20))
+    done
     if ! chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y firefox; then
         echo "   Mozilla's firefox deb not available: the snap is installed at first boot instead"
         rm -f "$ROOT/etc/apt/sources.list.d/mozilla.list" "$ROOT/etc/apt/preferences.d/mozilla"
