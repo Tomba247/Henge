@@ -118,6 +118,7 @@ typedef struct HvStats {
     uint64_t kernel_ranges;   /* big kernel-range TLBIs, dropped by range rather than with everything */
     uint64_t tlb_range_flushes; /* and that dropped only the TLB entries in the range */     /* of hv_ijc_resolve's lookups, ones that walked for the target page */   /* hv_ijc_resolve could not: chaining off/odd target, filters full, no TLB entry, block not made yet */   /* the same for hv_ijc_resolve's fills */
     uint64_t fill_kind[4];    /* ijc fills into an empty slot, over another live salt, over the same salt, over a dead salt */
+    uint64_t wfe_polls, wfe_poll_ticks; /* WFEs that waited for an interrupt in place (after an ISR_EL1 read), and for how long */
     uint64_t flush_why[8];
     uint64_t ttbr1_asid_switches; /* TTBR1 writes that only changed the ASID (TCR.A1): the user half went, not all */
     uint64_t flush_after_switch[4];
@@ -214,6 +215,7 @@ typedef struct HvPerCpu {
     uint32_t walk_seq;           /* odd while it walks page tables and fills its TLB (see hv_tlbi_drop_remote_va) */
     uint64_t walk_page[8];       /* the page walk k (walk_seq 2k -> 2k+1) fills, at [k % 8]; HV_WALK_ANY: a process switch */
     uint32_t ijc_seq;            /* odd while it checks a block's mapping in its TLB and caches it (hv_ijc_fill_checked) */
+    uint8_t isr_polled;          /* the guest read ISR_EL1 since its last WFE: that WFE waits for an interrupt (wfe) */
     uint32_t thread;             /* its host thread (mach_port_t), for --stats: is a CPU waited for running at all */
     uint8_t phase;               /* for --stats, what a CPU others wait on is doing: HV_PHASE_* */
     HvTlbStash stash[HV_STASHES];

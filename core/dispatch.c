@@ -430,10 +430,54 @@ flush:
    which wakes when another core writes it (or at the event stream, about every
    microsecond). A request for this CPU (an interrupt, a TLBI) ends the wait, and
    so does a short timeout, so its timer and devices are seen to. Without a
-   monitor to watch it leaves at once, as before. HV_WFE_SPIN: always that. */
+   monitor to watch it leaves at once, as before. HV_WFE_SPIN: always that.
+
+   One wait without a monitor is not left at once: xnu's idle loop, when a timer or an I/O completion is close, does
+   not sleep (WFI) but polls: read ISR_EL1, WFE, check the time, again, until an interrupt is pending or its deadline
+   passes (wfe_to_deadline_or_interrupt). A real CPU dozes in each WFE until the event stream's next tick; leaving at
+   once made that loop run 1.4 to 5 million times a second through two helpers and the dispatcher, a host core at
+   full power for as long as a Mac compiling or starting apps kept its disk busy (iPhone, macOS 27.2, 2026-11-20).
+   A WFE that follows an ISR_EL1 read with nothing pending now waits here for what that loop waits for: a request for
+   this CPU (an interrupt raised for it sets exit_req), the time its own timer is due, or 50 us. HV_WFE_POLL=0: as
+   before. */
+static int host_wfe_sleeps(void) { /* does the host's WFE come back soon by itself (its event stream)? else spin */
+    static int ok = -1;
+    if (ok < 0) {
+        __asm__ volatile("sevl; wfe" ::: "memory"); /* clear the event register */
+        uint64_t t0 = mach_absolute_time();
+        __asm__ volatile("wfe" ::: "memory");
+        ok = mach_absolute_time() - t0 < 24 * 20;
+    }
+    return ok;
+}
+
+static void wfe_poll(HvCpu *cpu) {
+    HvPerCpu *p = cpu->pc_state;
+    uint64_t t0 = mach_absolute_time(), deadline = t0 + 24 * 50; /* 50 us at 24 MHz */
+    uint64_t due = cpu->timer_due;
+    if (due && due < deadline) deadline = due;
+    int sleeps = host_wfe_sleeps();
+    if (cpu->m->stats_interval) cpu->m->stats.wfe_polls++;
+    while (!p->irq_line && !p->fiq_line && !__atomic_load_n(&cpu->exit_req, __ATOMIC_RELAXED)) {
+        if (mach_absolute_time() >= deadline) break;
+        if (sleeps) __asm__ volatile("wfe" ::: "memory"); /* a kick's SEV, or the host's event stream, ends it */
+        else __asm__ volatile("yield" ::: "memory");
+    }
+    __atomic_store_n(&cpu->exit_req, 1, __ATOMIC_RELAXED); /* the dispatcher sees to its timer and devices, as before */
+    if (cpu->m->stats_interval) cpu->m->stats.wfe_poll_ticks += mach_absolute_time() - t0;
+}
+
 static uint32_t wfe(HvCpu *cpu) {
-    static int spin = -1;
+    static int spin = -1, poll = -1;
     if (spin < 0) spin = getenv("HV_WFE_SPIN") != NULL;
+    if (poll < 0) poll = !getenv("HV_WFE_POLL") || atoi(getenv("HV_WFE_POLL"));
+    if (cpu->pc_state && cpu->pc_state->isr_polled) {
+        cpu->pc_state->isr_polled = 0;
+        if (poll && !spin) {
+            wfe_poll(cpu);
+            return 0;
+        }
+    }
     uint64_t va = cpu->excl_addr;
     uint32_t size = cpu->excl_size;
     const HvTlbEntry *e = hv_tlb_ent(cpu, (va >> HV_TLB_PAGE_BITS) & (HV_TLB_SIZE - 1), hv_tlb_table(cpu, cpu->el));
@@ -447,13 +491,7 @@ static uint32_t wfe(HvCpu *cpu) {
     uint64_t want = cpu->excl_val[0] & (size == 8 ? ~0ull : (1ull << (8 * size)) - 1);
     /* The host's WFE wakes at its event stream (about every microsecond on the
        Mac); if it does not come back that soon (no event stream), spin instead. */
-    static int sleep_ok = -1;
-    if (sleep_ok < 0) {
-        __asm__ volatile("sevl; wfe" ::: "memory"); /* clear the event register */
-        uint64_t t0 = mach_absolute_time();
-        __asm__ volatile("wfe" ::: "memory");
-        sleep_ok = mach_absolute_time() - t0 < 24 * 20;
-    }
+    int sleep_ok = host_wfe_sleeps();
     /* HV_WFE_YIELD=1 (testing): a CPU that waited the whole slice gives its core away once. Off: on the phone it put a
        quarter of the busy CPU time into the yield itself (swtch_pri), 2026-11-13. */
     static int no_yield = -1;
@@ -912,8 +950,8 @@ static void print_stats(HvCpu *cpu, int force) {
                 RATE(protect_kind[1]), RATE(protect_kind[2]));
         fprintf(stderr, "  fast resume refused/s: state %.0f, exit request %.0f, interrupt %.0f, timer %.0f, not cached %.0f\n", RATE(fr_fail[0]),
                 RATE(fr_fail[1]), RATE(fr_fail[2]), RATE(fr_fail[3]), RATE(fr_fail[4]));
-        fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s\n", RATE(wfe_waits),
-                RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes));
+        fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s; WFE waits for an interrupt %.0f/s (%.1f%% of one CPU asleep in them)\n", RATE(wfe_waits),
+                RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes), RATE(wfe_polls), RATE(wfe_poll_ticks) / 240000.0);
         fprintf(stderr, "  exit requests/s: TLBI posts %.0f, wakes %.0f (of them device work %.0f), kick all %.0f, own %.0f\n",
                 RATE(kick_src[0]), RATE(kick_src[1]), RATE(kick_src[3]), RATE(kick_src[2]), RATE(kick_src[4]));
         fprintf(stderr, "  light refills %.0fK/s, light branch-cache fills %.0fK/s, chained to other pages %.0f/s\n", RATE(refills) / 1e3,
