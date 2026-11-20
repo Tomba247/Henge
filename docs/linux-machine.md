@@ -181,13 +181,14 @@ Next for the GPU: the screen as a Metal texture (UTM's virglrenderer can hand
 out a resource's `MTLTexture`) rather than read back, a CAMetalLayer for it, and
 the display following the app's window size.
 
-## Vulkan (parked)
+## Vulkan (in progress, not in the machines handed out)
 
-Parked on 2026-11-20: the desktop and its browsers draw with OpenGL, which is
-already on the GPU, and their time goes to the guest's translated CPU, so
-Vulkan would only serve programs that ask for it. What is here stays behind
-`hengelinux --venus`; the images and the workflow no longer carry it (the
-self-test's Vulkan lines appear when `vulkan-tools` is installed in a guest).
+OpenGL (virgl) is what the desktop and its browsers draw with. Vulkan is being
+added for programs that ask for it, and to try the desktop's OpenGL on top of
+it (Zink) and measure on a phone whether that is faster. Until it is, it stays
+behind switches: `hengelinux --venus`, `make-ubuntu-disk.sh --vulkan`, and the
+workflow's `vulkan` input (its machine is named `henge-vulkan-*`, which the
+app's build does not pick up).
 
 The way to Vulkan on the host's GPU is Venus: Mesa's Venus driver in the guest
 sends Vulkan calls through virtio-gpu to virglrenderer, which runs them on the
@@ -205,7 +206,9 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   connects, maps its ring from the window, and the render server runs its
   commands as far as a Vulkan device; it then stalls on the ring's idle
   handshake, which relies on a store being seen by a following load in another
-  process, an order qemu does not keep. Not yet seen on arm64 itself.
+  process, an order qemu does not keep. On the arm64 runner it does not stall
+  (run 44677024084): Ubuntu GNOME comes up, OpenGL stays virgl, and the guest's
+  `vulkaninfo` lists "Virtio-GPU Venus (llvmpipe)" beside its own lavapipe.
   - Context types (`VIRTIO_GPU_F_CONTEXT_INIT`) and the Venus capset.
   - Blob resources (`VIRTIO_GPU_F_RESOURCE_BLOB`): created, mapped, unmapped.
   - The host-visible window: one block of reserved host memory that is guest
@@ -216,6 +219,14 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
     the engine's memory code (`core/`) is unchanged.
   - Fences on a context's own timelines (`VIRTIO_GPU_FLAG_INFO_RING_IDX`).
   - virglrenderer runs Vulkan in its render server; OpenGL stays in the engine.
+- **Open: a window.** `vkcube` on the Venus device finds no `VK_KHR_swapchain`.
+  Mesa 25.2's Venus driver (Ubuntu 24.04) offers it only when the host's Vulkan
+  can import a semaphore from a sync file (`VK_KHR_external_semaphore_fd`),
+  which lavapipe has only with `/dev/udmabuf` and MoltenVK never has. Mesa
+  26.2's offers it always (Kali has 26.1). So a phone needs a guest with the
+  newer Mesa, or virglrenderer answering for the host. After the swapchain, the
+  frame has to reach the desktop's OpenGL: a blob of the Venus context taken
+  into the virgl context (a dma-buf on Linux hosts, shared memory on Apple's).
 - **The phone's half, from reading UTM's virglrenderer fork (1.3.0, the one the
   app already builds):** nothing here is tried yet.
   - It has Venus for Apple devices: `-Dvenus=true -Drender-server-mode=thread
