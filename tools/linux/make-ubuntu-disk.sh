@@ -264,6 +264,7 @@ if [ -n "$desktop" ]; then
         fi
     fi
 fi
+[ -x /usr/local/bin/henge-vktest ] && echo "vktest: $(ls /usr/share/applications/henge-vktest.desktop 2>&1), sudo for the console: $(runuser -u henge -- sudo -n true 2>&1 && echo yes)"
 # henge.autotest=gpu: only the display's part (for trying the GPU), not the browsers, the video and the rest.
 if grep -qw "henge.autotest=gpu" /proc/cmdline; then
     echo "=== henge-autotest: end ==="
@@ -602,6 +603,50 @@ if [ -n "$DESKTOP" ] && [ "$VULKAN" = 1 ]; then
         echo "   henge-vkmap built"
     else
         echo "   no henge-vkmap (no compiler with Vulkan's headers here)"
+    fi
+    # "Vulkan test" on the desktop: what the self-test tries of Vulkan, run by hand on a phone. Its result goes to
+    # the serial console, which the app's log has, and a short summary to a window.
+    cat > "$ROOT/usr/local/bin/henge-vktest" <<'VKT'
+#!/bin/sh
+# Vulkan on this machine (tools/linux/make-ubuntu-disk.sh --vulkan): devices, mapped memory, a cube in a window.
+log=$(mktemp)
+icd=$(ls /usr/share/vulkan/icd.d/virtio_icd*.json 2>/dev/null | head -1)
+{
+    echo "=== henge-vktest ==="
+    . /etc/os-release
+    echo "$PRETTY_NAME, kernel $(uname -r), Mesa $(dpkg-query -W -f='${Version}' mesa-vulkan-drivers 2>/dev/null)"
+    echo "gl: $(glxinfo -B 2>/dev/null | grep -E "OpenGL renderer" | tr -s " ")"
+    vulkaninfo --summary > $log.info 2>&1
+    echo "vulkaninfo exit $?; devices: $(grep deviceName $log.info | sed "s/.*= //" | tr "\n" ";")"
+    grep -E "apiVersion|driverInfo|ERROR" $log.info | tr -s " \t" " " | head -8
+    if [ -n "$icd" ]; then
+        export VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd"
+        VN_DEBUG=init vulkaninfo --summary 2>&1 | grep -E "MESA-VIRTIO|ERROR|deviceName" | tr -s " \t" " " | head -14
+        if command -v henge-vkmap >/dev/null 2>&1; then VN_DEBUG=result timeout 60 henge-vkmap 2>&1 | grep -E "^vkmap|MESA-VIRTIO" | tail -30 | cut -c1-200; fi
+        t0=$(date +%s.%N)
+        VN_DEBUG=result timeout 180 vkcube --c 300 > $log.cube 2>&1
+        r=$?
+        t1=$(date +%s.%N)
+        echo "vkcube exit $r, $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "300 frames in %.1f s, %.1f fps", b - a, 300 / (b - a) }')"
+        tail -6 $log.cube | cut -c1-200
+    else
+        echo "Mesa's Venus driver is not in this image"
+    fi
+    sudo -n dmesg 2>/dev/null | grep -iE "virtio_gpu|\[drm.*(ERROR|error)" | tail -8
+    echo "=== henge-vktest: end ==="
+} > $log 2>&1
+sed "s/^/vktest: /" $log | sudo -n tee /dev/ttyAMA0 > /dev/null 2>&1
+zenity --info --title="Vulkan test" --width=520 --text="$(grep -E "devices:|vkcube exit|vkmap: the device|Assertion|not in this image" $log | cut -c1-160)
+
+The whole result is in Henge's log." 2>/dev/null
+rm -f $log $log.info $log.cube
+VKT
+    chmod 755 "$ROOT/usr/local/bin/henge-vktest"
+    printf '[Desktop Entry]\nType=Application\nName=Vulkan test\nComment=Try Vulkan on this machine; the result goes to the log\nExec=henge-vktest\nIcon=utilities-system-monitor\nTerminal=false\nCategories=System;\n' \
+        > "$ROOT/usr/share/applications/henge-vktest.desktop"
+    if [ "$DESKTOP" = gnome ]; then # in the dock, after the YouTube app
+        sed -i "s/'yt.desktop'/'yt.desktop', 'henge-vktest.desktop'/" "$ROOT/usr/share/glib-2.0/schemas/99_henge.gschema.override"
+        chroot "$ROOT" glib-compile-schemas /usr/share/glib-2.0/schemas
     fi
 fi
 if [ -n "$DESKTOP" ]; then

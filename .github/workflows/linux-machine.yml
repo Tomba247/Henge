@@ -268,7 +268,7 @@ jobs:
           for log in vtest boot boot-virgl boot-gles boot-venus; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen " $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube/' | head -120
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen " $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube/' | head -120
           done
           # About what the release's zip of this machine will weigh (it must stay under 2 GiB).
           [ -f machine/disk.img.hvsparse ] && echo "disk: $(stat -c %s machine/disk.img.hvsparse) bytes packed, about $(zstd -3 -T0 -c machine/disk.img.hvsparse | wc -c) compressed"
