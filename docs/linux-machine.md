@@ -312,9 +312,14 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   Henge › henge-env.txt, the line `HV_LINUX_VULKAN=1`; start the machine; tap
   **Vulkan test** in the dock. Its result (lines starting `vktest:`) and the
   engine's own (`virgl:`, `anon_file:`) are in the app's log.
-- UTM's release notes (5.0.7) say a Linux desktop drawn with Vulkan (Zink)
-  does not work on MoltenVK yet (indirect draws with geometry shaders); to be
-  tried here once Vulkan runs on a phone.
+- **OpenGL on Vulkan (Zink) does not start on a phone** (build 101.98, Mesa
+  25.2.8 in the guest): "Zink requires the nullDescriptor feature of KHR/EXT
+  robustness2". MoltenVK 1.4.2 does not have it (its issue 2650, open), nor
+  `logicOp` and `geometryShader`, which Zink's OpenGL 2.1 also lists. So a
+  desktop drawn with Vulkan is not to be had from Mesa as packaged; UTM's
+  release notes (5.0.7) say the same of MoltenVK for other reasons. The
+  desktop stays on virgl (glxgears there: about 3000 frames a second);
+  Vulkan is for programs that use it themselves.
 - **The phone's half, from reading UTM's virglrenderer fork (1.3.0, the one the
   app already builds):** nothing here is tried yet.
   - It has Venus for Apple devices: `-Dvenus=true -Drender-server-mode=thread
