@@ -101,6 +101,7 @@ static int read_reg(HvCpu *cpu, uint32_t reg, uint64_t *v) {
     case R(3, 0, 10, 3, 0): *v = cpu->amair_el1; return 0;
     case R(3, 0, 12, 0, 0): *v = cpu->vbar_el1; return 0;
     case R(3, 0, 12, 1, 0): /* ISR_EL1: interrupts pending at the CPU, masked or not */
+        if (cpu->pc_state) cpu->pc_state->isr_polled = 1; /* a WFE after this is a wait for an interrupt (dispatch.c, wfe) */
         *v = (cpu->pc_state && cpu->pc_state->irq_line ? 1u << 7 : 0) | (cpu->pc_state && cpu->pc_state->fiq_line ? 1u << 6 : 0);
         return 0;
     case R(3, 0, 13, 0, 1): *v = cpu->contextidr_el1; return 0;

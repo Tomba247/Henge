@@ -22,6 +22,7 @@ struct HengeApp: App {
         Microphone.configureSession()
         if Microphone.isOn { Microphone.requestPermission() }
         Machines.shared.collectImports()
+        DispatchQueue.main.async { KeepAlive.start() } // once the app is up: it watches the Mac and the installer
         // The display question: does this iOS have Apple's paravirtualized graphics at all?
         for path in ["/System/Library/Frameworks/ParavirtualizedGraphics.framework/ParavirtualizedGraphics",
                      "/System/Library/PrivateFrameworks/ParavirtualizedGraphics.framework/ParavirtualizedGraphics"] {
