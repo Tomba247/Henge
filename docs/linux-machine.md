@@ -274,6 +274,10 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   be imported. Unexplained: the app died without a word when Chrome was
   started with Vulkan on (a bus error or trap, which the app did not log; it
   does from the next build).
+- **Hands off:** `HV_LINUX_APPEND=henge.autotest=gpu` in henge-env.txt adds to
+  the kernel's command line, so an image with the self-test runs its display
+  and Vulkan part by itself at start and powers off; the result is on the
+  console, in the app's log.
 - **Trying it on a phone:** a release made by `build-henge.yml` with
   `vulkan_run` set carries a Vulkan test machine. In Files › On My iPhone ›
   Henge › henge-env.txt, the line `HV_LINUX_VULKAN=1`; start the machine; tap

@@ -340,6 +340,16 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
                                 .fb_width = c->fb_width ? c->fb_width : 1280, .fb_height = c->fb_height ? c->fb_height : 800,
                                 .cmdline = c->linux_cmdline && *c->linux_cmdline ? c->linux_cmdline
                                                                                  : "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"};
+        /* HV_LINUX_APPEND: more for the kernel's command line. "henge.autotest=gpu" makes an image that has the
+           self-test (tools/linux/make-ubuntu-disk.sh) try its display, and Vulkan when it has the tools, on its own at
+           start and power off: its words are on the console, which the app's log has, so nothing needs tapping. */
+        static char linux_cmdline[1024];
+        const char *append = getenv("HV_LINUX_APPEND");
+        if (append && *append) {
+            snprintf(linux_cmdline, sizeof linux_cmdline, "%s %s", lc.cmdline, append);
+            lc.cmdline = linux_cmdline;
+            fprintf(stderr, "hengevm: Linux command line: %s\n", lc.cmdline);
+        }
         /* 3D: virgl, on ANGLE (Metal) in the app; none without the GPU libraries (ios/scripts/build-gpu-deps.sh).
            HV_LINUX_VULKAN=1 (being tried, off unless asked): Vulkan too, Venus on MoltenVK, when those libraries
            have it; the guest maps Vulkan's memory from a window of HV_LINUX_VULKAN_MB (1024) megabytes. */
