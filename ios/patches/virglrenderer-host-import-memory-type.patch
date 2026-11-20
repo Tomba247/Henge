@@ -1,0 +1,36 @@
+diff --git a/src/venus/vkr_device_memory.c b/src/venus/vkr_device_memory.c
+index 1c460fd..d6bb520 100644
+--- a/src/venus/vkr_device_memory.c
++++ b/src/venus/vkr_device_memory.c
+@@ -381,8 +381,29 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+          dev->base.handle.device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+          shm->ptr, &host_props);
+       if (args->ret == VK_SUCCESS && !(host_props.memoryTypeBits & (1u << mem_type_index))) {
+-         vkr_log("host memory import is unsupported for memory type %u", mem_type_index);
+-         args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
++         /* Henge: MoltenVK imports host memory only into its shared-storage type, while a guest's
++          * window system allocates the image it will export (and never map) from the first
++          * device-local type, which is private storage ("host memory import is unsupported for
++          * memory type 0", the first swapchain on a phone). Memory the guest cannot map anyway goes
++          * to a host-visible type that can be imported: the guest sees no difference.
++          */
++         uint32_t alt_type_index = UINT32_MAX;
++         if (!(property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
++            for (uint32_t i = 0; i < physical_dev->memory_properties.memoryTypeCount; i++) {
++               if ((host_props.memoryTypeBits & (1u << i)) &&
++                   (physical_dev->memory_properties.memoryTypes[i].propertyFlags &
++                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
++                  alt_type_index = i;
++                  break;
++               }
++            }
++         }
++         if (alt_type_index != UINT32_MAX) {
++            alloc_info->memoryTypeIndex = alt_type_index;
++         } else {
++            vkr_log("host memory import is unsupported for memory type %u", mem_type_index);
++            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
++         }
+       }
+       if (args->ret != VK_SUCCESS) {
+          vkr_shm_free(shm);

@@ -260,6 +260,20 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
     such a host: it offers the extension as importable only and signals the
     semaphore from an empty submission. `VKR_NO_SEMAPHORE_FD=1` makes any host
     one without it; the workflow's Vulkan boot runs that way.
+- **On a phone (iPhone19,7, iOS 27.0.1, build 101.94, 2026-11-20):** Venus
+  starts on MoltenVK 1.4.2; the guest's `vulkaninfo` lists "Virtio-GPU Venus
+  (Apple A20 Pro GPU)", Vulkan 1.3; `henge-vkmap` passes (mapped memory, a
+  submit, a fence). `shm_open` is refused ("Operation not permitted"), so the
+  memory is unlinked files in the temporary directory
+  (`virglrenderer-shm-fallback.patch`). `vkcube` gets a swapchain (the
+  semaphore emulation) and then fails on its first image: the guest's window
+  system allocates it from the first device-local memory type, MoltenVK's
+  private storage, into which host memory cannot be imported ("host memory
+  import is unsupported for memory type 0"). `virglrenderer-host-import-memory-type.patch`
+  gives such memory, which the guest never maps, a host-visible type that can
+  be imported. Unexplained: the app died without a word when Chrome was
+  started with Vulkan on (a bus error or trap, which the app did not log; it
+  does from the next build).
 - **Trying it on a phone:** a release made by `build-henge.yml` with
   `vulkan_run` set carries a Vulkan test machine. In Files › On My iPhone ›
   Henge › henge-env.txt, the line `HV_LINUX_VULKAN=1`; start the machine; tap
