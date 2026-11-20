@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.93",
+          "date": "2026-11-20T14:19:53Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: Code cache: 128 segments by default\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 16fd719\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-93/Henge.ipa",
+          "size": 12201798,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.92",
           "date": "2026-11-20T12:57:46Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -404,16 +414,6 @@
           "localizedDescription": "What changed: SCTLR_EL1 writes at EL1 inline when M, WXN, E0E and EE stay as they are (xnu writes it on every kernel entry and exit of a process with other PAC keys: 586K a second with League running)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-37/Henge.ipa",
           "size": 9720501,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.36",
-          "date": "2026-11-13T16:36:42Z",
-          "localizedDescription": "What changed: Merge upstream PR #155: the control pill tucks into a handle at the top when there is no room beside the Mac\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-36/Henge.ipa",
-          "size": 9719844,
           "minOSVersion": "17.0",
           "branch": "league-el0"
         }

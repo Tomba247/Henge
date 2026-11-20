@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.93",
+          "date": "2026-11-20T14:19:53Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: Code cache: 128 segments by default\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 16fd719\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-93/Henge.ipa",
+          "size": 12201798,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.92",
           "date": "2026-11-20T12:57:46Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -310,11 +320,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.92",
-      "versionDate": "2026-11-20T12:57:46Z",
-      "versionDescription": "What changed: HV_SMC_FINE: a write to a code page drops its blocks only when it lands on translated code\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 60b60f2\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-92/Henge.ipa",
-      "size": 12203864,
+      "buildVersion": "101.93",
+      "versionDate": "2026-11-20T14:19:53Z",
+      "versionDescription": "What changed: Code cache: 128 segments by default\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 16fd719\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-93/Henge.ipa",
+      "size": 12201798,
       "minOSVersion": "17.0"
     }
   ],
