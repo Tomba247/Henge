@@ -227,3 +227,15 @@ jobs:
             boot-venus.log
             screen-venus.png
           if-no-files-found: ignore
+
+      # Last, so the end of the job's log is what the boots found (the uploads above fill pages of it).
+      - name: What the boots found
+        if: always()
+        run: |
+          for log in vtest boot boot-virgl boot-gles boot-venus; do
+            [ -f $log.log ] || continue
+            echo "== $log"
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL)|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|deviceName|vulkaninfo: exit|^state:|^firefox window|^video |hengelinux: stopped|henge-autotest: end" $log.log | cut -c1-230 | head -45
+          done
+          du -sh machine/* 2>/dev/null || true
+

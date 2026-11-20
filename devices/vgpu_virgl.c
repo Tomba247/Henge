@@ -581,6 +581,11 @@ typedef struct SubmitArgs {
 static void j_submit(HvVgpuVirgl *v, void *a_) {
     SubmitArgs *a = a_;
     int r = virgl_renderer_submit_cmd(a->cmd, (int)a->ctx, (int)(a->size / 4));
+    if (v->log > 1) { /* the first words of each buffer: for Venus, the command's number, flags and arguments */
+        uint32_t w[6] = {0};
+        memcpy(w, a->cmd, a->size < sizeof w ? a->size : sizeof w);
+        fprintf(stderr, "virgl: submit context %u, %u bytes: %u %#x %#x %#x %#x %#x -> %d\n", a->ctx, a->size, w[0], w[1], w[2], w[3], w[4], w[5], r);
+    }
     static int told;
     if (r && (v->log || told++ < 5)) fprintf(stderr, "virgl: submit %u bytes on context %u -> %d\n", a->size, a->ctx, r);
 }
@@ -803,7 +808,7 @@ HvVgpuVirgl *hv_vgpu_virgl_create_flags(HvVgpu3d *gl, int vflags) {
 #else
     if (vflags & HV_VIRGL_VENUS) fprintf(stderr, "virgl: Venus (Vulkan) is not in this build: OpenGL only\n");
 #endif
-    v->log = getenv("HV_VIRGL_LOG") != NULL;
+    v->log = getenv("HV_VIRGL_LOG") ? atoi(getenv("HV_VIRGL_LOG")) + (atoi(getenv("HV_VIRGL_LOG")) == 0) : 0; /* 2: every command buffer */
 #ifdef HV_VIRGL_ANGLE
     v->own_egl = 1;
 #else
