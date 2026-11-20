@@ -29,16 +29,47 @@ with open(SOURCE) as f:
     source = json.load(f)
 app = source["apps"][0]
 
+CREDIT = ("Unofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, "
+          "and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features "
+          "on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge "
+          "project: report problems with these builds to Tomba247, not to Henge.")
+
+
+def describe(branch, notes):
+    """A version's notes: what changed, from which branch and commit, then the credit."""
+    lines = [l for l in notes.strip().splitlines() if l.strip()]
+    sha = next((l.split("built from", 1)[1].strip(" )") for l in lines if "built from" in l), "")
+    change = next((l for l in lines if "built from" not in l), "")
+    head = f"What changed: {change}" if change else "What changed: see the release"
+    where = f"Branch: {branch}" + (f" · commit {sha[:7]}" if sha else "")
+    return f"{head}\n{where}\n\n{CREDIT}"
+
+
+def reformat(v):
+    """An entry written before describe(): "[branch] notes", rewritten (idempotent)."""
+    d = v.get("localizedDescription", "")
+    if d.startswith("What changed:"):
+        return
+    branch, notes = "", d
+    if d.startswith("[") and "]" in d:
+        branch, notes = d[1:d.index("]")], d[d.index("]") + 1:]
+    v["branch"] = v.get("branch") or branch
+    v["localizedDescription"] = describe(v["branch"], notes)
+
+
 entry = {
     "version": a.version,
     "buildVersion": a.build,
     "date": a.date,
-    "localizedDescription": f"[{a.branch}] {a.notes}".strip(),
+    "branch": a.branch,
+    "localizedDescription": describe(a.branch, a.notes),
     "downloadURL": a.url,
     "size": a.size,
     "minOSVersion": "17.0",
 }
 versions = [v for v in app.get("versions", []) if v.get("downloadURL") != a.url]
+for v in versions:
+    reformat(v)
 versions.append(entry)
 versions.sort(key=lambda v: v["date"], reverse=True)
 app["versions"] = versions[:40]
@@ -64,12 +95,32 @@ def write(path, name, identifier, keep):
 
 
 def experimental(v):
-    return v["localizedDescription"].startswith("[league-el0]")
+    return v.get("branch") == "league-el0"
 
 
+source.update(
+    name="Henge (Tomba247 test builds, unofficial)",
+    subtitle="Unofficial test builds. Henge is by Leviidev.",
+    description="Unofficial test builds from github.com/Tomba247/Henge, a fork of Henge. Henge (github.com/Leviidev/Henge, "
+                "GPL-2.0-or-later) is made by Leviidev and its contributors: all credit for Henge goes to them, and the "
+                "official app is theirs. This fork only adds experimental features on top, such as the Linux machine "
+                "(Ubuntu and Kali desktops on Henge's engine), and isn't affiliated with or endorsed by the Henge project. "
+                "Henge needs JIT (StikJIT or StikDebug) and the increased-memory and extended-addressing entitlements, "
+                "so sign it with a development certificate.",
+)
+app.update(
+    developerName="Leviidev (unofficial fork build by Tomba247)",
+    localizedDescription="Henge runs macOS on iPhone and iPad: a virtual machine with its own arm64 translator, emulated "
+                         "devices and Metal graphics. Henge is made by Leviidev and its contributors "
+                         "(github.com/Leviidev/Henge); all credit for it goes to them.\n\nThese are unofficial test builds "
+                         "from a fork (github.com/Tomba247/Henge) that adds a Linux machine: Ubuntu and Kali desktops on "
+                         "Henge's engine, with the phone's GPU for 3D. They're not official Henge releases and aren't "
+                         "affiliated with or endorsed by the Henge project. Get the official app from Leviidev, and report "
+                         "problems with these builds to Tomba247, not to Henge.",
+)
 with open(SOURCE, "w") as f:  # every build, the record the two below are cut from
     json.dump(source, f, indent=2)
     f.write("\n")
-write("henge.json", "Henge (Tomba247 builds)", "com.tomba247.henge.builds", lambda v: not experimental(v))
-write("henge-experimental.json", "Henge experimental (Tomba247)", "com.tomba247.henge.experimental", experimental)
+write("henge.json", "Henge (Tomba247 builds, unofficial)", "com.tomba247.henge.builds", lambda v: not experimental(v))
+write("henge-experimental.json", "Henge experimental (Tomba247, unofficial)", "com.tomba247.henge.experimental", experimental)
 print(f"source.json: {a.version} ({a.build}) from {a.branch}, {len(app['versions'])} builds listed")

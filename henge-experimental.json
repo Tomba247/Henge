@@ -1,8 +1,8 @@
 {
-  "name": "Henge experimental (Tomba247)",
+  "name": "Henge experimental (Tomba247, unofficial)",
   "identifier": "com.tomba247.henge.experimental",
-  "subtitle": "Unofficial Henge builds for testing",
-  "description": "Test builds of Henge, macOS on iPhone and iPad, from github.com/Tomba247/Henge (a fork of Leviidev/Henge, GPL-2.0-or-later). Each build says which branch it came from. Henge needs JIT (StikJIT or StikDebug) and the increased-memory and extended-addressing entitlements, so sign it with a development certificate.",
+  "subtitle": "Unofficial test builds. Henge is by Leviidev.",
+  "description": "Unofficial test builds from github.com/Tomba247/Henge, a fork of Henge. Henge (github.com/Leviidev/Henge, GPL-2.0-or-later) is made by Leviidev and its contributors: all credit for Henge goes to them, and the official app is theirs. This fork only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops on Henge's engine), and isn't affiliated with or endorsed by the Henge project. Henge needs JIT (StikJIT or StikDebug) and the increased-memory and extended-addressing entitlements, so sign it with a development certificate.",
   "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
   "website": "https://github.com/Tomba247/Henge",
   "tintColor": "#5B6CFF",
@@ -10,9 +10,9 @@
     {
       "name": "Henge",
       "bundleIdentifier": "com.henge.app",
-      "developerName": "Leviidev (unofficial build by Tomba247)",
+      "developerName": "Leviidev (unofficial fork build by Tomba247)",
       "subtitle": "macOS on your iPhone and iPad",
-      "localizedDescription": "Henge runs macOS on iPhone and iPad: a virtual machine with its own arm64 translator, emulated devices and Metal graphics. These are unofficial test builds; the branch name is at the start of each version's notes. Upstream: github.com/Leviidev/Henge.",
+      "localizedDescription": "Henge runs macOS on iPhone and iPad: a virtual machine with its own arm64 translator, emulated devices and Metal graphics. Henge is made by Leviidev and its contributors (github.com/Leviidev/Henge); all credit for it goes to them.\n\nThese are unofficial test builds from a fork (github.com/Tomba247/Henge) that adds a Linux machine: Ubuntu and Kali desktops on Henge's engine, with the phone's GPU for 3D. They're not official Henge releases and aren't affiliated with or endorsed by the Henge project. Get the official app from Leviidev, and report problems with these builds to Tomba247, not to Henge.",
       "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
       "tintColor": "#5B6CFF",
       "category": "utilities",
@@ -21,154 +21,171 @@
           "version": "0.3.0",
           "buildVersion": "101.61",
           "date": "2026-11-18T01:17:05Z",
-          "localizedDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it",
+          "localizedDescription": "What changed: iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
           "size": 9775631,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.60",
           "date": "2026-11-18T00:54:49Z",
-          "localizedDescription": "[league-el0] iPhone mouse: keep AssistiveTouch's pointer shown (the trackpad's hidden pointer style reached it through PhonePointer's drivers, so it vanished unless the mouse moved fast); PhonePointer off in Madeira's way, as in Madeira",
+          "localizedDescription": "What changed: iPhone mouse: keep AssistiveTouch's pointer shown (the trackpad's hidden pointer style reached it through PhonePointer's drivers, so it vanished unless the mouse moved fast); PhonePointer off in Madeira's way, as in Madeira\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-60/Henge.ipa",
           "size": 9771380,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.58",
           "date": "2026-11-18T00:37:25Z",
-          "localizedDescription": "[league-el0] iPhone mouse: Madeira's way by default, as Madeira does it on iPhone: only the mouse's own motion moves the Mac's pointer (no hover), and AssistiveTouch's copies of clicks are only dropped; a setting follows iOS's hover instead",
+          "localizedDescription": "What changed: iPhone mouse: Madeira's way by default, as Madeira does it on iPhone: only the mouse's own motion moves the Mac's pointer (no hover), and AssistiveTouch's copies of clicks are only dropped; a setting follows iOS's hover instead\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-58/Henge.ipa",
           "size": 9769619,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.55",
           "date": "2026-11-18T00:20:19Z",
-          "localizedDescription": "[league-el0] iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden",
+          "localizedDescription": "What changed: iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-55/Henge.ipa",
           "size": 9767564,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.54",
           "date": "2026-11-17T23:59:44Z",
-          "localizedDescription": "[league-el0] iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden",
+          "localizedDescription": "What changed: iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-54/Henge.ipa",
           "size": 9767531,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.53",
           "date": "2026-11-17T23:43:02Z",
-          "localizedDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's pointer goes where AssistiveTouch's is (USB absolute pointer, from hover and its taps), its copies of clicks are kept from the trackpad, and the Mac's own pointer is not drawn while the mouse is in use",
+          "localizedDescription": "What changed: iPhone mouse as Madeira does it: the Mac's pointer goes where AssistiveTouch's is (USB absolute pointer, from hover and its taps), its copies of clicks are kept from the trackpad, and the Mac's own pointer is not drawn while the mouse is in use\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-53/Henge.ipa",
           "size": 9766823,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.52",
           "date": "2026-11-17T23:36:08Z",
-          "localizedDescription": "[league-el0] The refresh time at +68 is written without the refresh event; the event (HV_PVG_VBLANK) is off unless switched on",
+          "localizedDescription": "What changed: The refresh time at +68 is written without the refresh event; the event (HV_PVG_VBLANK) is off unless switched on\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-52/Henge.ipa",
           "size": 9749856,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.51",
           "date": "2026-11-15T01:45:09Z",
-          "localizedDescription": "[league-el0] Experiment: an 8192-entry software TLB (HV_TLB_BITS=13), half the cache footprint",
+          "localizedDescription": "What changed: Experiment: an 8192-entry software TLB (HV_TLB_BITS=13), half the cache footprint\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-51/Henge.ipa",
           "size": 9750201,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.43",
           "date": "2026-11-14T21:05:33Z",
-          "localizedDescription": "[league-el0] The profile setting also counts the translated instructions under each sample (HV_PROF_IOS=2, Documents/hvprof-words.txt)",
+          "localizedDescription": "What changed: The profile setting also counts the translated instructions under each sample (HV_PROF_IOS=2, Documents/hvprof-words.txt)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-43/Henge.ipa",
           "size": 9721417,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.42",
           "date": "2026-11-14T20:09:31Z",
-          "localizedDescription": "[league-el0] Graphics: object type 12 (League of Legends' render targets) made as the GPU's own textures; without them its passes were skipped and nothing was drawn",
+          "localizedDescription": "What changed: Graphics: object type 12 (League of Legends' render targets) made as the GPU's own textures; without them its passes were skipped and nothing was drawn\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-42/Henge.ipa",
           "size": 9721365,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.37",
           "date": "2026-11-13T17:49:23Z",
-          "localizedDescription": "[league-el0] SCTLR_EL1 writes at EL1 inline when M, WXN, E0E and EE stay as they are (xnu writes it on every kernel entry and exit of a process with other PAC keys: 586K a second with League running)",
+          "localizedDescription": "What changed: SCTLR_EL1 writes at EL1 inline when M, WXN, E0E and EE stay as they are (xnu writes it on every kernel entry and exit of a process with other PAC keys: 586K a second with League running)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-37/Henge.ipa",
           "size": 9720501,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.36",
           "date": "2026-11-13T16:36:42Z",
-          "localizedDescription": "[league-el0] Merge upstream PR #155: the control pill tucks into a handle at the top when there is no room beside the Mac",
+          "localizedDescription": "What changed: Merge upstream PR #155: the control pill tucks into a handle at the top when there is no room beside the Mac\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-36/Henge.ipa",
           "size": 9719844,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.35",
           "date": "2026-11-13T16:10:36Z",
-          "localizedDescription": "[league-el0] Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw",
+          "localizedDescription": "What changed: Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-35/Henge.ipa",
           "size": 9703626,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.34",
           "date": "2026-11-13T15:39:31Z",
-          "localizedDescription": "[league-el0] Merge branch 'league' into league-el0",
+          "localizedDescription": "What changed: Merge branch 'league' into league-el0\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-34/Henge.ipa",
           "size": 9703257,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.32",
           "date": "2026-11-13T15:38:41Z",
-          "localizedDescription": "[league-el0] Trackpad: a held still press then moved drags (as Moonlight's trackpad mode); held still and lifted, it right-clicks",
+          "localizedDescription": "What changed: Trackpad: a held still press then moved drags (as Moonlight's trackpad mode); held still and lifted, it right-clicks\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-32/Henge.ipa",
           "size": 9702752,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.30",
           "date": "2026-11-13T14:15:02Z",
-          "localizedDescription": "[league-el0] The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)",
+          "localizedDescription": "What changed: The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-30/Henge.ipa",
           "size": 9655980,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         },
         {
           "version": "0.3.0",
           "buildVersion": "101.29",
           "date": "2026-11-13T06:52:47Z",
-          "localizedDescription": "[league-el0] Experimental: the refresh event's time on the Mac's clock at +108 of the display page (HV_PVG_VSYNC_TS)",
+          "localizedDescription": "What changed: Experimental: the refresh event's time on the Mac's clock at +108 of the display page (HV_PVG_VSYNC_TS)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-29/Henge.ipa",
           "size": 9655982,
-          "minOSVersion": "17.0"
+          "minOSVersion": "17.0",
+          "branch": "league-el0"
         }
       ],
       "appPermissions": {
@@ -185,7 +202,7 @@
       "version": "0.3.0",
       "buildVersion": "101.61",
       "versionDate": "2026-11-18T01:17:05Z",
-      "versionDescription": "[league-el0] iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it",
+      "versionDescription": "What changed: iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
       "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
       "size": 9775631,
       "minOSVersion": "17.0"
