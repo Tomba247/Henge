@@ -22,7 +22,7 @@ extern void hv_xjump_thunk(void);
 static int init_rest(HvMachine *m);
 
 int hv_knob[HV_K_COUNT];
-static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW"};
+static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL"};
 
 static void knobs_init(void) {
     for (int i = 0; i < HV_K_COUNT; i++)
@@ -34,6 +34,8 @@ static void knobs_init(void) {
        entries stale, not just the incoming one's). It was worth ~3% on a process-spawn loop; not worth guest memory. */
     if (!getenv("HV_IJC_PAGES")) hv_knob[HV_K_IJCPAGES] = 1;
     if (!getenv("HV_DNS_PROXY")) hv_knob[HV_K_DNSPROXY] = 1;
+    if (!getenv("HV_RANGE_DROP")) hv_knob[HV_K_RANGEDROP] = 256;
+    if (!getenv("HV_SYNC_WAIT")) hv_knob[HV_K_SYNCWAIT] = 1;
 }
 
 int hv_knob_set(HvMachine *m, const char *name, int value) {
@@ -93,6 +95,18 @@ static int init_rest(HvMachine *m) {
        a JIT check of 200 recompiled functions correct; bench times the same within noise). */
     hv_knob[HV_K_IJCPAGES] = getenv("HV_IJC_PAGES") ? atoi(getenv("HV_IJC_PAGES")) : 1;
     hv_knob[HV_K_DNSPROXY] = getenv("HV_DNS_PROXY") ? atoi(getenv("HV_DNS_PROXY")) : 1;
+    /* From upstream PR #218 (lemmylin): on an iPhone with 6 guest CPUs, macOS 27 spent about 76% of a core waiting for
+       other CPUs to acknowledge TLBIs. A range TLBI of up to 256 pages is done from the issuing CPU in one pass
+       (hv_tlbi_drop_remote_range) instead of posted to each CPU and waited for, and a CPU that does wait sleeps after
+       a short spin, leaving its core to the one it waits on. HV_RANGE_DROP=0 and HV_SYNC_WAIT=0: as before.
+       (That PR's third part, not counting a cache fill of another page as a race, is left out: a fill moves its
+       set's way 0 to way 1 (hv_ijc_fill), so a fill of any page can carry a dropped page's target past the drop.) */
+    hv_knob[HV_K_RANGEDROP] = getenv("HV_RANGE_DROP") ? atoi(getenv("HV_RANGE_DROP")) : 256;
+    hv_knob[HV_K_SYNCWAIT] = getenv("HV_SYNC_WAIT") ? atoi(getenv("HV_SYNC_WAIT")) : 1;
+    /* HV_TLB_FLUSH_ALL=1: a whole-TLB flush clears all the tables instead of the entries logged as filled (upstream
+       issue #75 measured the logged clear slower over a cold boot on a Mac; off until a device A/B says the same). */
+    if (getenv("HV_TLB_FLUSH_ALL")) hv_knob[HV_K_FLUSHALL] = atoi(getenv("HV_TLB_FLUSH_ALL"));
+    if (getenv("HV_GROUPS")) hv_knob[HV_K_GROUPS] = atoi(getenv("HV_GROUPS"));
     /* So the tests can run the translator these ways too (the iOS and --phone paths read them in knobs_init). */
     if (getenv("HV_SUPERBLOCKS")) hv_knob[HV_K_SUPERBLOCKS] = atoi(getenv("HV_SUPERBLOCKS"));
     if (getenv("HV_JIT_SEGMENTS")) hv_knob[HV_K_JITSEGS] = atoi(getenv("HV_JIT_SEGMENTS"));

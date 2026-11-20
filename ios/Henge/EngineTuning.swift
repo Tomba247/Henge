@@ -13,6 +13,7 @@ enum EngineTuning {
     static let vblankKey = "henge.perf.vblank"
     static let windowKey = "henge.perf.el0window"
     static let linux3DKey = "henge.linux.3d"
+    static let groupsKey = "henge.perf.groups"
     static let linuxGPUAsyncKey = "henge.linux.gpuAsync2" // a new key: on for everyone when it became the default
 
     static let defaults: [String: String] = [
@@ -37,7 +38,10 @@ enum EngineTuning {
         if d.bool(forKey: profileKey) { env["HV_PROF_IOS"] = "2" } else { unsetenv("HV_PROF_IOS") }
         // A Mac CPU waiting for another's answer to a TLB flush sleeps instead of spinning, so the one it waits for gets the core
         // (core/machine.c, HV_SYNC_WAIT). On unless switched off: the phone has fewer fast cores than the Mac has CPUs.
-        if d.object(forKey: syncWaitKey) as? Bool == false { unsetenv("HV_SYNC_WAIT") } else { env["HV_SYNC_WAIT"] = "1" }
+        if d.object(forKey: syncWaitKey) as? Bool == false { env["HV_SYNC_WAIT"] = "0" } else { env["HV_SYNC_WAIT"] = "1" } // "0": the engine's own default is on
+        // Grouped memory accesses (core/translate.c, HV_GROUPS): one page check for several accesses off the same register, with
+        // about 15% more code. Off unless switched on: upstream PR #218 measured an iPad 11% faster with it, an earlier Mac run no faster.
+        if d.bool(forKey: groupsKey) { env["HV_GROUPS"] = "1" } else { unsetenv("HV_GROUPS") }
         // The display's refresh event, sent while macOS asks for it (devices/pvg_lite.c, HV_PVG_VBLANK). Without it WindowServer
         // times its frames with a timer that it finds late every time and re-arms at once: tens of thousands of wakeups a second.
         if d.bool(forKey: vblankKey) { env["HV_PVG_VBLANK"] = "1" } else { unsetenv("HV_PVG_VBLANK") } // off unless switched on: see devices/pvg_lite.c

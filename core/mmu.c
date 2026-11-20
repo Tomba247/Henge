@@ -148,7 +148,7 @@ void hv_tlb_flush(HvCpu *cpu) {
     hv_ijc_reset(cpu, 1);
     /* Only the entries filled since the last flush can be valid (both logs, unless one ran over). */
     uint32_t nu = cpu->nuser_fills, nk = cpu->nkernel_fills;
-    if (nu <= HV_USER_FILLS && nk <= HV_KERNEL_FILLS) {
+    if (!hv_knob[HV_K_FLUSHALL] && nu <= HV_USER_FILLS && nk <= HV_KERNEL_FILLS) {
         for (uint32_t k = 0; k < nu; k++) memset(&cpu->tlb[cpu->user_fills[k]], 0x80, sizeof cpu->tlb[0]);
         for (uint32_t k = 0; k < nk; k++) memset(&cpu->tlb[cpu->kernel_fills[k]], 0x80, sizeof cpu->tlb[0]);
     } else {
