@@ -21,7 +21,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.vblankKey) private var vblank = false
     @AppStorage(EngineTuning.windowKey) private var el0window = false
     @AppStorage(EngineTuning.linux3DKey) private var linux3D = true
-    @AppStorage(EngineTuning.linuxGPUAsyncKey) private var linuxGPUAsync = false
+    @AppStorage(EngineTuning.linuxGPUAsyncKey) private var linuxGPUAsync = true
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB
     @AppStorage(DeskAppearance.key) private var appearance = DeskAppearance.system
@@ -166,8 +166,8 @@ struct SettingsView: View {
                     Toggle("3D graphics on the GPU", isOn: $linux3D)
                     Text("A Linux machine's OpenGL runs on the phone's GPU (virgl, drawn with Metal through ANGLE) when this build of Henge carries the GPU libraries. Off, Linux draws with the CPU. Applies the next time a Linux machine starts.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Toggle("Don't wait for the GPU (experimental)", isOn: $linuxGPUAsync)
-                    Text("Linux's 3D drawing is queued for the GPU while Linux keeps running, instead of Linux stopping until each piece is drawn. Faster, but it may leave some things undrawn (icons). Applies the next time a Linux machine starts.")
+                    Toggle("Don't wait for the GPU", isOn: $linuxGPUAsync)
+                    Text("Linux's 3D drawing is queued for the GPU while Linux keeps running, instead of Linux stopping until each piece is drawn: smoother. Off, Linux waits for every piece, as earlier builds did. Applies the next time a Linux machine starts.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)

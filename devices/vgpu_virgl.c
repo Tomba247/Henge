@@ -153,7 +153,7 @@ struct HvVgpuVirgl {
        buffers, fences and frames to show go on without waiting (post), so its CPU runs while the GPU works. */
     struct Job *head, *tail;
     int queued;
-    int async; /* HV_VIRGL_ASYNC: posted work goes on without the guest waiting (else every job waits, as before) */
+    int async; /* posted work goes on without the guest waiting (the default); HV_VIRGL_SYNC: every job waits, as before */
     int stopping, started, ok, gles;
     HvVirtioGpu *gpu;
     _Atomic uint64_t last_fence; /* the newest fence asked for, all 64 bits */
@@ -669,7 +669,9 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
         return NULL;
     }
     pthread_mutex_init(&v->mu, NULL);
-    v->async = getenv("HV_VIRGL_ASYNC") != NULL;
+    /* Command buffers, fences and frames are queued: what the guest waits on still waits (fenced requests are
+       answered when the GPU gets there, transfers wait behind the queue). HV_VIRGL_SYNC=1: every job waits. */
+    v->async = !getenv("HV_VIRGL_SYNC") || getenv("HV_VIRGL_ASYNC");
     pthread_cond_init(&v->wake, NULL);
     pthread_cond_init(&v->done_cv, NULL);
     if (pthread_create(&v->thread, NULL, render_thread, v) != 0) {
