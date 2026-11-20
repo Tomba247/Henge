@@ -188,27 +188,11 @@ jobs:
           grep -q "deviceName .*Virtio-GPU Venus" vtest-full.log
 
       # Vulkan: Mesa's Venus driver in the guest, the machine's virtio-gpu (blobs, the host-visible window, context
-      # types), virglrenderer's render server, and lavapipe as the host's Vulkan (a runner has no GPU).
-      - name: Boot it with Vulkan (Venus, on lavapipe)
-        if: ${{ success() && inputs.vulkan }}
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          cp --sparse=always machine/disk.img boot-test.img
-          lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
-          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
-              --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
-              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" \
-              < /dev/null 2>&1 | tee boot-venus.log
-          rm -f boot-test.img
-          [ -f screen-venus.ppm ] && python3 tools/linux/ppm2png.py screen-venus.ppm screen-venus.png
-          grep -q "^desktop: .* up after" boot-venus.log
-          grep -q "gl: .*virgl" boot-venus.log
-          grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus.log
-
-      # The same with the virglrenderer the app carries (UTM's fork at the commit ios/scripts/build-gpu-deps.sh
-      # pins, with ios/patches), built here for Linux with its render server as threads, as in the app.
-      - name: Boot it with Vulkan on the app's virglrenderer (render server as threads)
+      # types), and the virglrenderer the app carries: UTM's fork at the commit ios/scripts/build-gpu-deps.sh pins,
+      # with ios/patches, built here for Linux with its render server as threads (as in the app), on lavapipe (a
+      # runner has no GPU). VKR_GUEST_PAGE_SIZE: the runner's pages are 4 KB, the guest's 16 KB, a phone's 16 KB.
+      # (Ubuntu's own virglrenderer 1.0.0 refuses a 16 KB-page guest's small allocations on a 4 KB-page host.)
+      - name: Boot it with Vulkan (Venus on the app's virglrenderer, on lavapipe)
         if: ${{ success() && inputs.vulkan }}
         continue-on-error: true
         run: |
@@ -229,13 +213,16 @@ jobs:
           ldd build/linux-virgl-fork/hengelinux | grep virgl
           cp --sparse=always machine/disk.img boot-test.img
           lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
-          HV_FB_DUMP=screen-venus-fork.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl-fork/hengelinux --kernel machine/Image \
-              --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
+          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl-fork/hengelinux \
+              --kernel machine/Image --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" \
-              < /dev/null 2>&1 | tee boot-venus-fork.log
+              < /dev/null 2>&1 | tee boot-venus.log
           rm -f boot-test.img
-          [ -f screen-venus-fork.ppm ] && python3 tools/linux/ppm2png.py screen-venus-fork.ppm screen-venus-fork.png
-          grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus-fork.log
+          [ -f screen-venus.ppm ] && python3 tools/linux/ppm2png.py screen-venus.ppm screen-venus.png | tee -a boot-venus.log
+          grep -q "^desktop: .* up after" boot-venus.log
+          grep -q "gl: .*virgl" boot-venus.log
+          grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus.log
+          grep -q "^venus: vkcube exit 0" boot-venus.log
 
       - name: Pack the disk
         if: always()
@@ -271,8 +258,6 @@ jobs:
             screen-gles.png
             boot-venus.log
             screen-venus.png
-            boot-venus-fork.log
-            screen-venus-fork.png
             vtest.log
           if-no-files-found: ignore
 
@@ -280,10 +265,10 @@ jobs:
       - name: What the boots found
         if: always()
         run: |
-          for log in vtest boot boot-virgl boot-gles boot-venus boot-venus-fork; do
+          for log in vtest boot boot-virgl boot-gles boot-venus; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob)|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen " $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube/' | head -110
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen " $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube/' | head -120
           done
           # About what the release's zip of this machine will weigh (it must stay under 2 GiB).
           [ -f machine/disk.img.hvsparse ] && echo "disk: $(stat -c %s machine/disk.img.hvsparse) bytes packed, about $(zstd -3 -T0 -c machine/disk.img.hvsparse | wc -c) compressed"

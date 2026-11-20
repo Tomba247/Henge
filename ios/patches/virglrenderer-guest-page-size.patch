@@ -1,0 +1,22 @@
+diff --git a/src/venus/vkr_device_memory.c b/src/venus/vkr_device_memory.c
+index 1c460fd..ea8d739 100644
+--- a/src/venus/vkr_device_memory.c
++++ b/src/venus/vkr_device_memory.c
+@@ -399,6 +399,17 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
+       alloc_info->allocationSize = shm->size;
+       valid_fd_types = 1 << VIRGL_RESOURCE_FD_SHM;
+    } else if ((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) && !res_info) {
++      /* Henge: the guest's kernel rounds a blob up to its own page size, which can be larger than this
++       * host's (a 16 KB-page guest on a 4 KB-page Linux host; an Apple host has 16 KB pages itself). With
++       * VKR_GUEST_PAGE_SIZE set, memory the guest may map is allocated in whole guest pages, so the blob
++       * made from it is never larger than the memory ("mem dma_buf_size 4096 < blob_size 16384").
++       */
++      const char *guest_page_env = getenv("VKR_GUEST_PAGE_SIZE");
++      const uint64_t guest_page = guest_page_env ? strtoull(guest_page_env, NULL, 0) : 0;
++      if (guest_page > (uint64_t)getpagesize() && !(guest_page & (guest_page - 1)))
++         alloc_info->allocationSize =
++            (alloc_info->allocationSize + guest_page - 1) & ~(guest_page - 1);
++
+       /* An implementation can support dma_buf import along with opaque fd export/import.
+        * If the client driver is using external memory and requesting dma_buf, without
+        * dma_buf fd export support, we must use gbm bo import path instead of forcing

@@ -227,17 +227,22 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   newer Mesa, or virglrenderer answering for the host. After the swapchain, the
   frame has to reach the desktop's OpenGL: a blob of the Venus context taken
   into the virgl context (a dma-buf on Linux hosts, shared memory on Apple's).
-- **Where it stopped (2026-11-20):** with `/dev/udmabuf` opened to the runner's
-  user, lavapipe has the sync-file and dma-buf extensions and Ubuntu's Venus
-  device offers `VK_KHR_swapchain` (run 44681653799). `vkcube` then fails in
-  `demo_init_vk_swapchain`: virglrenderer refuses the first mappable memory
-  blob (`blob ... (memory 2, flags 0x1, id 8, 16384 bytes) refused`), reason
-  not yet read (the render server's own lines were not in the part of the log
-  seen). Next: the Venus boot with `HV_VIRGL_LOG=1` and the `proxy:`/`vkr:`
-  lines in "What the boots found"; the Kali GNOME run (44681649093, Mesa 26.1)
-  and the iOS GPU libraries build with Venus and MoltenVK (dispatched on this
-  branch) are still to be read. The app's half is written but untried:
-  `HV_LINUX_VULKAN=1` in henge-env.txt.
+- **A window, on the runner:** with `/dev/udmabuf` opened to the runner's user,
+  lavapipe has the sync-file and dma-buf extensions and Ubuntu's Venus device
+  offers `VK_KHR_swapchain`. Mapped memory then failed: the guest's kernel
+  rounds a blob up to its 16 KB page, the runner's pages are 4 KB, and
+  virglrenderer refuses a blob larger than the memory behind it
+  (`vkr: mem dma_buf_size 4096 < blob_size 16384`; Mesa's own small
+  allocations, its fence feedback buffer first). A phone's pages are 16 KB, so
+  this is the runner's problem only: `ios/patches/virglrenderer-guest-page-size.patch`
+  rounds such allocations up when `VKR_GUEST_PAGE_SIZE` is set, and the
+  workflow's Vulkan boot runs on the app's virglrenderer (UTM's fork with
+  `ios/patches`, built for Linux with the render server as threads) with it
+  set. Ubuntu's virglrenderer 1.0.0 cannot be helped that way and is no longer
+  booted with `--venus`.
+- **The app:** the GPU libraries build for iOS with Venus and MoltenVK
+  (run 44751391258); `HV_LINUX_VULKAN=1` in henge-env.txt turns it on. Untried
+  on a phone.
 - UTM's release notes (5.0.7) say a Linux desktop drawn with Vulkan (Zink)
   does not work on MoltenVK yet (indirect draws with geometry shaders); to be
   tried here once Vulkan runs on a phone.
