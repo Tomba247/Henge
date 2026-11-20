@@ -321,14 +321,36 @@ static void *render_thread(void *arg) {
     }
 #ifdef HV_VENUS
     if (r == 0 && v->venus) {
-        /* Vulkan runs in virglrenderer's render server, a process of its own; OpenGL stays here. External blobs:
-           OpenGL then offers the guest no buffers it would map from host memory, which only exist as pointers. */
+        /* Vulkan runs in virglrenderer's render server, a process of its own; OpenGL stays here.
+           VIRGL_RENDERER_USE_EXTERNAL_BLOB tells virglrenderer it need not allocate HOST3D blob memory
+           itself: the caller will place it at a fixed address via virgl_renderer_resource_map_fixed.
+           Without that function (e.g. Ubuntu 24.04's stock libvirglrenderer, which pre-dates it),
+           USE_EXTERNAL_BLOB causes virglrenderer to refuse every HOST3D+MAPPABLE blob with no further
+           explanation, because it cannot satisfy the "external placement" contract.  When map_fixed is
+           absent we fall back to the export_blob→mmap(MAP_FIXED) path in j_map_blob, which works with
+           the SHM/dma-buf fds that a non-external-blob virglrenderer exports; in that case we must NOT
+           pass USE_EXTERNAL_BLOB.  MoltenVK (Apple devices): map_fixed is always absent there too, so
+           the same path applies: blobs come out as SHM fds and are mmap'd into the host-visible BAR. */
+#ifndef HV_VIRGL_DLOPEN
+        /* Linked-in build: probe once, same process. */
+        static int (*map_fixed_probe)(uint32_t, void *);
+        static int probed;
+        if (!probed++) map_fixed_probe = (int (*)(uint32_t, void *))dlsym(RTLD_DEFAULT, "virgl_renderer_resource_map_fixed");
+        int has_map_fixed = map_fixed_probe != NULL;
+#else
+        int has_map_fixed = p_map_fixed != NULL;
+#endif
+        if (!has_map_fixed)
+            fprintf(stderr, "virgl: virgl_renderer_resource_map_fixed not found; "
+                    "blobs will be exported as SHM/dma-buf fds and mmap'd (no USE_EXTERNAL_BLOB)\n");
         struct virgl_renderer_callbacks with = cbs;
         if (with.version < 3) with.version = 3;
         with.write_context_fence = write_ring_fence;
         static struct virgl_renderer_callbacks kept;
         kept = with;
-        r = virgl_renderer_init(v, flags | VIRGL_RENDERER_VENUS | VIRGL_RENDERER_RENDER_SERVER | VIRGL_RENDERER_USE_EXTERNAL_BLOB, &kept);
+        int vflags_init = flags | VIRGL_RENDERER_VENUS | VIRGL_RENDERER_RENDER_SERVER;
+        if (has_map_fixed) vflags_init |= VIRGL_RENDERER_USE_EXTERNAL_BLOB;
+        r = virgl_renderer_init(v, vflags_init, &kept);
         uint32_t ver = 0, size = 0;
         if (r == 0) virgl_renderer_get_cap_set(4, &ver, &size);
         if (r == 0 && size) {
@@ -652,9 +674,11 @@ static int create_blob(void *o, uint32_t ctx, uint32_t res, uint32_t blob_mem, u
                        void **iov_base, uint32_t *iov_len, uint32_t n) {
     Args a = {.u = {ctx, res, blob_mem, blob_flags, n}, .u64 = blob_id, .u64b = size, .iov_base = iov_base, .iov_len = iov_len};
     call(o, j_create_blob, &a);
-    if (((HvVgpuVirgl *)o)->log)
-        fprintf(stderr, "virgl: blob %u for context %u (memory %u, flags %#x, id %llu, %llu bytes, %u pieces) -> %d\n", res, ctx, blob_mem,
-                blob_flags, (unsigned long long)blob_id, (unsigned long long)size, n, a.r);
+    /* Always log blob refusals (they surface Vulkan memory allocation failures); log successes only on HV_VIRGL_LOG. */
+    if (a.r || ((HvVgpuVirgl *)o)->log)
+        fprintf(stderr, "virgl: blob %u for context %u (memory %u, flags %#x, id %llu, %llu bytes, %u pieces) -> %d%s\n", res, ctx, blob_mem,
+                blob_flags, (unsigned long long)blob_id, (unsigned long long)size, n, a.r,
+                a.r ? " (refused)" : "");
     return a.r;
 }
 
