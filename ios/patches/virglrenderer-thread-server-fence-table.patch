@@ -1,0 +1,59 @@
+diff --git a/server/render_state.c b/server/render_state.c
+index f0f5487..56f6f7d 100644
+--- a/server/render_state.c
++++ b/server/render_state.c
+@@ -161,6 +161,18 @@ render_state_remove_context(struct render_context *ctx)
+    list_del(&ctx->head);
+ }
+ 
++/* Henge: with the render server as threads of the renderer's own process there is one fence table, the
++ * renderer's: virgl_renderer_init makes it and virgl_renderer_cleanup frees it. Making it again here dropped
++ * the renderer's, and freeing it when the last Venus context went left the renderer with none, so its next
++ * OpenGL fence with a sync file crashed in virgl_fence_set_fd (seen as soon as a Vulkan program exited). */
++#ifdef ENABLE_SAME_PROCESS_RENDER_SERVER
++#define render_fence_table_init() 0
++#define render_fence_table_cleanup() ((void)0)
++#else
++#define render_fence_table_init() virgl_fence_table_init()
++#define render_fence_table_cleanup() virgl_fence_table_cleanup()
++#endif
++
+ void
+ render_state_fini(void)
+ {
+@@ -178,7 +190,7 @@ render_state_fini(void)
+ #endif
+          state.venus_inited = false;
+          state.neptune_inited = false;
+-         virgl_fence_table_cleanup();
++         render_fence_table_cleanup();
+       }
+    }
+ }
+@@ -205,7 +217,7 @@ render_state_init(uint32_t init_flags)
+ 
+    SCOPE_LOCK_STATE();
+    if (!state.init_count) {
+-      if (virgl_fence_table_init())
++      if (render_fence_table_init())
+          return false;
+ #ifdef ENABLE_VENUS
+       if (want_venus) {
+@@ -213,7 +225,7 @@ render_state_init(uint32_t init_flags)
+          static const uint32_t vkr_flags =
+             VKR_RENDERER_THREAD_SYNC | VKR_RENDERER_ASYNC_FENCE_CB;
+          if (!vkr_renderer_init(vkr_flags, &render_state_vkr_cbs)) {
+-            virgl_fence_table_cleanup();
++            render_fence_table_cleanup();
+             return false;
+          }
+       }
+@@ -225,7 +237,7 @@ render_state_init(uint32_t init_flags)
+             if (want_venus)
+                vkr_renderer_fini();
+ #endif
+-            virgl_fence_table_cleanup();
++            render_fence_table_cleanup();
+             return false;
+          }
+       }
