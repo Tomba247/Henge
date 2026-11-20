@@ -373,15 +373,22 @@ static void *render_thread(void *arg) {
             Job *j = v->head;
             v->head = j->next;
             if (!v->head) v->tail = NULL;
-            if (j->async) v->queued--;
+            /* Read once, here: a posted Job is freed below, and must not be looked at again. (It was: `j->async`
+               after the free. Where free() clears the memory, as on iOS, that read 0 and the line after wrote
+               done = 1 into memory no longer ours, by then often another thread's object: the app died a few
+               seconds into a Linux desktop, somewhere in the system's own code. glibc leaves the field alone,
+               so a runner never saw it.) */
+            int async = j->async;
+            if (async) v->queued--;
             pthread_mutex_unlock(&v->mu);
             j->fn(v, j->arg);
-            if (j->async) {
+            if (async) {
                 free(j->arg);
                 free(j);
+                j = NULL;
             }
             pthread_mutex_lock(&v->mu);
-            if (!j->async) j->done = 1; /* the caller's own Job: it frees nothing */
+            if (j) j->done = 1; /* the caller's own Job, on its stack: it frees nothing */
             pthread_cond_broadcast(&v->done_cv);
             if (fences_waiting(v)) break; /* retire fences between jobs too */
         }
