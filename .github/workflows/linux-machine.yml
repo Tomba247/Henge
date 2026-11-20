@@ -78,7 +78,7 @@ jobs:
               libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config
           if [ "${{ inputs.vulkan || false }}" = true ]; then
             sudo apt-get install -y -qq --no-install-recommends virgl-server mesa-vulkan-drivers vulkan-tools libvulkan-dev \
-                meson ninja-build python3-yaml libdrm-dev
+                meson ninja-build python3-yaml libdrm-dev gdb
           fi
 
       - name: Build the engine with the Linux machine (native arm64)
@@ -203,7 +203,7 @@ jobs:
           git -C virgl-fork fetch -q --depth 1 "$repo" "$commit"
           git -C virgl-fork checkout -q FETCH_HEAD
           for p in ios/patches/virglrenderer-*.patch; do [ -f "$p" ] && git -C virgl-fork apply "$PWD/$p" && echo "patched: $p"; done
-          meson setup virgl-fork/build virgl-fork --prefix="$PWD/virgl-fork/inst" --libdir=lib --buildtype=release -Dtests=false -Dcheck-gl-errors=false \
+          meson setup virgl-fork/build virgl-fork --prefix="$PWD/virgl-fork/inst" --libdir=lib --buildtype=debugoptimized -Dtests=false -Dcheck-gl-errors=false \
               -Dvenus=true -Dneptune=false -Dplatforms=egl -Dvideo=false -Dvtest=false -Drender-server-mode=thread -Drender-server-worker=thread \
               -Dc_args="-Wno-error=pedantic -Wno-pedantic" > meson-fork.log 2>&1 || { tail -30 meson-fork.log; exit 1; }
           meson compile -C virgl-fork/build > ninja-fork.log 2>&1 || { grep -E "error|FAILED" -A6 ninja-fork.log | head -60; exit 1; }
@@ -213,7 +213,11 @@ jobs:
           ldd build/linux-virgl-fork/hengelinux | grep virgl
           cp --sparse=always machine/disk.img boot-test.img
           lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
-          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl-fork/hengelinux \
+          # Under gdb, so a crash of the engine (or of the Vulkan threads inside it) says where.
+          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VK_ICD_FILENAMES="$lvp" \
+              timeout 1800 gdb -q -batch -ex "set pagination off" -ex "set print thread-events off" -ex "set debuginfod enabled off" -ex "handle SIGPIPE nostop noprint pass" \
+              -ex run -ex "echo == where it stopped ==\n" -ex bt -ex "info registers pc sp x0 x1 x2" -ex "x/6i \$pc" -ex "echo == all threads ==\n" -ex "thread apply all bt 12" \
+              --args build/linux-virgl-fork/hengelinux \
               --kernel machine/Image --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" \
               < /dev/null 2>&1 | tee boot-venus.log
@@ -268,7 +272,7 @@ jobs:
           for log in vtest boot boot-virgl boot-gles boot-venus; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen " $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube/' | head -120
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen |received signal|== where it stopped|^#[0-9]+ |^(pc|sp|x[0-2]) |^=> |^Thread [0-9]+ \\(" $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube|^#|^Thread/' | head -230
           done
           # About what the release's zip of this machine will weigh (it must stay under 2 GiB).
           [ -f machine/disk.img.hvsparse ] && echo "disk: $(stat -c %s machine/disk.img.hvsparse) bytes packed, about $(zstd -3 -T0 -c machine/disk.img.hvsparse | wc -c) compressed"
