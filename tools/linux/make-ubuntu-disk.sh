@@ -21,9 +21,9 @@
 # binfmt_misc. --pack writes disk.img.hvsparse (holes left out) for moving it
 # to the phone. Needs: curl, xz, zstd, mkfs.ext4 (e2fsprogs), depmod (kmod),
 # dpkg-deb, and a C compiler for --pack. Run as root (file ownership in the
-# image). --vulkan adds Mesa's Vulkan drivers and tools to a desktop image, for
-# trying Vulkan (Venus, docs/linux-machine.md); the images handed out are made
-# without it.
+# image). Desktop images carry Mesa's Vulkan drivers and tools (Venus,
+# docs/linux-machine.md); --vulkan adds a test program and a "Vulkan test"
+# launcher, for images made to try it.
 set -euo pipefail
 
 OUT=""; SIZE=60G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""; DISTRO=ubuntu; VULKAN=0
@@ -602,15 +602,24 @@ UNIT
     fi
     chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
 fi
-if [ -n "$DESKTOP" ] && [ "$VULKAN" = 1 ]; then
-    # Vulkan, for images made to try it: the loader, vulkaninfo and vkcube, and Mesa's drivers: lavapipe (Vulkan
-    # on the guest's CPU) and Venus (Vulkan on the host's GPU through virtio-gpu, when the machine offers it).
+if [ -n "$DESKTOP" ]; then
+    # Vulkan, in every desktop image: the loader, vulkaninfo and vkcube, and Mesa's drivers: lavapipe (Vulkan on
+    # the guest's CPU) and Venus (Vulkan on the host's GPU through virtio-gpu, when the machine offers it: on a
+    # phone with HV_LINUX_VULKAN=1 in henge-env.txt). For programs that use Vulkan themselves; the desktop draws
+    # with OpenGL (virgl) either way (docs/linux-machine.md: Zink does not start on MoltenVK).
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools
-    # GTK 4 apps keep drawing with OpenGL (virgl), as in the images without a Vulkan driver: newer GTK (Kali's)
-    # would otherwise pick Vulkan when it finds a device. For the session and for what systemd starts.
-    echo "GSK_RENDERER=ngl" >> "$ROOT/etc/environment"
-    mkdir -p "$ROOT/etc/environment.d"
-    echo "GSK_RENDERER=ngl" > "$ROOT/etc/environment.d/90-henge-gtk.conf"
+    # GTK 4 apps keep drawing with OpenGL, as in the images without a Vulkan driver: newer GTK (Kali's) would
+    # otherwise pick Vulkan when it finds a device. For the session and for what systemd starts. Ubuntu 24.04's
+    # GTK (4.14) does not pick Vulkan by itself and is left as it comes, but for the images made to try Vulkan,
+    # which are as they were when they were tried on a phone.
+    if [ "$DISTRO" != ubuntu ] || [ "$VULKAN" = 1 ]; then
+        echo "GSK_RENDERER=ngl" >> "$ROOT/etc/environment"
+        mkdir -p "$ROOT/etc/environment.d"
+        echo "GSK_RENDERER=ngl" > "$ROOT/etc/environment.d/90-henge-gtk.conf"
+    fi
+fi
+if [ -n "$DESKTOP" ] && [ "$VULKAN" = 1 ]; then
+    # For images made to try Vulkan: a step-by-step test program and a launcher for the whole test.
     # henge-vkmap (tools/linux/vkmap.c): Vulkan's memory, a submit and a fence, step by step, without a window.
     # Built here by the host's compiler when it has Vulkan's headers (the host runs the image's architecture).
     if cc -O1 -o "$ROOT/usr/local/bin/henge-vkmap" "$HERE/tools/linux/vkmap.c" -lvulkan 2>/dev/null; then

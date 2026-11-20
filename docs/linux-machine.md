@@ -181,7 +181,7 @@ Next for the GPU: the screen as a Metal texture (UTM's virglrenderer can hand
 out a resource's `MTLTexture`) rather than read back, a CAMetalLayer for it, and
 the display following the app's window size.
 
-## Vulkan (in progress, not in the machines handed out)
+## Vulkan (off unless asked for: `HV_LINUX_VULKAN=1`)
 
 OpenGL (virgl) is what the desktop and its browsers draw with. Vulkan is being
 added for programs that ask for it, and to try the desktop's OpenGL on top of

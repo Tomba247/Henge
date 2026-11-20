@@ -88,6 +88,7 @@ def main():
         "",
         "Tips:",
         "- 3D runs on the phone's GPU (virglrenderer on ANGLE, drawn with Metal). If a machine misbehaves, add the line `HV_LINUX_NO_3D=1` to **Files › On My iPhone › Henge › henge-env.txt** to turn 3D off.",
+        "- Vulkan (new, off unless asked for): the line `HV_LINUX_VULKAN=1` in the same file lets Linux programs that use Vulkan themselves run on the phone's GPU (Venus on MoltenVK). The desktop and browsers draw with OpenGL either way. Tried on one iPhone so far.",
         "- The phone slows itself down when it gets hot. A cooler, no case, and not charging while you use it all help.",
     ]
     out += ["", "---", f"<sub>Henge © Leviidev and contributors, {UPSTREAM}. This is an unofficial fork build and isn't affiliated with or endorsed by the Henge project.</sub>"]
