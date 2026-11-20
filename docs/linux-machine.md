@@ -260,6 +260,11 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
     such a host: it offers the extension as importable only and signals the
     semaphore from an empty submission. `VKR_NO_SEMAPHORE_FD=1` makes any host
     one without it; the workflow's Vulkan boot runs that way.
+- **Trying it on a phone:** a release made by `build-henge.yml` with
+  `vulkan_run` set carries a Vulkan test machine. In Files › On My iPhone ›
+  Henge › henge-env.txt, the line `HV_LINUX_VULKAN=1`; start the machine; tap
+  **Vulkan test** in the dock. Its result (lines starting `vktest:`) and the
+  engine's own (`virgl:`, `anon_file:`) are in the app's log.
 - UTM's release notes (5.0.7) say a Linux desktop drawn with Vulkan (Zink)
   does not work on MoltenVK yet (indirect draws with geometry shaders); to be
   tried here once Vulkan runs on a phone.
