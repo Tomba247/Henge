@@ -17,6 +17,7 @@ DECLARE_PROGRAM(p_fptrap);
 DECLARE_PROGRAM(p_psci);
 DECLARE_PROGRAM(p_smc);
 DECLARE_PROGRAM(p_smc_nomaint);
+DECLARE_PROGRAM(p_smc_far);
 DECLARE_PROGRAM(p_farregs);
 extern const char exc_programs_begin[], exc_programs_finish[];
 
@@ -225,6 +226,28 @@ int main(void) {
         memcpy(code, p->start, len);
         TestProgram copy = {p->name, NULL, code, code + ((const char *)p->end - (const char *)p->start)};
         if (!run(&copy, &c, 0)) check(p->name, "1 then 2 after patching", c.x[1], 3);
+    }
+
+    /* HV_SMC_FINE: writes to a page with translated code, away from the code, keep its blocks; a write onto
+       translated code drops them, and the new code runs. With HV_SMC_FINE=0 every one of the four writes that
+       finds blocks drops them. */
+    {
+        static const TestProgram far = TEST_PROGRAM(p_smc_far);
+        size_t len = (const char *)far.end - (const char *)far.start + 4;
+        memcpy(code, far.start, len);
+        memset(code + 0x1000, 0, 0x200);
+        hv_dma_written(&m, ADDR(code), 16384);
+        TestProgram copy = {far.name, NULL, code, code + ((const char *)far.end - (const char *)far.start)};
+        uint64_t smc0 = m.stats.flush_smc, kept0 = m.stats.smc_kept;
+        if (!run(&copy, &c, 0)) {
+            check("smc_far", "data read back", c.x[6], 0x55);
+            check("smc_far", "new code ran", c.x[8], 1);
+            check("smc_far", "rewritten code ran", c.x[9], 2);
+            if (hv_knob[HV_K_SMCFINE]) {
+                check("smc_far", "writes that kept the blocks", m.stats.smc_kept - kept0, 3);
+                check("smc_far", "writes that dropped them", m.stats.flush_smc - smc0, 1);
+            }
+        }
     }
 
     /* HV_FIXED_ADDR: a posix_spawn call's attributes gain the flag for loading at the program's own address; a

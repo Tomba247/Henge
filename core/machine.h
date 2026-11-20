@@ -16,6 +16,12 @@ typedef struct HvRam {
     uint8_t *code_pages; /* one byte per 16 KB page: a translated block came from here (2^pages_log2 of them) */
     uint32_t pages_log2;
     uint32_t *page_gen;  /* per page: bumped to invalidate the blocks translated from it */
+    /* HV_SMC_FINE (hv_code_written in machine.c): which 64ths of the page (256 bytes each) hold instructions a block
+       was translated from, the translations of its code under way, and the writes outside those parts since its
+       blocks last went. */
+    uint64_t *code_mask;
+    uint8_t *xlating;
+    uint16_t *code_quiet;
     /* Per page and CPU: up to three TLB entries (slot << 2 | table, plus 1;
        16 bits each) that mapped the page writable, or HV_WHINT_MANY when there
        were more. When the page becomes code only those are dropped, not a whole
@@ -120,6 +126,7 @@ typedef struct HvStats {
     uint64_t fill_kind[4];    /* ijc fills into an empty slot, over another live salt, over the same salt, over a dead salt */
     uint64_t wfe_polls, wfe_poll_ticks; /* WFEs that waited for an interrupt in place (after an ISR_EL1 read), and for how long */
     uint64_t flush_why[8];
+    uint64_t smc_kept, smc_quiet, smc_atomic; /* HV_SMC_FINE: writes to a code page that kept its blocks; pages dropped for too many such writes, and by atomics */
     uint64_t spawns, spawns_fixed; /* HV_FIXED_ADDR: posix_spawn calls seen, and those asked to load at the program's own address */
     uint64_t ttbr1_asid_switches; /* TTBR1 writes that only changed the ASID (TCR.A1): the user half went, not all */
     uint64_t flush_after_switch[4];
@@ -434,7 +441,7 @@ int hv_ic_ivau_drops(void);
 /* Settings that say how to translate or wait, to compare ways of doing it in one running guest
    ("knob NAME VALUE" in HV_INPUT_FILE; a new way starts from an empty code cache). Each starts
    from the environment variable named in hv_knob_names. */
-enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_COUNT };
+enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_COUNT };
 extern int hv_knob[HV_K_COUNT];
 int hv_knob_set(HvMachine *m, const char *name, int value);
 /* Debugging (HV_WATCH): which pages keep losing their translations. */
@@ -443,6 +450,15 @@ extern uint64_t *hv_smc_last;
 extern uint64_t hv_smc_pages, hv_smc_cpu, hv_smc_dma;
 /* A device wrote guest memory directly: translations made from it are out of date. Any thread. */
 void hv_dma_written(HvMachine *m, uint64_t pa, uint64_t len);
+/* A guest write inside one page with translated code (HV_SMC_FINE): 1 when the page's blocks were dropped. */
+struct HvRam;
+int hv_code_written(HvMachine *m, struct HvRam *r, uint64_t pa, uint64_t len, int after);
+/* The 64ths of a page that len bytes at byte `in` of it touch (HV_SMC_FINE). */
+static inline uint64_t hv_code_bits(uint64_t in, uint64_t len) {
+    unsigned g0 = (unsigned)(in >> (HV_TLB_PAGE_BITS - 6)), g1 = (unsigned)((in + len - 1) >> (HV_TLB_PAGE_BITS - 6));
+    if (g1 > 63) g1 = 63;
+    return (g1 - g0 >= 63 ? ~0ull : (2ull << (g1 - g0)) - 1) << g0;
+}
 HvMmio *hv_mmio_lookup(HvMachine *m, uint64_t pa);
 /* Host pointer for `len` bytes of guest RAM at pa, or NULL. */
 void *hv_phys_ptr(HvMachine *m, uint64_t pa, uint64_t len);

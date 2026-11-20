@@ -340,6 +340,9 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
        before its code is read (so a write after that, or the IC IVAU after it,
        invalidates what we make), and without the lock (it may scan every CPU's
        TLB; two CPUs doing it at once is harmless). */
+    /* HV_SMC_FINE: counted as translating this page before its code is read, until the block's part of the page is
+       noted (hv_code_written: a write that finds neither drops nothing). */
+    __atomic_add_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
     if (!__atomic_load_n(&ram->code_pages[pg], __ATOMIC_RELAXED)) {
         __atomic_store_n(&ram->code_pages[pg], 1, __ATOMIC_SEQ_CST); /* before the TLBs: see the end of tlb_fill */
         m->stats.code_protects++;
@@ -354,6 +357,8 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, HV_PHASE_TRANSLATE, __ATOMIC_RELAXED);
     failed = hv_translate_emit(m, &nb, code, avail) != 0;
     if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, phase0, __ATOMIC_RELAXED);
+    if (!failed) __atomic_or_fetch(&ram->code_mask[pg], hv_code_bits((pa - ram->pa) & ((1ull << HV_TLB_PAGE_BITS) - 1), 4ull * (nb.ninsns ? nb.ninsns : 1)), __ATOMIC_SEQ_CST);
+    __atomic_sub_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
     if (failed) goto flush_unlocked;
     if (m->stats_interval) {
         m->stats.translate_ticks += mach_absolute_time() - t0;
@@ -952,6 +957,8 @@ static void print_stats(HvCpu *cpu, int force) {
                 RATE(fr_fail[1]), RATE(fr_fail[2]), RATE(fr_fail[3]), RATE(fr_fail[4]));
         fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s; WFE waits for an interrupt %.0f/s (%.1f%% of one CPU asleep in them)\n", RATE(wfe_waits),
                 RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes), RATE(wfe_polls), RATE(wfe_poll_ticks) / 240000.0);
+        if (hv_knob[HV_K_SMCFINE])
+            fprintf(stderr, "  writes to code pages/s: %.0f kept the page's blocks (HV_SMC_FINE), %.0f dropped them (%.0f for too many kept, %.0f by atomics)\n", RATE(smc_kept), RATE(flush_smc), RATE(smc_quiet), RATE(smc_atomic));
         if (hv_knob[HV_K_FIXEDADDR])
             fprintf(stderr, "  programs started (posix_spawn) %.1f/s, %.1f/s of them asked to load at their own address (HV_FIXED_ADDR)\n", RATE(spawns), RATE(spawns_fixed));
         fprintf(stderr, "  exit requests/s: TLBI posts %.0f, wakes %.0f (of them device work %.0f), kick all %.0f, own %.0f\n",
