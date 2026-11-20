@@ -5,7 +5,8 @@
 #
 #   sh tools/selftest-loop.sh DROP_URL [BRANCH]      (from a clone of the repository; Ctrl+C stops it)
 #
-# The result goes to DROP_URL/selftest-<commit>.txt. Only the tests are built, not hengevm (which needs libraries a
+# The result goes to DROP_URL/selftest-<commit>.txt. A new number in tools/bench-request also runs the load test
+# (tools/mac-bench.sh) and sends its report as bench-<number>-<time>.txt. Only the tests are built, not hengevm (which needs libraries a
 # plain Mac does not have). The clone is moved to each new commit (detached), so use one kept for this.
 DROP=${1:?usage: selftest-loop.sh DROP_URL [BRANCH]}
 BRANCH=${2:-claude/linux-runner-crash-flumcd}
@@ -18,6 +19,7 @@ cd "$REPO" || exit 1
 TESTS="test_classify test_jit_region test_operands test_jit test_mem test_mmu test_exc test_devices test_shutdown"
 OUT=/tmp/henge-selftest.txt
 last=""
+benched=""
 echo "selftest-loop: watching $BRANCH in $REPO"
 while :; do
     if git fetch -q origin "$BRANCH" 2>/dev/null; then new=$(git rev-parse -q --verify FETCH_HEAD); else new=""; fi
@@ -61,6 +63,16 @@ while :; do
         tail -1 "$OUT"
         curl -sS -m 120 --data-binary "@$OUT" "$DROP/selftest-$short.txt" || echo "selftest-loop: upload failed (kept in $OUT)"
         last=$new
+        # A load test when one is asked for: tools/bench-request holds a number, and a new number (also the first
+        # one this loop sees) runs tools/mac-bench.sh, about 10 minutes of work, and sends its report.
+        want=$(cat tools/bench-request 2>/dev/null)
+        if [ -n "$want" ] && [ "$want" != "$benched" ] && [ -f tools/mac-bench.sh ]; then
+            echo "selftest-loop: $(date '+%H:%M:%S') load test $want (about 10 minutes)"
+            sh tools/mac-bench.sh > /tmp/henge-bench.txt 2>&1
+            tail -3 /tmp/henge-bench.txt
+            curl -sS -m 120 --data-binary "@/tmp/henge-bench.txt" "$DROP/bench-$want-$(date -u '+%H%M%S').txt" || echo "selftest-loop: upload failed (kept in /tmp/henge-bench.txt)"
+            benched=$want
+        fi
     fi
     sleep 90
 done
