@@ -274,16 +274,35 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   be imported. Unexplained: the app died without a word when Chrome was
   started with Vulkan on (a bus error or trap, which the app did not log; it
   does from the next build).
-- **Two Vulkan programs at once (build 101.97):** the self-test and a second
-  `vulkaninfo` ran together and exited together, and the app took a
-  segmentation fault in MoltenVK's `MVKQueue` destructor (`vkDestroyDevice`
-  from two ring threads). With the render server as threads all contexts
-  share the process; `virglrenderer-one-device-at-a-time.patch` creates and
-  destroys instances and devices one at a time. Probably what ended the app
-  when Chrome was started (unconfirmed).
-- Build 101.95's report of bus errors and traps from the JIT's trap guard was
-  taken out again: with it the app crashed in libxpc seconds after GNOME came
-  up, Vulkan on or off, and 101.97 without it does not. Why is not understood.
+- **It works on a phone (build 101.98, the same iPhone, 2026-11-20):** in a
+  Vulkan test image, one program at a time: `vulkaninfo` (Venus on "Apple A20
+  Pro GPU"), `henge-vkmap`, and `vkcube --c 300` twice, each exit 0, nothing
+  refused or failed in the app's log. While a cube ran the desktop drew about
+  835 frames in 10 s against about 240 without it. Chrome started with Vulkan
+  on and the app stayed up. Not tried there yet: two programs at once, Chrome
+  drawing with Vulkan, a desktop on Zink.
+- **What had been ending the app (builds 101.85 to 101.97) was not Vulkan.**
+  The render thread of the OpenGL side (devices/vgpu_virgl.c) freed a posted
+  job and then read its `async` field; iOS's free() clears memory, so the read
+  gave 0 and `done = 1` was written into freed memory, by then another
+  thread's small object. The app died seconds into a desktop in the system's
+  own code (CoreFoundation, libxpc, UIKit), with Vulkan on or off, with either
+  image; an iOS crash report showed a dictionary key of 0x0000000100000000,
+  the pair `async = 0, done = 1`. glibc's free() leaves the field, so a runner
+  never wrote. Settings > Linux > "Don't wait for the GPU", off, avoided it.
+  The crash in MoltenVK's `MVKQueue` destructor with two programs at once
+  (101.97) and the one in libxpc blamed on 101.95's trap-guard report were
+  this too, as far as can be told; `virglrenderer-one-device-at-a-time.patch`
+  (instances and devices made and destroyed one at a time across contexts,
+  which share the process) stays as a precaution.
+- **A device without `VK_KHR_external_semaphore_fd` has no `GetSemaphoreFdKHR`:**
+  the runner's boot as such a host jumped to address 0 at a program's first
+  presented frame. `virglrenderer-semaphore-wait-emulation.patch`: a
+  submission that waits for the semaphore, itself waited for. The runner's
+  self-test then passes with the emulation forced, with two cubes at once and
+  six `henge-vkmap` in a row, also with the library built with
+  AddressSanitizer (the workflow's `asan` switch; its runtime aborts at the
+  end of the run on a deallocation of its own, after the tests).
 - **Hands off:** `HV_LINUX_APPEND=henge.autotest=gpu` in henge-env.txt adds to
   the kernel's command line, so an image with the self-test runs its display
   and Vulkan part by itself at start and powers off; the result is on the
