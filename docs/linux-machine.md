@@ -227,6 +227,20 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   newer Mesa, or virglrenderer answering for the host. After the swapchain, the
   frame has to reach the desktop's OpenGL: a blob of the Venus context taken
   into the virgl context (a dma-buf on Linux hosts, shared memory on Apple's).
+- **Where it stopped (2026-11-20):** with `/dev/udmabuf` opened to the runner's
+  user, lavapipe has the sync-file and dma-buf extensions and Ubuntu's Venus
+  device offers `VK_KHR_swapchain` (run 44681653799). `vkcube` then fails in
+  `demo_init_vk_swapchain`: virglrenderer refuses the first mappable memory
+  blob (`blob ... (memory 2, flags 0x1, id 8, 16384 bytes) refused`), reason
+  not yet read (the render server's own lines were not in the part of the log
+  seen). Next: the Venus boot with `HV_VIRGL_LOG=1` and the `proxy:`/`vkr:`
+  lines in "What the boots found"; the Kali GNOME run (44681649093, Mesa 26.1)
+  and the iOS GPU libraries build with Venus and MoltenVK (dispatched on this
+  branch) are still to be read. The app's half is written but untried:
+  `HV_LINUX_VULKAN=1` in henge-env.txt.
+- UTM's release notes (5.0.7) say a Linux desktop drawn with Vulkan (Zink)
+  does not work on MoltenVK yet (indirect draws with geometry shaders); to be
+  tried here once Vulkan runs on a phone.
 - **The phone's half, from reading UTM's virglrenderer fork (1.3.0, the one the
   app already builds):** nothing here is tried yet.
   - It has Venus for Apple devices: `-Dvenus=true -Drender-server-mode=thread
