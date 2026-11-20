@@ -33,6 +33,7 @@
 #include <sys/ucontext.h>   /* not <ucontext.h>: that one #errors without _XOPEN_SOURCE */
 #include <unistd.h>
 #include <fcntl.h>
+#include <execinfo.h>
 
 /*
  * Provide pipe2 for iOS systems where libc does not export it.
@@ -153,7 +154,6 @@ static struct sigaction g_prev_sigbus;
 
 static void henge_trap_handler(int sig, siginfo_t *info, void *ctx)
 {
-    (void)info;
     if (g_expecting_jit_trap && ctx != NULL) {
         ucontext_t *uc = (ucontext_t *)ctx;
         /* Step over the brk and report failure in x0, exactly as the
@@ -163,8 +163,26 @@ static void henge_trap_handler(int sig, siginfo_t *info, void *ctx)
         return;
     }
 
-    /* Not ours: restore and re-raise so a genuine breakpoint or bus error is
-     * not silently swallowed. */
+    /* Not ours: a genuine trap or bus error, which ends the process. Say so first, on stderr (the native
+     * log, a file): the app's own crash handlers leave these two signals to this guard, and without this
+     * the app vanished with nothing in the log (the first Vulkan use on a phone did). write(2) and
+     * backtrace_symbols_fd only; snprintf into a stack buffer does not allocate. */
+    {
+        char line[200];
+        unsigned long long pc = 0, lr = 0;
+        if (ctx != NULL) {
+            ucontext_t *uc = (ucontext_t *)ctx;
+            pc = (unsigned long long)uc->uc_mcontext->__ss.__pc;
+            lr = (unsigned long long)uc->uc_mcontext->__ss.__lr;
+        }
+        int n = snprintf(line, sizeof line, "\n*** FATAL SIGNAL %d (%s) code %d at address %p, pc %#llx, lr %#llx ***\n--- backtrace ---\n",
+                         sig, sig == SIGTRAP ? "trap" : "bus error", info ? info->si_code : 0, info ? info->si_addr : NULL, pc, lr);
+        if (n > 0) (void)!write(STDERR_FILENO, line, (size_t)(n < (int)sizeof line ? n : (int)sizeof line - 1));
+        void *frames[48];
+        int count = backtrace(frames, 48);
+        backtrace_symbols_fd(frames, count, STDERR_FILENO);
+        fsync(STDERR_FILENO);
+    }
     struct sigaction *prev = (sig == SIGTRAP) ? &g_prev_sigtrap : &g_prev_sigbus;
     sigaction(sig, prev, NULL);
     raise(sig);
