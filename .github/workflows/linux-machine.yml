@@ -145,7 +145,7 @@ jobs:
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot-virgl.log
           rm -f boot-test.img
-          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus:" boot-virgl.log | head -60
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus:" boot-virgl.log | head -60 || true # a full pipe is not a failed boot (the shell runs with -e)
           sed -n '/henge-autotest: Ubuntu is up/,/henge-autotest: end/p' boot-virgl.log
           [ -f screen-virgl.ppm ] && python3 tools/linux/ppm2png.py screen-virgl.ppm screen-virgl.png
           grep -q "gl: .*virgl" boot-virgl.log
@@ -161,7 +161,7 @@ jobs:
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot-gles.log
           rm -f boot-test.img
-          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus:" boot-gles.log | head -90
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus:" boot-gles.log | head -90 || true # a full pipe is not a failed boot (the shell runs with -e)
           [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
           grep -q "gl: .*virgl" boot-gles.log
 
