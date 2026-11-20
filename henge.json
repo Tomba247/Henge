@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.99",
+          "date": "2026-11-20T19:27:19Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Linux images: Mesa's Vulkan drivers and tools in every desktop image; the release notes say how to turn Vulkan on\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit dcf947c\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-99/Henge.ipa",
+          "size": 14194025,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.98",
           "date": "2026-11-20T18:15:18Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -326,16 +336,6 @@
           "size": 9749051,
           "minOSVersion": "17.0",
           "branch": "henge-perf"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.48",
-          "date": "2026-11-14T22:04:53Z",
-          "localizedDescription": "What changed: ios: drop the RemotePairingChoice.swift entry #176's project.yml brought in\nBranch: henge-perf\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-48/Henge.ipa",
-          "size": 9749086,
-          "minOSVersion": "17.0",
-          "branch": "henge-perf"
         }
       ],
       "appPermissions": {
@@ -350,11 +350,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.98",
-      "versionDate": "2026-11-20T18:15:18Z",
-      "versionDescription": "What changed: Linux 3D: the render thread no longer looks at a posted job after freeing it (the app's crash a few seconds into a desktop)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 848233d\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-98/Henge.ipa",
-      "size": 14194044,
+      "buildVersion": "101.99",
+      "versionDate": "2026-11-20T19:27:19Z",
+      "versionDescription": "What changed: Linux images: Mesa's Vulkan drivers and tools in every desktop image; the release notes say how to turn Vulkan on\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit dcf947c\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-99/Henge.ipa",
+      "size": 14194025,
       "minOSVersion": "17.0"
     }
   ],
