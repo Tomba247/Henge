@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.90",
+          "date": "2026-11-20T05:05:52Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: tools/mac-bench.sh: every CPU kept busy, for 12 minutes\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 97051dd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-90/Henge.ipa",
+          "size": 12199513,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.89",
           "date": "2026-11-20T04:36:48Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -290,11 +300,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.89",
-      "versionDate": "2026-11-20T04:36:48Z",
-      "versionDescription": "What changed: tools/mac-bench.sh: a load test for a virtual Mac, run by the test loop when asked\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit aedc071\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-89/Henge.ipa",
-      "size": 12199371,
+      "buildVersion": "101.90",
+      "versionDate": "2026-11-20T05:05:52Z",
+      "versionDescription": "What changed: tools/mac-bench.sh: every CPU kept busy, for 12 minutes\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 97051dd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-90/Henge.ipa",
+      "size": 12199513,
       "minOSVersion": "17.0"
     }
   ],
