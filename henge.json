@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.84",
+          "date": "2026-11-20T01:20:04Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: GPU: Linux no longer waits for the GPU, by default\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit d1696dc\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-84/Henge.ipa",
+          "size": 12175297,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.83",
           "date": "2026-11-20T00:04:26Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -236,16 +246,6 @@
           "size": 9647565,
           "minOSVersion": "17.0",
           "branch": "league"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.28",
-          "date": "2026-11-13T06:30:59Z",
-          "localizedDescription": "What changed: Log what the Mac keeps in the display page around refresh events (WindowServer's display timer reads a refresh time of 0)\nBranch: league\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-28/Henge.ipa",
-          "size": 9649632,
-          "minOSVersion": "17.0",
-          "branch": "league"
         }
       ],
       "appPermissions": {
@@ -260,11 +260,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.83",
-      "versionDate": "2026-11-20T00:04:26Z",
-      "versionDescription": "What changed: Ubuntu machine: try apt again when Mozilla's repository is caught mid-sync\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 950e102\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-83/Henge.ipa",
-      "size": 12175281,
+      "buildVersion": "101.84",
+      "versionDate": "2026-11-20T01:20:04Z",
+      "versionDescription": "What changed: GPU: Linux no longer waits for the GPU, by default\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit d1696dc\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-84/Henge.ipa",
+      "size": 12175297,
       "minOSVersion": "17.0"
     }
   ],
