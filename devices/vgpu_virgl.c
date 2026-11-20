@@ -10,6 +10,10 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
     (void)gl, (void)gles;
     return NULL;
 }
+HvVgpuVirgl *hv_vgpu_virgl_create_flags(HvVgpu3d *gl, int flags) {
+    (void)gl, (void)flags;
+    return NULL;
+}
 void hv_vgpu_virgl_bind(HvVgpuVirgl *v, HvVirtioGpu *g) { (void)v, (void)g; }
 void hv_vgpu_virgl_destroy(HvVgpuVirgl *v) { (void)v; }
 
@@ -21,9 +25,17 @@ void hv_vgpu_virgl_destroy(HvVgpuVirgl *v) { (void)v; }
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/uio.h>
 #include <time.h>
+#include <unistd.h>
 #include <virglrenderer.h>
+
+/* Venus (Vulkan) where virglrenderer is linked in, a Linux host; the app's virglrenderer is loaded at run time and
+   built without Venus so far. */
+#ifndef HV_VIRGL_DLOPEN
+#define HV_VENUS 1
+#endif
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -155,6 +167,8 @@ struct HvVgpuVirgl {
     int queued;
     int async; /* posted work goes on without the guest waiting (the default); HV_VIRGL_SYNC: every job waits, as before */
     int stopping, started, ok, gles;
+    int venus; /* asked for; after starting, whether virglrenderer has it */
+    _Atomic int ring_fences; /* Venus fences asked for and not yet signalled */
     HvVirtioGpu *gpu;
     _Atomic uint64_t last_fence; /* the newest fence asked for, all 64 bits */
     _Atomic int fences_out;
@@ -188,6 +202,17 @@ static void write_fence(void *cookie, uint32_t fence) {
     atomic_store(&v->fences_out, full < last); /* more after it still to come */
     if (v->gpu) hv_virtio_gpu_fence_done(v->gpu, 0, 0, full);
 }
+
+#ifdef HV_VENUS
+static void write_ring_fence(void *cookie, uint32_t ctx, uint32_t ring, uint64_t fence) {
+    HvVgpuVirgl *v = cookie;
+    if (atomic_fetch_sub(&v->ring_fences, 1) <= 0) atomic_store(&v->ring_fences, 0);
+    if (v->gpu) hv_virtio_gpu_ring_fence_done(v->gpu, ctx, ring, fence);
+}
+#endif
+
+/* Fences still out: the render thread asks virglrenderer about them every millisecond. */
+static int fences_waiting(HvVgpuVirgl *v) { return atomic_load(&v->fences_out) || atomic_load(&v->ring_fences) > 0; }
 
 static void log_cb(enum virgl_log_level_flags level, const char *message, void *user) {
     (void)level, (void)user;
@@ -277,6 +302,28 @@ static void *render_thread(void *arg) {
 #endif
         r = egl_open(v);
     }
+#ifdef HV_VENUS
+    if (r == 0 && v->venus) {
+        /* Vulkan runs in virglrenderer's render server, a process of its own; OpenGL stays here. External blobs:
+           OpenGL then offers the guest no buffers it would map from host memory, which only exist as pointers. */
+        struct virgl_renderer_callbacks with = cbs;
+        if (with.version < 3) with.version = 3;
+        with.write_context_fence = write_ring_fence;
+        static struct virgl_renderer_callbacks kept;
+        kept = with;
+        r = virgl_renderer_init(v, flags | VIRGL_RENDERER_VENUS | VIRGL_RENDERER_RENDER_SERVER | VIRGL_RENDERER_USE_EXTERNAL_BLOB, &kept);
+        uint32_t ver = 0, size = 0;
+        if (r == 0) virgl_renderer_get_cap_set(4, &ver, &size);
+        if (r == 0 && size) {
+            fprintf(stderr, "virgl: Venus (Vulkan) on, capset version %u, %u bytes\n", ver, size);
+        } else {
+            fprintf(stderr, "virgl: no Venus in this virglrenderer (%s): OpenGL only\n", r ? "it did not start with it" : "no capset");
+            if (r == 0) virgl_renderer_cleanup(v);
+            v->venus = 0;
+            r = virgl_renderer_init(v, flags, &cbs);
+        }
+    } else
+#endif
     if (r == 0) r = virgl_renderer_init(v, flags, &cbs);
     pthread_mutex_lock(&v->mu);
     v->ok = r == 0;
@@ -291,7 +338,7 @@ static void *render_thread(void *arg) {
         if (!v->head) {
             if (v->stopping) break;
             /* Idle: retire fences every millisecond while any are out, else sleep until called. */
-            if (atomic_load(&v->fences_out)) {
+            if (fences_waiting(v)) {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);
                 ts.tv_nsec += 1000000;
@@ -315,9 +362,9 @@ static void *render_thread(void *arg) {
             pthread_mutex_lock(&v->mu);
             if (!j->async) j->done = 1; /* the caller's own Job: it frees nothing */
             pthread_cond_broadcast(&v->done_cv);
-            if (atomic_load(&v->fences_out)) break; /* retire fences between jobs too */
+            if (fences_waiting(v)) break; /* retire fences between jobs too */
         }
-        if (atomic_load(&v->fences_out)) {
+        if (fences_waiting(v)) {
             pthread_mutex_unlock(&v->mu);
             virgl_renderer_poll();
             pthread_mutex_lock(&v->mu);
@@ -374,7 +421,7 @@ static void drain(void *o) { call(o, j_nothing, NULL); }
 
 typedef struct Args {
     uint32_t u[12];
-    uint64_t u64;
+    uint64_t u64, u64b;
     const void *p;
     void *out;
     void **iov_base;
@@ -385,7 +432,8 @@ typedef struct Args {
 static void j_capset_info(HvVgpuVirgl *v, void *a_) {
     (void)v;
     Args *a = a_;
-    uint32_t id = a->u[0] + 1; /* capsets 1 (VIRGL) and 2 (VIRGL2) */
+    static const uint32_t ids[] = {1, 2, 4}; /* VIRGL, VIRGL2, and VENUS when it is on */
+    uint32_t id = ids[a->u[0]];
     uint32_t ver = 0, size = 0;
     virgl_renderer_get_cap_set(id, &ver, &size);
     a->u[1] = id, a->u[2] = ver, a->u[3] = size;
@@ -393,7 +441,7 @@ static void j_capset_info(HvVgpuVirgl *v, void *a_) {
 }
 static int capset_info(void *o, uint32_t index, uint32_t *id, uint32_t *max_version, uint32_t *max_size) {
     Args a = {.u = {index}};
-    if (index >= 2) return -1;
+    if (index >= (((HvVgpuVirgl *)o)->venus ? 3u : 2u)) return -1;
     call(o, j_capset_info, &a);
     *id = a.u[1], *max_version = a.u[2], *max_size = a.u[3];
     return a.r;
@@ -560,6 +608,96 @@ static int create_fence(void *o, uint32_t ctx, uint32_t ring, uint64_t fence) {
     return 0;
 }
 
+#ifdef HV_VENUS
+/* --- blobs and ring fences (Venus) --- */
+
+static void j_create_blob(HvVgpuVirgl *v, void *a_) {
+    (void)v;
+    Args *a = a_;
+    uint32_t n = a->u[4];
+    struct iovec *iov = n ? calloc(n, sizeof *iov) : NULL; /* virglrenderer keeps it until the resource goes */
+    if (n && !iov) {
+        a->r = -ENOMEM;
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) iov[i].iov_base = a->iov_base[i], iov[i].iov_len = a->iov_len[i];
+    struct virgl_renderer_resource_create_blob_args c = {.res_handle = a->u[1], .ctx_id = a->u[0], .blob_mem = a->u[2], .blob_flags = a->u[3],
+                                                         .blob_id = a->u64, .size = a->u64b, .iovecs = iov, .num_iovs = n};
+    a->r = virgl_renderer_resource_create_blob(&c);
+    if (a->r) free(iov);
+}
+static int create_blob(void *o, uint32_t ctx, uint32_t res, uint32_t blob_mem, uint32_t blob_flags, uint64_t blob_id, uint64_t size,
+                       void **iov_base, uint32_t *iov_len, uint32_t n) {
+    Args a = {.u = {ctx, res, blob_mem, blob_flags, n}, .u64 = blob_id, .u64b = size, .iov_base = iov_base, .iov_len = iov_len};
+    call(o, j_create_blob, &a);
+    if (((HvVgpuVirgl *)o)->log)
+        fprintf(stderr, "virgl: blob %u for context %u (memory %u, flags %#x, id %llu, %llu bytes, %u pieces) -> %d\n", res, ctx, blob_mem,
+                blob_flags, (unsigned long long)blob_id, (unsigned long long)size, n, a.r);
+    return a.r;
+}
+
+/* The blob's memory at addr, in the window the guest maps it from. Newer virglrenderers put it there themselves;
+   for older ones the blob's file (shared memory or a dma-buf) is mapped there. Memory that only exists as a pointer
+   cannot be moved to an address, and is refused. */
+static void j_map_blob(HvVgpuVirgl *v, void *a_) {
+    Args *a = a_;
+    uint32_t res = a->u[0];
+    static int (*map_fixed)(uint32_t, void *);
+    static int looked;
+    if (!looked++) map_fixed = (int (*)(uint32_t, void *))dlsym(RTLD_DEFAULT, "virgl_renderer_resource_map_fixed");
+    int r = map_fixed ? map_fixed(res, a->out) : -1;
+    uint32_t fd_type = 0;
+    if (r) {
+        int fd = -1;
+        r = virgl_renderer_resource_export_blob(res, &fd_type, &fd);
+        if (r == 0 && fd >= 0) {
+            r = -1;
+            if (fd_type == VIRGL_RENDERER_BLOB_FD_TYPE_SHM || fd_type == VIRGL_RENDERER_BLOB_FD_TYPE_DMABUF)
+                r = mmap(a->out, a->u64, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0) == MAP_FAILED ? -errno : 0;
+            close(fd);
+        }
+    }
+    uint32_t info = 0;
+    if (r == 0 && (virgl_renderer_resource_get_map_info(res, &info) != 0 || !(info & VIRGL_RENDERER_MAP_CACHE_MASK)))
+        info = VIRGL_RENDERER_MAP_CACHE_CACHED;
+    a->u[1] = info;
+    a->r = r;
+    if (v->log || r) fprintf(stderr, "virgl: blob %u mapped (%llu bytes, file type %u) -> %d\n", res, (unsigned long long)a->u64, fd_type, r);
+}
+static int map_blob(void *o, uint32_t res, void *addr, uint64_t size, uint32_t *map_info) {
+    Args a = {.u = {res}, .u64 = size, .out = addr};
+    call(o, j_map_blob, &a);
+    *map_info = a.u[1];
+    return a.r;
+}
+
+static void j_unmap_blob(HvVgpuVirgl *v, void *a_) {
+    (void)v;
+    Args *a = a_;
+    /* Plain memory in its place: the window stays guest RAM from end to end. */
+    if (mmap(a->out, a->u64, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0) == MAP_FAILED)
+        fprintf(stderr, "virgl: blob %u could not be unmapped (%s)\n", a->u[0], strerror(errno));
+}
+static void unmap_blob(void *o, uint32_t res, void *addr, uint64_t size) {
+    Args a = {.u = {res}, .u64 = size, .out = addr};
+    call(o, j_unmap_blob, &a);
+}
+
+static void j_ring_fence(HvVgpuVirgl *v, void *a_) {
+    Args *a = a_;
+    atomic_fetch_add(&v->ring_fences, 1);
+    if (virgl_renderer_context_create_fence(a->u[0], 0, a->u[1], a->u64) != 0) /* refused: nothing to wait for */
+        write_ring_fence(v, a->u[0], a->u[1], a->u64);
+}
+static int create_ring_fence(void *o, uint32_t ctx, uint32_t ring, uint64_t fence) {
+    Args *a = calloc(1, sizeof *a);
+    if (!a) return -1;
+    a->u[0] = ctx, a->u[1] = ring, a->u64 = fence;
+    post(o, j_ring_fence, a); /* in order after the commands it fences */
+    return 0;
+}
+#endif
+
 #if defined(HV_VIRGL_ANGLE) && defined(HV_VIRGL_DLOPEN)
 #include <CoreFoundation/CoreFoundation.h>
 #ifndef VIRGL_RENDERER_NATIVE_SHARE_TEXTURE
@@ -652,11 +790,19 @@ static int read_pixels(void *o, uint32_t res, uint32_t x, uint32_t y, uint32_t w
     return a.r;
 }
 
-HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
+HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) { return hv_vgpu_virgl_create_flags(gl, gles ? HV_VIRGL_GLES : 0); }
+
+HvVgpuVirgl *hv_vgpu_virgl_create_flags(HvVgpu3d *gl, int vflags) {
     if (load_libraries() != 0) return NULL;
     HvVgpuVirgl *v = calloc(1, sizeof *v);
     if (!v) return NULL;
+    int gles = (vflags & HV_VIRGL_GLES) != 0;
     v->gles = gles;
+#ifdef HV_VENUS
+    v->venus = (vflags & HV_VIRGL_VENUS) != 0;
+#else
+    if (vflags & HV_VIRGL_VENUS) fprintf(stderr, "virgl: Venus (Vulkan) is not in this build: OpenGL only\n");
+#endif
     v->log = getenv("HV_VIRGL_LOG") != NULL;
 #ifdef HV_VIRGL_ANGLE
     v->own_egl = 1;
@@ -709,7 +855,17 @@ HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles) {
     if (v->async) gl->present = present;
 #endif
     gl->drain = drain;
-    fprintf(stderr, "virgl: renderer started (%s%s)\n", gles || v->own_egl ? "OpenGL ES" : "OpenGL", v->own_egl ? ", own EGL contexts" : "");
+#ifdef HV_VENUS
+    if (v->venus) {
+        gl->ncapsets = 3;
+        gl->create_blob = create_blob;
+        gl->map_blob = map_blob;
+        gl->unmap_blob = unmap_blob;
+        gl->create_ring_fence = create_ring_fence;
+    }
+#endif
+    fprintf(stderr, "virgl: renderer started (%s%s%s)\n", gles || v->own_egl ? "OpenGL ES" : "OpenGL", v->own_egl ? ", own EGL contexts" : "",
+            v->venus ? ", Vulkan" : "");
     return v;
 }
 

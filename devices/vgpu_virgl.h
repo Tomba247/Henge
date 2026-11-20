@@ -23,6 +23,12 @@ typedef struct HvVgpuVirgl HvVgpuVirgl;
 
 /* Starts virglrenderer and fills gl with its renderer. gles: OpenGL ES (ANGLE) rather than desktop GL. NULL if it cannot. */
 HvVgpuVirgl *hv_vgpu_virgl_create(HvVgpu3d *gl, int gles);
+/* The same, with flags. HV_VIRGL_VENUS: Vulkan too (Venus: the guest's Mesa sends Vulkan calls, virglrenderer runs
+   them on the host's Vulkan in its render server); gl then has blobs and ring fences, and the Venus capset. Without
+   a Venus in the host's virglrenderer (or on Apple devices, for now) it starts without and says so. */
+#define HV_VIRGL_GLES 1
+#define HV_VIRGL_VENUS 2
+HvVgpuVirgl *hv_vgpu_virgl_create_flags(HvVgpu3d *gl, int flags);
 /* The device whose fences it retires: right after hv_virtio_gpu_create. */
 void hv_vgpu_virgl_bind(HvVgpuVirgl *v, HvVirtioGpu *g);
 void hv_vgpu_virgl_destroy(HvVgpuVirgl *v);

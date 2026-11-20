@@ -36,6 +36,9 @@ typedef struct HvLinuxVirt {
     HvVirtioGpu *gpu;
     /* The absolute pointer (after the display, so the other slots stay where they were). */
     HvVirtioInput *tablet;
+    /* The GPU's host-visible window (Venus): host memory that is guest RAM at LV_HOSTMEM; 0: none. */
+    uint8_t *hostmem;
+    uint64_t hostmem_size;
     /* Where the boot images went (guest physical). */
     uint64_t kernel_pa, dtb_pa, initrd_pa, initrd_size;
 } HvLinuxVirt;
@@ -50,6 +53,7 @@ typedef struct HvLinuxVirtConfig {
     uint32_t fb_width, fb_height; /* 0 x 0: no framebuffer; with gpu, the size the display prefers */
     int gpu;                /* virtio-gpu instead of the framebuffer */
     const HvVgpu3d *gl;     /* and its 3D renderer (virgl), or NULL for 2D */
+    uint64_t hostmem_size;  /* with a renderer that has blobs (Venus): the host-visible window's bytes, a power of two; 0: none */
     const char *cmdline;    /* kernel command line */
 } HvLinuxVirtConfig;
 

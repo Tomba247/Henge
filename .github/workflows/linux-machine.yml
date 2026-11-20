@@ -49,6 +49,7 @@ on:
       - "devices/fdt.*"
       - "devices/virtio_gpu.*"
       - "devices/vgpu_virgl.*"
+      - "devices/virtio.*"
       - "host/linux/**"
       - "tools/hengelinux.c"
       - "tools/linux/**"
@@ -70,7 +71,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq debootstrap build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
-              libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config
+              libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config \
+              virgl-server mesa-vulkan-drivers vulkan-tools
 
       - name: Build the engine with the Linux machine (native arm64)
         run: |
@@ -171,6 +173,26 @@ jobs:
           [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
           grep -q "gl: .*virgl" boot-gles.log
 
+      # Vulkan: Mesa's Venus driver in the guest, the machine's virtio-gpu (blobs, the host-visible window, context
+      # types), virglrenderer's render server, and lavapipe as the host's Vulkan (a runner has no GPU).
+      - name: Boot it with Vulkan (Venus, on lavapipe)
+        if: success()
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          cp --sparse=always machine/disk.img boot-test.img
+          lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
+              --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
+              < /dev/null 2>&1 | tee boot-venus.log
+          rm -f boot-test.img
+          grep -E "^virgl:|^virtio-gpu:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus" boot-venus.log | head -90
+          [ -f screen-venus.ppm ] && python3 tools/linux/ppm2png.py screen-venus.ppm screen-venus.png
+          grep -q "^desktop: .* up after" boot-venus.log
+          grep -q "gl: .*virgl" boot-venus.log
+          grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus.log
+
       - name: Pack the disk
         if: always()
         run: |
@@ -202,4 +224,6 @@ jobs:
             screen-virgl.png
             boot-gles.log
             screen-gles.png
+            boot-venus.log
+            screen-venus.png
           if-no-files-found: ignore

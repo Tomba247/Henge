@@ -25,6 +25,9 @@
 #define LV_SPI_RTC    VMAPPLE_IRQ_RTC
 #define LV_SPI_PCIE   VMAPPLE_IRQ_PCIE /* slot s raises SPI 0x20 + s (devices/pcie.c) */
 #define LV_PCI_SLOTS  8
+/* The GPU's host-visible window (Venus), above any RAM: a 64-bit PCI range of its own, exactly the size of the GPU's
+   one 64-bit BAR, so Linux can only put the BAR here, where the window's memory is guest RAM. */
+#define LV_HOSTMEM    0x1000000000ull
 
 #define PH_GIC 1
 #define PH_CLK 2
@@ -85,6 +88,20 @@ int hv_linuxvirt_create(HvLinuxVirt *lv, HvVmapple *b, HvMachine *m, HvCpu *cpus
         /* The last slot: the display. Linux's virtio_gpu leaves a firmware framebuffer alone (virtio-gpu-pci is no VGA
            device), and two displays would confuse Xorg, so the console waits for the driver instead. */
         if (!(lv->gpu = hv_virtio_gpu_create(m, b->pcie, c->fb_width, c->fb_height, c->gl))) return -1;
+        uint64_t hm = c->hostmem_size;
+        if (c->gl && c->gl->create_blob && hm >= (64u << 20) && hm <= (64ull << 30) && !(hm & (hm - 1))) {
+            /* Reserved, not committed: pages come as blobs are mapped over it (devices/vgpu_virgl.c). */
+            void *p = mmap(NULL, hm, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
+            HvRam *main_ram = m->main_ram; /* stays the machine's RAM, however large the window */
+            if (p != MAP_FAILED && hv_machine_add_ram(m, LV_HOSTMEM, hm, p, 0) == 0) {
+                lv->hostmem = p, lv->hostmem_size = hm;
+                hv_virtio_gpu_add_hostmem(lv->gpu, p, LV_HOSTMEM, hm);
+            } else {
+                fprintf(stderr, "linuxvirt: no host-visible window of %llu MB for the GPU: no Vulkan\n", (unsigned long long)(hm >> 20));
+                if (p != MAP_FAILED) munmap(p, hm);
+            }
+            m->main_ram = main_ram;
+        }
     } else if (c->fb_width && c->fb_height) {
         uint64_t bytes = ((uint64_t)c->fb_width * c->fb_height * 4 + 0x1fffff) & ~0x1fffffull;
         if (bytes >= c->ram_size / 2) return -1;
@@ -260,8 +277,11 @@ static uint8_t *make_dtb(HvLinuxVirt *b, const HvLinuxVirtConfig *c, size_t *len
     uint32_t pci_reg[4] = {0, (uint32_t)LV_PCIE_ECAM, 0, (uint32_t)LV_ECAM_SIZE};
     hv_fdt_cells(&f, "reg", pci_reg, 4);
     /* 32-bit memory space, identity mapped. */
-    uint32_t ranges[7] = {0x02000000, 0, (uint32_t)LV_PCIE_MMIO, 0, (uint32_t)LV_PCIE_MMIO, 0, (uint32_t)LV_MMIO_SIZE};
-    hv_fdt_cells(&f, "ranges", ranges, 7);
+    uint32_t ranges[14] = {0x02000000, 0, (uint32_t)LV_PCIE_MMIO, 0, (uint32_t)LV_PCIE_MMIO, 0, (uint32_t)LV_MMIO_SIZE,
+                           /* 64-bit memory space: the GPU's host-visible window */
+                           0x03000000, (uint32_t)(LV_HOSTMEM >> 32), (uint32_t)LV_HOSTMEM, (uint32_t)(LV_HOSTMEM >> 32), (uint32_t)LV_HOSTMEM,
+                           (uint32_t)(b->hostmem_size >> 32), (uint32_t)b->hostmem_size};
+    hv_fdt_cells(&f, "ranges", ranges, b->hostmem_size ? 14 : 7);
     hv_fdt_empty(&f, "dma-coherent");
     /* INTx: every pin of slot s is SPI 0x20 + s (devices/pcie.c, no swizzle). */
     uint32_t mask[4] = {0xf800, 0, 0, 0};
@@ -366,6 +386,7 @@ void hv_linuxvirt_destroy(HvLinuxVirt *lv) {
     hv_virtio_blk_destroy(b->root_blk);
     if (b->snd) { free(b->snd->ring); free(b->snd); }
     hv_virtio_gpu_destroy(lv->gpu);
+    if (lv->hostmem) munmap(lv->hostmem, lv->hostmem_size);
     if (lv->tablet) { pthread_mutex_destroy(&lv->tablet->mu); free(lv->tablet); lv->tablet = NULL; }
     if (b->keyboard) { pthread_mutex_destroy(&b->keyboard->mu); free(b->keyboard); }
     if (b->mouse) { pthread_mutex_destroy(&b->mouse->mu); free(b->mouse); }

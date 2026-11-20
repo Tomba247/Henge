@@ -11,6 +11,9 @@
    Linux's driver does not get along with yet (docs/linux-machine.md). --gpu
    makes virtio-gpu the display (--fb then the size it prefers) instead of the
    framebuffer, and --virgl gives it 3D through the host's virglrenderer.
+   --venus is --virgl with Vulkan too (Venus, where the host's virglrenderer
+   has it); HV_HOSTMEM_MB is the size of the window the guest maps Vulkan's
+   memory from (4096).
 */
 #include <errno.h>
 #include <pthread.h>
@@ -154,7 +157,7 @@ int main(int argc, char **argv) {
     uint64_t ram_mb = 1024;
     int ncpus = 1;
     unsigned fbw = 0, fbh = 0;
-    int usb = 0, gpu = 0, virgl = 0;
+    int usb = 0, gpu = 0, virgl = 0, venus = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
         if (!strcmp(a, "--kernel") && v) kernel = v, i++;
@@ -167,8 +170,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--usb")) usb = 1;
         else if (!strcmp(a, "--gpu")) gpu = 1;
         else if (!strcmp(a, "--virgl")) gpu = virgl = 1;
+        else if (!strcmp(a, "--venus")) gpu = virgl = venus = 1;
         else {
-            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb] [--gpu] [--virgl]\n", argv[0]);
+            fprintf(stderr, "usage: %s --kernel Image [--initrd file] [--disk img] [--ram MB] [--cpus N] [--append cmdline] [--fb WxH] [--usb] [--gpu] [--virgl] [--venus]\n", argv[0]);
             return 2;
         }
     }
@@ -198,7 +202,9 @@ int main(int argc, char **argv) {
     static HvVgpu3d gl;
     HvVgpuVirgl *vg = NULL;
     if (virgl) { /* 3D through the host's virglrenderer (built with make linux-test LX_VIRGL=1) */
-        if ((vg = hv_vgpu_virgl_create(&gl, getenv("HV_VIRGL_GLES") != NULL))) cfg.gl = &gl;
+        int flags = (getenv("HV_VIRGL_GLES") ? HV_VIRGL_GLES : 0) | (venus ? HV_VIRGL_VENUS : 0);
+        if ((vg = hv_vgpu_virgl_create_flags(&gl, flags))) cfg.gl = &gl;
+        if (vg && gl.create_blob) cfg.hostmem_size = (uint64_t)(getenv("HV_HOSTMEM_MB") ? atoi(getenv("HV_HOSTMEM_MB")) : 4096) << 20;
         else fprintf(stderr, "hengelinux: no virgl renderer (not built with LX_VIRGL=1, or no EGL): 2D only\n");
     }
     if (hv_linuxvirt_create(&lv, &board, &m, cpus, &cfg) != 0) {

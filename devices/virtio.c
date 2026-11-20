@@ -161,6 +161,16 @@ void hv_virtio_init(HvVirtio *v, HvMachine *m, int device_id, uint32_t class_cod
     reset(v);
 }
 
+void hv_virtio_add_shm(HvVirtio *v, int bar, uint8_t id, uint64_t offset, uint64_t length) {
+    /* After the notify capability (0x70, 20 bytes): a virtio_pci_cap64, VIRTIO_PCI_CAP_SHARED_MEMORY_CFG. */
+    uint8_t *c = v->pci.config + 0x88;
+    uint32_t lo[2] = {(uint32_t)offset, (uint32_t)length}, hi[2] = {(uint32_t)(offset >> 32), (uint32_t)(length >> 32)};
+    v->pci.config[0x71] = 0x88;
+    c[0] = 0x09, c[1] = 0, c[2] = 24, c[3] = 8, c[4] = (uint8_t)bar, c[5] = id;
+    memcpy(c + 8, lo, 8);
+    memcpy(c + 16, hi, 8);
+}
+
 void hv_virtio_interrupt(HvVirtio *v) {
     v->isr |= 1;
     hv_pci_set_intx(&v->pci, 1);

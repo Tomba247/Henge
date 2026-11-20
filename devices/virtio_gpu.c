@@ -12,6 +12,8 @@
 #define CURSORQ 1
 
 #define F_VIRGL (1ull << 0)
+#define F_RESOURCE_BLOB (1ull << 3)
+#define F_CONTEXT_INIT (1ull << 4)
 
 /* Commands. */
 #define CMD_GET_DISPLAY_INFO 0x0100
@@ -24,6 +26,8 @@
 #define CMD_RESOURCE_DETACH_BACKING 0x0107
 #define CMD_GET_CAPSET_INFO 0x0108
 #define CMD_GET_CAPSET 0x0109
+#define CMD_RESOURCE_CREATE_BLOB 0x010c
+#define CMD_SET_SCANOUT_BLOB 0x010d
 #define CMD_CTX_CREATE 0x0200
 #define CMD_CTX_DESTROY 0x0201
 #define CMD_CTX_ATTACH_RESOURCE 0x0202
@@ -32,6 +36,8 @@
 #define CMD_TRANSFER_TO_HOST_3D 0x0205
 #define CMD_TRANSFER_FROM_HOST_3D 0x0206
 #define CMD_SUBMIT_3D 0x0207
+#define CMD_RESOURCE_MAP_BLOB 0x0208
+#define CMD_RESOURCE_UNMAP_BLOB 0x0209
 #define CMD_UPDATE_CURSOR 0x0300
 #define CMD_MOVE_CURSOR 0x0301
 
@@ -39,6 +45,7 @@
 #define RESP_OK_DISPLAY_INFO 0x1101
 #define RESP_OK_CAPSET_INFO 0x1102
 #define RESP_OK_CAPSET 0x1103
+#define RESP_OK_MAP_INFO 0x1106
 #define RESP_ERR_UNSPEC 0x1200
 #define RESP_ERR_OUT_OF_MEMORY 0x1201
 #define RESP_ERR_INVALID_SCANOUT_ID 0x1202
@@ -47,6 +54,9 @@
 #define RESP_ERR_INVALID_PARAMETER 0x1205
 
 #define FLAG_FENCE 1u
+#define FLAG_RING_IDX 2u /* the fence is on the context's own timeline hdr.ring_idx */
+#define HOSTMEM_BAR 2
+#define SHM_HOST_VISIBLE 1
 #define EVENT_DISPLAY 1u
 
 #define HDR 24 /* type, flags, fence_id (8), ctx_id, ring_idx, padding[3] */
@@ -62,6 +72,9 @@ typedef struct Res {
     uint32_t *iov_len;
     uint64_t *iov_at; /* where each piece starts in the backing */
     uint32_t niov;
+    uint64_t blob_size; /* a blob resource: its bytes; where it is mapped in the host-visible window */
+    uint64_t map_at;
+    int mapped;
     struct Res *next;
 } Res;
 
@@ -69,7 +82,14 @@ typedef struct Pending {
     HvVirtqElem e;
     uint8_t resp[HDR];
     uint64_t fence;
+    uint32_t ctx;
+    uint8_t ring, has_ring; /* on its context's timeline `ring`, not the one all contexts share */
 } Pending;
+
+typedef struct RingDone {
+    uint32_t ctx, ring;
+    uint64_t fence;
+} RingDone;
 
 struct HvVirtioGpu {
     HvVirtio vio;
@@ -96,6 +116,12 @@ struct HvVirtioGpu {
     Pending *pending;
     uint32_t npending;
     _Atomic uint64_t fence_done;
+    pthread_mutex_t fmu; /* ring fences the renderer has finished, for poll */
+    RingDone *rdone;
+    uint32_t nrdone, rdone_cap;
+    /* The host-visible window: host memory the guest maps blobs from (guest RAM at hostmem_pa). */
+    uint8_t *hostmem;
+    uint64_t hostmem_pa, hostmem_size;
     uint8_t *cmd;
     uint32_t cmd_cap;
     int log;
@@ -125,6 +151,7 @@ static void unref(HvVirtioGpu *g, uint32_t id) {
         if (r->id != id) continue;
         *pp = r->next;
         if (r->data) g->res_bytes -= (uint64_t)r->width * r->height * 4;
+        if (r->mapped) g->gl.unmap_blob(g->gl.opaque, id, g->hostmem + r->map_at, r->blob_size);
         if (g->has_gl && g->gl.resource_unref) g->gl.resource_unref(g->gl.opaque, id);
         if (g->scanout_res == id) {
             g->scanout_res = 0;
@@ -303,12 +330,8 @@ static void respond(HvVirtioGpu *g, int q, const HvVirtqElem *e, uint8_t *resp, 
     hv_virtq_push(&g->vio, q, e, n);
 }
 
-static int attach_backing(HvVirtioGpu *g, const uint8_t *c, uint32_t len) {
-    if (len < HDR + 8) return RESP_ERR_INVALID_PARAMETER;
-    Res *r = find(g, rd32(c + HDR));
-    uint32_t n = rd32(c + HDR + 4);
-    if (!r) return RESP_ERR_INVALID_RESOURCE_ID;
-    if (n == 0 || n > (1u << 20) || len < HDR + 8 + (uint64_t)n * 16) return RESP_ERR_INVALID_PARAMETER;
+/* The guest's pages behind a resource: n entries (address, length, padding) at ents. */
+static int set_backing(HvVirtioGpu *g, Res *r, const uint8_t *ents, uint32_t n) {
     drop_backing(r);
     r->iov_base = calloc(n, sizeof *r->iov_base);
     r->iov_len = calloc(n, sizeof *r->iov_len);
@@ -319,7 +342,7 @@ static int attach_backing(HvVirtioGpu *g, const uint8_t *c, uint32_t len) {
     }
     uint64_t at = 0;
     for (uint32_t i = 0; i < n; i++) {
-        const uint8_t *ent = c + HDR + 8 + i * 16;
+        const uint8_t *ent = ents + (size_t)i * 16;
         uint64_t addr = rd64(ent);
         uint32_t l = rd32(ent + 8);
         void *p = hv_phys_ptr(g->vio.m, addr, l);
@@ -331,6 +354,17 @@ static int attach_backing(HvVirtioGpu *g, const uint8_t *c, uint32_t len) {
         at += l;
     }
     r->niov = n;
+    return RESP_OK_NODATA;
+}
+
+static int attach_backing(HvVirtioGpu *g, const uint8_t *c, uint32_t len) {
+    if (len < HDR + 8) return RESP_ERR_INVALID_PARAMETER;
+    Res *r = find(g, rd32(c + HDR));
+    uint32_t n = rd32(c + HDR + 4);
+    if (!r) return RESP_ERR_INVALID_RESOURCE_ID;
+    if (n == 0 || n > (1u << 20) || len < HDR + 8 + (uint64_t)n * 16) return RESP_ERR_INVALID_PARAMETER;
+    int t = set_backing(g, r, c + HDR + 8, n);
+    if (t != RESP_OK_NODATA) return t;
     if (r->is3d && g->has_gl && g->gl.attach_backing &&
         g->gl.attach_backing(g->gl.opaque, r->id, r->iov_base, r->iov_len, n) != 0)
         return RESP_ERR_UNSPEC;
@@ -504,6 +538,79 @@ static uint32_t command(HvVirtioGpu *g, const uint8_t *c, uint32_t len, uint8_t 
         *type = g->gl.submit(g->gl.opaque, ctx, (void *)(a + 8), size) ? RESP_ERR_UNSPEC : RESP_OK_NODATA;
         break;
     }
+    case CMD_RESOURCE_CREATE_BLOB: {
+        if (!g->has_gl || !g->gl.create_blob || alen < 32) { *type = RESP_ERR_UNSPEC; break; }
+        uint32_t id = rd32(a), mem = rd32(a + 4), bflags = rd32(a + 8), n = rd32(a + 12);
+        uint64_t blob_id = rd64(a + 16), size = rd64(a + 24);
+        if (!id || find(g, id)) { *type = RESP_ERR_INVALID_RESOURCE_ID; break; }
+        if (!size || size > (1ull << 36) || n > (1u << 20) || alen < 32 + (uint64_t)n * 16) { *type = RESP_ERR_INVALID_PARAMETER; break; }
+        Res *r = calloc(1, sizeof *r);
+        if (!r) { *type = RESP_ERR_OUT_OF_MEMORY; break; }
+        r->id = id, r->is3d = 1, r->blob_size = size;
+        int t = n ? set_backing(g, r, a + 32, n) : RESP_OK_NODATA;
+        if (t == RESP_OK_NODATA && g->gl.create_blob(g->gl.opaque, ctx, id, mem, bflags, blob_id, size, r->iov_base, r->iov_len, r->niov) != 0)
+            t = RESP_ERR_UNSPEC;
+        if (t != RESP_OK_NODATA) {
+            if (g->log) fprintf(stderr, "virtio-gpu: blob %u (memory %u, flags %#x, id %llu, %llu bytes) refused\n", id, mem, bflags,
+                                (unsigned long long)blob_id, (unsigned long long)size);
+            drop_backing(r);
+            free(r);
+            *type = (uint32_t)t;
+            break;
+        }
+        r->next = g->res[id % BUCKETS], g->res[id % BUCKETS] = r;
+        break;
+    }
+    case CMD_RESOURCE_MAP_BLOB: {
+        if (alen < 16) { *type = RESP_ERR_INVALID_PARAMETER; break; }
+        Res *r = find(g, rd32(a));
+        uint64_t at = rd64(a + 8);
+        if (!r || !r->blob_size) { *type = RESP_ERR_INVALID_RESOURCE_ID; break; }
+        if (!g->hostmem || r->mapped || (at & 0xfff) || at > g->hostmem_size || r->blob_size > g->hostmem_size - at) {
+            *type = RESP_ERR_INVALID_PARAMETER;
+            break;
+        }
+        if (hv_pci_bar_addr(&g->vio.pci, HOSTMEM_BAR) != g->hostmem_pa) {
+            static int told;
+            if (!told++)
+                fprintf(stderr, "virtio-gpu: the guest put the host-visible window at %llx, not %llx: no blobs can be mapped\n",
+                        (unsigned long long)hv_pci_bar_addr(&g->vio.pci, HOSTMEM_BAR), (unsigned long long)g->hostmem_pa);
+            *type = RESP_ERR_UNSPEC;
+            break;
+        }
+        uint32_t info = 1; /* VIRTIO_GPU_MAP_CACHE_CACHED */
+        if (g->gl.map_blob(g->gl.opaque, r->id, g->hostmem + at, r->blob_size, &info) != 0) {
+            if (g->log) fprintf(stderr, "virtio-gpu: blob %u (%llu bytes) could not be mapped\n", r->id, (unsigned long long)r->blob_size);
+            *type = RESP_ERR_UNSPEC;
+            break;
+        }
+        r->mapped = 1, r->map_at = at;
+        if (cap < HDR + 8) break;
+        wr32(resp + HDR, info), wr32(resp + HDR + 4, 0);
+        *type = RESP_OK_MAP_INFO;
+        return HDR + 8;
+    }
+    case CMD_RESOURCE_UNMAP_BLOB: {
+        Res *r = alen >= 4 ? find(g, rd32(a)) : NULL;
+        if (!r || !r->mapped) { *type = RESP_ERR_INVALID_RESOURCE_ID; break; }
+        g->gl.unmap_blob(g->gl.opaque, r->id, g->hostmem + r->map_at, r->blob_size);
+        r->mapped = 0;
+        break;
+    }
+    case CMD_SET_SCANOUT_BLOB: {
+        /* A blob on the screen (a Vulkan application's own buffer, when the compositor shows it directly): the
+           command says what the bytes are, since a blob has no format of its own. */
+        if (alen < 72) { *type = RESP_ERR_INVALID_PARAMETER; break; }
+        uint32_t x = rd32(a), y = rd32(a + 4), w = rd32(a + 8), h = rd32(a + 12), scanout = rd32(a + 16), id = rd32(a + 20);
+        if (scanout != 0) { *type = RESP_ERR_INVALID_SCANOUT_ID; break; }
+        Res *r = id ? find(g, id) : NULL;
+        if (id && !r) { *type = RESP_ERR_INVALID_RESOURCE_ID; break; }
+        if (r && r->blob_size) r->width = rd32(a + 24), r->height = rd32(a + 28), r->format = rd32(a + 32);
+        if (r && ((uint64_t)x + w > r->width || (uint64_t)y + h > r->height)) { *type = RESP_ERR_INVALID_PARAMETER; break; }
+        set_scanout(g, id, x, y, w, h);
+        if (r) update_screen(g, r, x, y, w, h);
+        break;
+    }
     default:
         if (g->log) fprintf(stderr, "virtio-gpu: command %#x not handled\n", cmd);
         *type = RESP_ERR_UNSPEC;
@@ -531,11 +638,14 @@ static void ctrl(HvVirtioGpu *g) {
             uint64_t fence = rd64(g->cmd + 8);
             Pending *p = &g->pending[g->npending++];
             p->e = e, p->fence = fence;
+            p->ctx = rd32(g->cmd + 16), p->ring = g->cmd[20];
+            p->has_ring = (flags & FLAG_RING_IDX) && g->gl.create_ring_fence;
             memset(p->resp, 0, HDR);
             wr32(p->resp, type);
             wr32(p->resp + 4, flags & 3);
             memcpy(p->resp + 8, g->cmd + 8, 13);
-            g->gl.create_fence(g->gl.opaque, rd32(g->cmd + 16), g->cmd[20], fence);
+            if (p->has_ring) g->gl.create_ring_fence(g->gl.opaque, p->ctx, p->ring, fence);
+            else g->gl.create_fence(g->gl.opaque, p->ctx, p->ring, fence);
             continue;
         }
         if (g->log && type >= RESP_ERR_UNSPEC) fprintf(stderr, "virtio-gpu: command %#x -> %#x\n", rd32(g->cmd), type);
@@ -594,9 +704,24 @@ void hv_virtio_gpu_poll(HvVirtioGpu *g) {
     uint64_t done = atomic_load(&g->fence_done);
     uint32_t keep = 0;
     int any = 0;
+    /* The ring fences finished since the last poll: every request waiting on one was queued before the renderer
+       was asked for its fence, so none can be missed. */
+    static RingDone rd[64];
+    pthread_mutex_lock(&g->fmu);
+    uint32_t nrd = g->nrdone < 64 ? g->nrdone : 64;
+    if (nrd) {
+        memcpy(rd, g->rdone, nrd * sizeof *rd);
+        memmove(g->rdone, g->rdone + nrd, (g->nrdone - nrd) * sizeof *rd);
+        g->nrdone -= nrd;
+    }
+    int more = g->nrdone != 0;
+    pthread_mutex_unlock(&g->fmu);
     for (uint32_t i = 0; i < g->npending; i++) {
         Pending *p = &g->pending[i];
-        if (p->fence <= done) {
+        int ready = !p->has_ring && p->fence <= done;
+        for (uint32_t k = 0; p->has_ring && !ready && k < nrd; k++)
+            ready = rd[k].ctx == p->ctx && rd[k].ring == p->ring && rd[k].fence >= p->fence;
+        if (ready) {
             uint32_t n = hv_virtq_write(&g->vio, &p->e, 0, p->resp, HDR);
             hv_virtq_push(&g->vio, CTRLQ, &p->e, n);
             any = 1;
@@ -607,6 +732,28 @@ void hv_virtio_gpu_poll(HvVirtioGpu *g) {
     }
     g->npending = keep;
     if (any) hv_virtio_interrupt(&g->vio);
+    if (more) hv_machine_wake(g->vio.m);
+}
+
+void hv_virtio_gpu_ring_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint64_t fence) {
+    pthread_mutex_lock(&g->fmu);
+    if (g->nrdone == g->rdone_cap) {
+        uint32_t cap = g->rdone_cap ? g->rdone_cap * 2 : 64;
+        RingDone *bigger = realloc(g->rdone, cap * sizeof *bigger);
+        if (bigger) g->rdone = bigger, g->rdone_cap = cap;
+    }
+    if (g->nrdone < g->rdone_cap) g->rdone[g->nrdone++] = (RingDone){ctx, ring, fence};
+    pthread_mutex_unlock(&g->fmu);
+    hv_machine_wake(g->vio.m);
+}
+
+void hv_virtio_gpu_add_hostmem(HvVirtioGpu *g, uint8_t *host, uint64_t pa, uint64_t size) {
+    if (!g || !g->has_gl || !g->gl.create_blob || !g->gl.map_blob || !g->gl.unmap_blob) return;
+    g->hostmem = host, g->hostmem_pa = pa, g->hostmem_size = size;
+    hv_pci_add_bar(&g->vio.pci, HOSTMEM_BAR, size, 1);
+    g->vio.pci.config[0x10 + HOSTMEM_BAR * 4] |= 0x8; /* prefetchable: memory, no side effects */
+    hv_virtio_add_shm(&g->vio, HOSTMEM_BAR, SHM_HOST_VISIBLE, 0, size);
+    g->vio.features |= F_RESOURCE_BLOB | F_CONTEXT_INIT;
 }
 
 void hv_virtio_gpu_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint64_t fence) {
@@ -638,6 +785,7 @@ HvVirtioGpu *hv_virtio_gpu_create(HvMachine *m, HvPcie *bus, uint32_t width, uin
     g->pref_w = width ? width : 1280, g->pref_h = height ? height : 800;
     g->log = getenv("HV_VGPU_LOG") ? atoi(getenv("HV_VGPU_LOG")) + 1 : 0;
     pthread_mutex_init(&g->mu, NULL);
+    pthread_mutex_init(&g->fmu, NULL);
     hv_pcie_attach(bus, &v->pci);
     return g;
 }
@@ -649,6 +797,8 @@ void hv_virtio_gpu_destroy(HvVirtioGpu *g) {
     free(g->screen.pixels);
     free(g->pending);
     free(g->cmd);
+    free(g->rdone);
+    pthread_mutex_destroy(&g->fmu);
     pthread_mutex_destroy(&g->mu);
     free(g);
 }

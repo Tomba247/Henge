@@ -56,6 +56,18 @@ typedef struct HvVgpu3d {
     int (*present)(void *o, uint32_t res, void (*show)(void *ctx, void *texture, int y0top), const void *ctx, size_t ctx_size);
     /* Waits until everything asked of the renderer so far has run (NULL: nothing runs later). */
     void (*drain)(void *o);
+    /* Blob resources and context types, which Venus (Vulkan) needs. All NULL: not offered (virgl's OpenGL only).
+       create_blob: a resource of `size` bytes that is host memory (blob_mem 2, HOST3D), the guest's pages (1, the
+       iov) or both (3); the renderer keeps the iov until resource_unref.
+       map_blob: the blob's memory appears at addr (page aligned, inside the device's host-visible window, where
+       the guest maps it from); *map_info: how the guest should cache it (VIRTIO_GPU_MAP_CACHE_*).
+       unmap_blob: takes it away again, leaving plain memory there.
+       create_ring_fence: a fence on one of a context's own timelines; hv_virtio_gpu_ring_fence_done says when. */
+    int (*create_blob)(void *o, uint32_t ctx, uint32_t res, uint32_t blob_mem, uint32_t blob_flags, uint64_t blob_id,
+                       uint64_t size, void **iov_base, uint32_t *iov_len, uint32_t n);
+    int (*map_blob)(void *o, uint32_t res, void *addr, uint64_t size, uint32_t *map_info);
+    void (*unmap_blob)(void *o, uint32_t res, void *addr, uint64_t size);
+    int (*create_ring_fence)(void *o, uint32_t ctx, uint32_t ring, uint64_t fence);
 } HvVgpu3d;
 
 typedef struct HvVgpuScreen {
@@ -70,6 +82,13 @@ void hv_virtio_gpu_destroy(HvVirtioGpu *g);
 void hv_virtio_gpu_poll(HvVirtioGpu *g);
 /* The 3D backend says a fence is done (any thread). */
 void hv_virtio_gpu_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint64_t fence);
+/* The same for a fence made with create_ring_fence: that context's timeline has reached it (any thread). */
+void hv_virtio_gpu_ring_fence_done(HvVirtioGpu *g, uint32_t ctx, uint32_t ring, uint64_t fence);
+/* The host-visible window, for a renderer with blobs: `size` bytes of host memory (a power of two) that are guest RAM
+   at pa (hv_machine_add_ram). The device gets a 64-bit BAR of that size, which the guest must place at pa (the board
+   gives its PCI bridge a 64-bit range of just that), a shared memory region over it, and the blob and context type
+   features. Before the guest starts. */
+void hv_virtio_gpu_add_hostmem(HvVirtioGpu *g, uint8_t *host, uint64_t pa, uint64_t size);
 
 /* Any thread: a copy of the screen with the pointer drawn in, to free(). 0, or -1 when nothing is scanned out. */
 int hv_virtio_gpu_snapshot(HvVirtioGpu *g, uint8_t **pixels, uint32_t *width, uint32_t *height);

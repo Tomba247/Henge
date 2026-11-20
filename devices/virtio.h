@@ -51,6 +51,10 @@ typedef struct HvVirtio {
    modern 0x1af4:0x1040+id and may be changed afterwards. */
 void hv_virtio_init(HvVirtio *v, HvMachine *m, int device_id, uint32_t class_code, int nq, uint64_t features);
 
+/* A shared memory region (virtio 1.2, 4.1.4.7) the driver finds by id: `length` bytes at `offset` of one of the
+   device's BARs, which the caller has added (hv_pci_add_bar). One per device. */
+void hv_virtio_add_shm(HvVirtio *v, int bar, uint8_t id, uint64_t offset, uint64_t length);
+
 /* 1 and an element if the driver made one available, 0 if not, -1 if the ring is broken. */
 int hv_virtq_pop(HvVirtio *v, int q, HvVirtqElem *e);
 void hv_virtq_push(HvVirtio *v, int q, const HvVirtqElem *e, uint32_t written);

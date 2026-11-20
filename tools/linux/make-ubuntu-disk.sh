@@ -220,6 +220,16 @@ if [ -n "$desktop" ]; then
             vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" VN_DEBUG=init timeout 120 vulkaninfo --summary > /tmp/henge-venus.txt 2>&1
             echo "venus: vulkaninfo exit $?; devices: $(grep deviceName /tmp/henge-venus.txt | sed "s/.*= //" | tr "\n" ";")"
             grep -E "MESA-VIRTIO|ERROR|apiVersion" /tmp/henge-venus.txt | tr -s " \t" " " | head -14 | sed "s/^/venus: /"
+            if grep -q "deviceName.*Venus" /tmp/henge-venus.txt; then
+                # The cube again, drawn by the host's Vulkan this time.
+                t0=$(date +%s.%N)
+                vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 240 vkcube --c 120 > /tmp/henge-vkcube-venus.txt 2>&1
+                r=$?
+                t1=$(date +%s.%N)
+                echo "venus: vkcube exit $r, $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "120 frames in %.1f s, %.1f fps", b - a, 120 / (b - a) }')"
+                [ $r = 0 ] || tail -5 /tmp/henge-vkcube-venus.txt | sed "s/^/venus vkcube: /"
+                dmesg | grep -iE "virtio_gpu|\[drm.*(ERROR|error)" | tail -6 | sed "s/^/venus kernel: /"
+            fi
         else
             echo "venus: Mesa's Venus driver is not in this image"
         fi
