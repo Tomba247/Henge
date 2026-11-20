@@ -1,0 +1,36 @@
+# .github/workflows/release-notes.yml
+#
+# Rewrites releases' titles and notes in this fork's style (tools/release-notes.sh): who made Henge (Leviidev),
+# that these are unofficial fork builds, and what each file is. Build Henge IPA does this for each new release;
+# this does it again for releases already out (tags: one or more, space-separated, or "all").
+
+name: Release notes
+
+on:
+  # Once this branch's notes or their script change: all releases again.
+  push:
+    branches: ["claude/linux-runner-crash-flumcd"]
+    paths: [".github/workflows/release-notes.yml", "tools/release_notes.py", "tools/release-notes.sh"]
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Release tags, space-separated, or all"
+        type: string
+        default: "all"
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rewrite the notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ inputs.tags || 'all' }}
+        run: |
+          set -euo pipefail
+          if [ "$TAGS" = all ]; then TAGS=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName'); fi
+          for t in $TAGS; do tools/release-notes.sh "$t" || echo "::warning::$t: not rewritten"; done
