@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.97",
+          "date": "2026-11-20T16:54:08Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Vulkan test build 4: the trap guard is as it was in build 94 (build 95 crashed at the desktop, with Vulkan on or off)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 1b26439\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-97/Henge.ipa",
+          "size": 14194879,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.95",
           "date": "2026-11-20T16:16:49Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -406,16 +416,6 @@
           "size": 9721901,
           "minOSVersion": "17.0",
           "branch": "henge-perf"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.43",
-          "date": "2026-11-14T21:05:33Z",
-          "localizedDescription": "What changed: The profile setting also counts the translated instructions under each sample (HV_PROF_IOS=2, Documents/hvprof-words.txt)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-43/Henge.ipa",
-          "size": 9721417,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
         }
       ],
       "appPermissions": {
