@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.86",
+          "date": "2026-11-20T03:20:07Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: Settings: an Engine options box, so engine settings need no text file\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 1c80b24\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-86/Henge.ipa",
+          "size": 12180210,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.85",
           "date": "2026-11-20T01:56:43Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -406,16 +416,6 @@
           "size": 9647565,
           "minOSVersion": "17.0",
           "branch": "league"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.30",
-          "date": "2026-11-13T14:15:02Z",
-          "localizedDescription": "What changed: The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-30/Henge.ipa",
-          "size": 9655980,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
         }
       ],
       "appPermissions": {
