@@ -57,9 +57,10 @@ void hv_flush_blocks(HvMachine *m) {
     for (int i = 0; i < m->nram; i++) memset(m->ram[i].xhead, 0, m->ram[i].npages * sizeof *m->ram[i].xhead); /* slots restart from 0 */
     hv_jit_reset(&m->jit);
     m->jit.limit = hv_knob[HV_K_JITCAP] > 0 ? ((size_t)hv_knob[HV_K_JITCAP] << 20) / sizeof(uint32_t) : 0; /* MB of it to use (testing) */
-    /* 32 segments unless HV_JIT_SEGMENTS says otherwise: every CPU stops while a segment's blocks go, and on the phone
-       (macOS 27.2, 1.5 GB) an eviction took about 200 ms with 8 segments and 30-50 ms with 32, for the same total. */
-    hv_jit_ring(&m->jit, hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : 32); /* after the limit: segments of what is used */
+    /* 128 segments unless HV_JIT_SEGMENTS says otherwise: every CPU stops while a segment's blocks go, and on the
+       phone (macOS 27.2, 1.5 GB) an eviction took about 200 ms with 8 segments and 30-50 ms with 32 for the same
+       total, 60-75 ms with 32 on a hot phone with apps open: several frames of the guest's screen each time. */
+    hv_jit_ring(&m->jit, hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : 128); /* after the limit: segments of what is used */
     /* HV_JIT_POISON: nothing old is left to run, so a stale pointer faults where it is used. */
     m->gen_checks = poison_on();
     if (m->gen_checks) hv_jit_poison(&m->jit, m->jit.base, m->jit.capacity);
