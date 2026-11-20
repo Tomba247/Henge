@@ -251,9 +251,15 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   to the app's log. Untried on a phone. What differs there from the runner:
   MoltenVK instead of lavapipe, memory as shared memory imported with
   `VK_EXT_external_memory_host` (or files, `virglrenderer-shm-fallback.patch`)
-  instead of dma-bufs, no sync files (so Mesa 25.2's Venus, Ubuntu 24.04's,
-  may again offer no swapchain there; Kali's 26.1 does not need them), and a
-  frame handed to ANGLE as a Metal texture.
+  instead of dma-bufs, no sync files, and a frame handed to ANGLE as a Metal
+  texture.
+  - No sync files: Mesa's Venus before 26.2 (Ubuntu 24.04 has 25.2, Kali
+    26.1) offers a swapchain only when the host imports semaphores from sync
+    files, which MoltenVK cannot. All the guest imports is an already signaled
+    payload, so `virglrenderer-semaphore-import-emulation.patch` answers for
+    such a host: it offers the extension as importable only and signals the
+    semaphore from an empty submission. `VKR_NO_SEMAPHORE_FD=1` makes any host
+    one without it; the workflow's Vulkan boot runs that way.
 - UTM's release notes (5.0.7) say a Linux desktop drawn with Vulkan (Zink)
   does not work on MoltenVK yet (indirect draws with geometry shaders); to be
   tried here once Vulkan runs on a phone.

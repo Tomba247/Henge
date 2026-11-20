@@ -214,7 +214,7 @@ jobs:
           cp --sparse=always machine/disk.img boot-test.img
           lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
           # Under gdb, so a crash of the engine (or of the Vulkan threads inside it) says where.
-          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VK_ICD_FILENAMES="$lvp" \
+          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VKR_NO_SEMAPHORE_FD=1 VK_ICD_FILENAMES="$lvp" \
               timeout 1800 gdb -q -batch -ex "set pagination off" -ex "set print thread-events off" -ex "set debuginfod enabled off" -ex "handle SIGPIPE nostop noprint pass" \
               -ex run -ex "echo == where it stopped ==\n" -ex bt -ex "info registers pc sp x0 x1 x2" -ex "x/6i \$pc" -ex "echo == all threads ==\n" -ex "thread apply all bt 12" \
               --args build/linux-virgl-fork/hengelinux \
