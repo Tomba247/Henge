@@ -237,19 +237,37 @@ if [ -n "$desktop" ]; then
             # What a window needs of it: a swapchain, and memory another driver (the desktop's OpenGL) can take.
             echo "venus extensions: $(vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 120 vulkaninfo 2>/dev/null | grep -oE "VK_(KHR_swapchain|KHR_external_(memory|semaphore|fence)_fd|EXT_external_memory_dma_buf|EXT_image_drm_format_modifier|EXT_queue_family_foreign)\b" | sort -u | tr "\n" " ")"
             if grep -q "deviceName.*Venus" /tmp/henge-venus.txt; then
+                # Memory the CPU sees, a submit and a fence, step by step.
+                if command -v henge-vkmap >/dev/null 2>&1; then
+                    vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" VN_DEBUG=result timeout 60 henge-vkmap 2>&1 | grep -E "^vkmap|MESA-VIRTIO" | tail -30 | cut -c1-200 | sed "s/^/venus: /"
+                    dmesg | grep -iE "virtio_gpu|\[drm.*(ERROR|error)" | tail -4 | sed "s/^/venus kernel (vkmap): /"
+                fi
                 # The cube again, drawn by the host's Vulkan this time.
                 t0=$(date +%s.%N)
-                vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 240 vkcube --c 120 > /tmp/henge-vkcube-venus.txt 2>&1
+                vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" VN_DEBUG=result timeout 240 vkcube --c 120 > /tmp/henge-vkcube-venus.txt 2>&1
                 r=$?
                 t1=$(date +%s.%N)
                 echo "venus: vkcube exit $r, $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "120 frames in %.1f s, %.1f fps", b - a, 120 / (b - a) }')"
                 tail -5 /tmp/henge-vkcube-venus.txt | cut -c1-200 | sed "s/^/venus vkcube: /"
                 dmesg | grep -iE "virtio_gpu|\[drm.*(ERROR|error)" | tail -6 | sed "s/^/venus kernel: /"
+                if [ $r = 0 ]; then
+                    # The screen with the cube on it.
+                    vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 20 vkcube > /dev/null 2>&1 &
+                    sleep 8
+                    echo "=== henge-autotest: screenshot ==="
+                    sleep 2
+                    wait
+                fi
             fi
         else
             echo "venus: Mesa's Venus driver is not in this image"
         fi
     fi
+fi
+# henge.autotest=gpu: only the display's part (for trying the GPU), not the browsers, the video and the rest.
+if grep -qw "henge.autotest=gpu" /proc/cmdline; then
+    echo "=== henge-autotest: end ==="
+    exit 0
 fi
 echo "state: $(systemctl is-system-running)"
 echo "failed units:"
@@ -578,6 +596,13 @@ if [ -n "$DESKTOP" ] && [ "$VULKAN" = 1 ]; then
     echo "GSK_RENDERER=ngl" >> "$ROOT/etc/environment"
     mkdir -p "$ROOT/etc/environment.d"
     echo "GSK_RENDERER=ngl" > "$ROOT/etc/environment.d/90-henge-gtk.conf"
+    # henge-vkmap (tools/linux/vkmap.c): Vulkan's memory, a submit and a fence, step by step, without a window.
+    # Built here by the host's compiler when it has Vulkan's headers (the host runs the image's architecture).
+    if cc -O1 -o "$ROOT/usr/local/bin/henge-vkmap" "$HERE/tools/linux/vkmap.c" -lvulkan 2>/dev/null; then
+        echo "   henge-vkmap built"
+    else
+        echo "   no henge-vkmap (no compiler with Vulkan's headers here)"
+    fi
 fi
 if [ -n "$DESKTOP" ]; then
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,

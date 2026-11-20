@@ -77,7 +77,8 @@ jobs:
           sudo apt-get install -y -qq debootstrap build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
               libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config
           if [ "${{ inputs.vulkan || false }}" = true ]; then
-            sudo apt-get install -y -qq --no-install-recommends virgl-server mesa-vulkan-drivers vulkan-tools
+            sudo apt-get install -y -qq --no-install-recommends virgl-server mesa-vulkan-drivers vulkan-tools libvulkan-dev \
+                meson ninja-build python3-yaml libdrm-dev
           fi
 
       - name: Build the engine with the Linux machine (native arm64)
@@ -130,7 +131,7 @@ jobs:
           if [ "${{ matrix.desktop }}" != none ]; then grep -q "^desktop: .* up after" boot.log; fi
 
       - name: Boot it again with 3D (virgl)
-        if: success()
+        if: ${{ success() && !inputs.vulkan }}
         continue-on-error: true
         run: |
           set -uo pipefail
@@ -146,7 +147,7 @@ jobs:
           grep -q "gl: .*virgl" boot-virgl.log
 
       - name: Boot it with 3D the iPhone's way (own EGL contexts, OpenGL ES)
-        if: success()
+        if: ${{ success() && !inputs.vulkan }}
         continue-on-error: true
         run: |
           set -uo pipefail
@@ -195,16 +196,46 @@ jobs:
           set -uo pipefail
           cp --sparse=always machine/disk.img boot-test.img
           lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
-          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
+          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
               --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
-              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" \
               < /dev/null 2>&1 | tee boot-venus.log
           rm -f boot-test.img
-          grep -E "^virgl:|^virtio-gpu:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus" boot-venus.log | head -90
           [ -f screen-venus.ppm ] && python3 tools/linux/ppm2png.py screen-venus.ppm screen-venus.png
           grep -q "^desktop: .* up after" boot-venus.log
           grep -q "gl: .*virgl" boot-venus.log
           grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus.log
+
+      # The same with the virglrenderer the app carries (UTM's fork at the commit ios/scripts/build-gpu-deps.sh
+      # pins, with ios/patches), built here for Linux with its render server as threads, as in the app.
+      - name: Boot it with Vulkan on the app's virglrenderer (render server as threads)
+        if: ${{ success() && inputs.vulkan }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          repo=$(sed -n 's/^VIRGL_REPO=//p' ios/scripts/build-gpu-deps.sh)
+          commit=$(sed -n 's/^VIRGL_COMMIT=//p' ios/scripts/build-gpu-deps.sh)
+          git init -q virgl-fork
+          git -C virgl-fork fetch -q --depth 1 "$repo" "$commit"
+          git -C virgl-fork checkout -q FETCH_HEAD
+          for p in ios/patches/virglrenderer-*.patch; do [ -f "$p" ] && git -C virgl-fork apply "$PWD/$p" && echo "patched: $p"; done
+          meson setup virgl-fork/build virgl-fork --prefix="$PWD/virgl-fork/inst" --libdir=lib --buildtype=release -Dtests=false -Dcheck-gl-errors=false \
+              -Dvenus=true -Dneptune=false -Dplatforms=egl -Dvideo=false -Dvtest=false -Drender-server-mode=thread -Drender-server-worker=thread \
+              -Dc_args="-Wno-error=pedantic -Wno-pedantic" > meson-fork.log 2>&1 || { tail -30 meson-fork.log; exit 1; }
+          meson compile -C virgl-fork/build > ninja-fork.log 2>&1 || { grep -E "error|FAILED" -A6 ninja-fork.log | head -60; exit 1; }
+          meson install -C virgl-fork/build > /dev/null
+          PKG_CONFIG_PATH="$PWD/virgl-fork/inst/lib/pkgconfig" make linux-test LXCC=gcc LX_VIRGL=1 LXB=build/linux-virgl-fork > make-fork.log 2>&1 || { grep -E "error" -A4 make-fork.log | head -40; exit 1; }
+          export LD_LIBRARY_PATH="$PWD/virgl-fork/inst/lib"
+          ldd build/linux-virgl-fork/hengelinux | grep virgl
+          cp --sparse=always machine/disk.img boot-test.img
+          lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          HV_FB_DUMP=screen-venus-fork.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl-fork/hengelinux --kernel machine/Image \
+              --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" \
+              < /dev/null 2>&1 | tee boot-venus-fork.log
+          rm -f boot-test.img
+          [ -f screen-venus-fork.ppm ] && python3 tools/linux/ppm2png.py screen-venus-fork.ppm screen-venus-fork.png
+          grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus-fork.log
 
       - name: Pack the disk
         if: always()
@@ -240,6 +271,8 @@ jobs:
             screen-gles.png
             boot-venus.log
             screen-venus.png
+            boot-venus-fork.log
+            screen-venus-fork.png
             vtest.log
           if-no-files-found: ignore
 
@@ -247,10 +280,10 @@ jobs:
       - name: What the boots found
         if: always()
         run: |
-          for log in vtest boot boot-virgl boot-gles boot-venus; do
+          for log in vtest boot boot-virgl boot-gles boot-venus boot-venus-fork; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (Venus|no Venus|renderer|EGL)|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: stopped|henge-autotest: end" $log.log | cut -c1-230 | head -45
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob)|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen " $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube/' | head -110
           done
           # About what the release's zip of this machine will weigh (it must stay under 2 GiB).
           [ -f machine/disk.img.hvsparse ] && echo "disk: $(stat -c %s machine/disk.img.hvsparse) bytes packed, about $(zstd -3 -T0 -c machine/disk.img.hvsparse | wc -c) compressed"
