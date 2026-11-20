@@ -257,6 +257,20 @@ if [ -n "$desktop" ]; then
                     echo "=== henge-autotest: screenshot ==="
                     sleep 2
                     wait
+                    # Two programs at once, ending together, then programs coming and going: a phone's app died
+                    # about there (devices made and destroyed side by side, memory mapped and unmapped over again).
+                    vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 90 vkcube --c 60 > /dev/null 2>&1 &
+                    p1=$!
+                    vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 90 vkcube --c 60 > /dev/null 2>&1 &
+                    p2=$!
+                    wait $p1; a=$?
+                    wait $p2; b=$?
+                    echo "venus: two vkcubes at once: exit $a and $b"
+                    n=0
+                    for i in 1 2 3 4 5 6; do
+                        vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 60 henge-vkmap > /dev/null 2>&1 && n=$((n + 1))
+                    done
+                    echo "venus: vkmap six times in a row: $n fine"
                 fi
             fi
         else

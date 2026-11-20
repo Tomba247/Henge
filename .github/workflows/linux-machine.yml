@@ -45,6 +45,10 @@ on:
         description: "Try Vulkan (Venus): Vulkan drivers in the image and a boot with Vulkan. Not a machine for a release"
         type: boolean
         default: false
+      asan:
+        description: "With Vulkan: the app's virglrenderer built with AddressSanitizer (a misuse of memory says where)"
+        type: boolean
+        default: false
   push:
     branches: ["claude/linux-runner-crash-flumcd"]
     paths:
@@ -203,9 +207,17 @@ jobs:
           git -C virgl-fork fetch -q --depth 1 "$repo" "$commit"
           git -C virgl-fork checkout -q FETCH_HEAD
           for p in ios/patches/virglrenderer-*.patch; do [ -f "$p" ] && git -C virgl-fork apply "$PWD/$p" && echo "patched: $p"; done
+          # asan: the library and what it allocates are checked (the sanitizer's runtime is loaded first, into the
+          # engine only, not into gdb); the engine's own signals stay the engine's.
+          san= pre=
+          if [ "${{ inputs.asan }}" = true ]; then
+            san="-Db_sanitize=address -Db_lundef=false"
+            pre=$(gcc -print-file-name=libasan.so)
+            echo "AddressSanitizer: $pre"
+          fi
           meson setup virgl-fork/build virgl-fork --prefix="$PWD/virgl-fork/inst" --libdir=lib --buildtype=debugoptimized -Dtests=false -Dcheck-gl-errors=false \
               -Dvenus=true -Dneptune=false -Dplatforms=egl -Dvideo=false -Dvtest=false -Drender-server-mode=thread -Drender-server-worker=thread \
-              -Dc_args="-Wno-error=pedantic -Wno-pedantic" > meson-fork.log 2>&1 || { tail -30 meson-fork.log; exit 1; }
+              -Dc_args="-Wno-error=pedantic -Wno-pedantic" $san > meson-fork.log 2>&1 || { tail -30 meson-fork.log; exit 1; }
           meson compile -C virgl-fork/build > ninja-fork.log 2>&1 || { grep -E "error|FAILED" -A6 ninja-fork.log | head -60; exit 1; }
           meson install -C virgl-fork/build > /dev/null
           PKG_CONFIG_PATH="$PWD/virgl-fork/inst/lib/pkgconfig" make linux-test LXCC=gcc LX_VIRGL=1 LXB=build/linux-virgl-fork > make-fork.log 2>&1 || { grep -E "error" -A4 make-fork.log | head -40; exit 1; }
@@ -216,6 +228,8 @@ jobs:
           # Under gdb, so a crash of the engine (or of the Vulkan threads inside it) says where.
           HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VKR_NO_SEMAPHORE_FD=1 VK_ICD_FILENAMES="$lvp" \
               timeout 1800 gdb -q -batch -ex "set pagination off" -ex "set print thread-events off" -ex "set debuginfod enabled off" -ex "handle SIGPIPE nostop noprint pass" \
+              -ex "set environment LD_PRELOAD $pre" \
+              -ex "set environment ASAN_OPTIONS detect_leaks=0:abort_on_error=1:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1:print_stacktrace=1" \
               -ex run -ex "echo == where it stopped ==\n" -ex bt -ex "info registers pc sp x0 x1 x2" -ex "x/6i \$pc" -ex "echo == all threads ==\n" -ex "thread apply all bt 12" \
               --args build/linux-virgl-fork/hengelinux \
               --kernel machine/Image --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
@@ -272,7 +286,7 @@ jobs:
           for log in vtest boot boot-virgl boot-gles boot-venus; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen |received signal|== where it stopped|^#[0-9]+ |^(pc|sp|x[0-2]) |^=> |^Thread [0-9]+ \\(" $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube|^#|^Thread/' | head -230
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen |received signal|AddressSanitizer|^SUMMARY|^ +#[0-9]+ 0x|is located|freed by thread|allocated by thread|== where it stopped|^#[0-9]+ |^(pc|sp|x[0-2]) |^=> |^Thread [0-9]+ \\(" $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube|^#|^Thread/' | head -230
           done
           # The screen of the Vulkan boot as characters (taken with vkcube's window up, when it drew).
           [ -f boot-venus.log ] && grep -aE "^colours:|^\\|.{80}\\|$" boot-venus.log | tail -25
