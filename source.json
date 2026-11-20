@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.85",
+          "date": "2026-11-20T01:56:43Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: Releases: named henge-linux-<build>, with their title and notes from the start\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 3da22b7\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-85/Henge.ipa",
+          "size": 12173713,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.84",
           "date": "2026-11-20T01:20:04Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -404,16 +414,6 @@
           "localizedDescription": "What changed: The refresh time at +68 of the display page, where AppleParavirtDisplay reads it (found in macOS 15.6.1's kernelcache)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-30/Henge.ipa",
           "size": 9655980,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.29",
-          "date": "2026-11-13T06:52:47Z",
-          "localizedDescription": "What changed: Experimental: the refresh event's time on the Mac's clock at +108 of the display page (HV_PVG_VSYNC_TS)\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-29/Henge.ipa",
-          "size": 9655982,
           "minOSVersion": "17.0",
           "branch": "league-el0"
         }
