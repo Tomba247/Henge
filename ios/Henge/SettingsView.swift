@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.profileKey) private var profile = false
     @AppStorage(EngineTuning.syncWaitKey) private var syncWait = true
     @AppStorage(EngineTuning.groupsKey) private var groups = false
+    @AppStorage(EngineTuning.fixedAddrKey) private var fixedAddr = false
     @AppStorage(EngineTuning.vblankKey) private var vblank = false
     @AppStorage(EngineTuning.windowKey) private var el0window = false
     @AppStorage(EngineTuning.linux3DKey) private var linux3D = true
@@ -151,6 +152,7 @@ struct SettingsView: View {
                     Toggle("Quicker wake from idle", isOn: $wfiSpin)
                     Toggle("Superblocks (experimental)", isOn: $superblocks)
                     Toggle("CPUs sleep while waiting for each other", isOn: $syncWait)
+                    Toggle("Programs at fixed addresses (faster, less secure)", isOn: $fixedAddr)
                     Toggle("Grouped memory accesses (experimental)", isOn: $groups)
                     Toggle("Display refresh events (experimental)", isOn: $vblank)
                     Toggle("Direct app memory (prototype, may crash)", isOn: $el0window)
@@ -162,7 +164,7 @@ struct SettingsView: View {
                     }
                     Text("A bigger code cache empties less often and takes more memory (about 1.75 times its size); Henge picks one by its memory limit: 1.5 GB where there is plenty, 512 MB where there is little. Applies the next time Henge opens. If JIT stops turning on, or a Mac closes Henge during setup, choose a smaller one.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("macOS draws a frame for every refresh: 30 Hz leaves the most of the emulated CPU to apps, at the cost of choppier animation; 60 Hz is smoother. Faster disk writes order them without waiting for a full sync; a sudden power loss could lose the last ones. Quicker wake keeps an idle CPU watching for work for 50 µs, at some battery cost. Grouped memory accesses check a page once for several accesses next to each other, at the cost of somewhat more translated code. Superblocks let translated code run past conditional branches. Changes apply the next time a Mac starts.")
+                    Text("macOS draws a frame for every refresh: 30 Hz leaves the most of the emulated CPU to apps, at the cost of choppier animation; 60 Hz is smoother. Faster disk writes order them without waiting for a full sync; a sudden power loss could lose the last ones. Quicker wake keeps an idle CPU watching for work for 50 µs, at some battery cost. Grouped memory accesses check a page once for several accesses next to each other, at the cost of somewhat more translated code. Superblocks let translated code run past conditional branches. Programs at fixed addresses: macOS and Linux load every program at a random address each time it starts, and Henge then has to translate it again; with this on they load at the same address every time, so starting programs (compiling, opening apps) takes about half the time once Henge has seen them. It turns off a protection inside the virtual machine (address randomization), which makes a program there easier to attack by something already running in it. Changes apply the next time a Mac starts.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)

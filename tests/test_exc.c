@@ -1,4 +1,5 @@
 #include "harness.h"
+#include "exception.h"
 #include "translate.h"
 
 #include <mach/mach_time.h>
@@ -16,6 +17,7 @@ DECLARE_PROGRAM(p_fptrap);
 DECLARE_PROGRAM(p_psci);
 DECLARE_PROGRAM(p_smc);
 DECLARE_PROGRAM(p_smc_nomaint);
+DECLARE_PROGRAM(p_smc_far);
 DECLARE_PROGRAM(p_farregs);
 extern const char exc_programs_begin[], exc_programs_finish[];
 
@@ -224,6 +226,61 @@ int main(void) {
         memcpy(code, p->start, len);
         TestProgram copy = {p->name, NULL, code, code + ((const char *)p->end - (const char *)p->start)};
         if (!run(&copy, &c, 0)) check(p->name, "1 then 2 after patching", c.x[1], 3);
+    }
+
+    /* HV_SMC_FINE: writes to a page with translated code, away from the code, keep its blocks; a write onto
+       translated code drops them, and the new code runs. With HV_SMC_FINE=0 every one of the four writes that
+       finds blocks drops them. */
+    {
+        static const TestProgram far = TEST_PROGRAM(p_smc_far);
+        size_t len = (const char *)far.end - (const char *)far.start + 4;
+        memcpy(code, far.start, len);
+        memset(code + 0x1000, 0, 0x200);
+        hv_dma_written(&m, ADDR(code), 16384);
+        TestProgram copy = {far.name, NULL, code, code + ((const char *)far.end - (const char *)far.start)};
+        uint64_t smc0 = m.stats.flush_smc, kept0 = m.stats.smc_kept;
+        if (!run(&copy, &c, 0)) {
+            check("smc_far", "data read back", c.x[6], 0x55);
+            check("smc_far", "new code ran", c.x[8], 1);
+            check("smc_far", "rewritten code ran", c.x[9], 2);
+            if (hv_knob[HV_K_SMCFINE]) {
+                check("smc_far", "writes that kept the blocks", m.stats.smc_kept - kept0, 3);
+                check("smc_far", "writes that dropped them", m.stats.flush_smc - smc0, 1);
+            }
+        }
+    }
+
+    /* HV_FIXED_ADDR: a posix_spawn call's attributes gain the flag for loading at the program's own address; a
+       call without attributes, or with ones that do not look like any, is left alone. */
+    {
+        static HvCpu s;
+        hv_cpu_reset(&s, &m);
+        uint64_t *desc = (uint64_t *)(void *)(stack + 0x400);
+        uint16_t *attr = (uint16_t *)(void *)(stack + 0x800);
+        desc[0] = 0x150, desc[1] = ADDR(attr), attr[0] = 0x0040, attr[1] = 0x1234;
+        s.x[2] = ADDR(desc);
+        hv_spawn_fixed(&s);
+        check("spawn", "flags gain 0x100", attr[0], 0x0140);
+        check("spawn", "the word after the flags", attr[1], 0x1234);
+        hv_spawn_fixed(&s);
+        check("spawn", "flags stay", attr[0], 0x0140);
+        attr[0] = 0, desc[0] = 8; /* too small to be attributes */
+        hv_spawn_fixed(&s);
+        check("spawn", "a small block is left alone", attr[0], 0);
+        desc[0] = 0x150, desc[1] = 0; /* no attributes */
+        hv_spawn_fixed(&s);
+        check("spawn", "no attributes", attr[0], 0);
+        desc[1] = ADDR(exc_programs_begin); /* read-only memory */
+        uint16_t before;
+        memcpy(&before, exc_programs_begin, 2);
+        hv_spawn_fixed(&s);
+        check("spawn", "read-only attributes", *(const uint16_t *)(const void *)exc_programs_begin, before);
+        s.x[2] = 0;
+        hv_spawn_fixed(&s);
+        s.x[2] = 0x7000000000ull; /* nothing there */
+        hv_spawn_fixed(&s);
+        check("spawn", "calls counted", m.stats.spawns, 7);
+        check("spawn", "calls changed", m.stats.spawns_fixed, 2);
     }
 
     printf("%d checks, %d failures\n", checks, failures);

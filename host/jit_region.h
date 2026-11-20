@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define HV_JIT_MAX_SEGS 64
+#define HV_JIT_MAX_SEGS 128 /* a segment's number plus one is kept in a byte (HvMachine.slot_tseg) */
 
 /* One executable region for translated blocks. Blocks are appended and never
    freed one by one. As a ring (hv_jit_ring): the region is cut into segments

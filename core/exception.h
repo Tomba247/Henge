@@ -36,6 +36,10 @@ void hv_raise_undef(HvCpu *cpu, uint64_t pc);
 void hv_raise_abort(HvCpu *cpu, int insn, uint64_t va, uint32_t fsc, int wnr, int s1ptw, uint64_t pc);
 void hv_eret(HvCpu *cpu);
 
+/* HV_FIXED_ADDR, at a macOS posix_spawn call from EL0 (x2: its arguments): asks for the new program to be loaded at
+   its own address instead of a random one. See exception.c. */
+void hv_spawn_fixed(HvCpu *cpu);
+
 /* SVC, HVC (PSCI), SMC, BRK, HLT at pc. Returns 1: the block always leaves. */
 int hv_exception_insn(HvCpu *cpu, uint32_t insn, uint64_t pc);
 

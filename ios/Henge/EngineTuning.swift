@@ -14,6 +14,7 @@ enum EngineTuning {
     static let windowKey = "henge.perf.el0window"
     static let linux3DKey = "henge.linux.3d"
     static let groupsKey = "henge.perf.groups"
+    static let fixedAddrKey = "henge.perf.fixedAddr"
     static let linuxGPUAsyncKey = "henge.linux.gpuAsync2" // a new key: on for everyone when it became the default
 
     static let defaults: [String: String] = [
@@ -57,6 +58,10 @@ enum EngineTuning {
         // Grouped memory accesses (core/translate.c, HV_GROUPS): one page check for several accesses off the same register, with
         // about 15% more code. Off unless switched on: upstream PR #218 measured an iPad 11% faster with it, an earlier Mac run no faster.
         if d.bool(forKey: groupsKey) { env["HV_GROUPS"] = "1" } else { unsetenv("HV_GROUPS") }
+        // Programs load at their own addresses, not random ones, so the engine's translated code (kept by address)
+        // serves every new process: core/exception.c, hv_spawn_fixed. Off unless asked: it gives up the guest's
+        // address randomization.
+        if d.bool(forKey: fixedAddrKey) { env["HV_FIXED_ADDR"] = "1" } else { unsetenv("HV_FIXED_ADDR") }
         // The display's refresh event, sent while macOS asks for it (devices/pvg_lite.c, HV_PVG_VBLANK). Without it WindowServer
         // times its frames with a timer that it finds late every time and re-arms at once: tens of thousands of wakeups a second.
         if d.bool(forKey: vblankKey) { env["HV_PVG_VBLANK"] = "1" } else { unsetenv("HV_PVG_VBLANK") } // off unless switched on: see devices/pvg_lite.c

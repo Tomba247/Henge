@@ -22,7 +22,7 @@ extern void hv_xjump_thunk(void);
 static int init_rest(HvMachine *m);
 
 int hv_knob[HV_K_COUNT];
-static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL"};
+static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL", "HV_FIXED_ADDR", "HV_SMC_FINE"};
 
 static void knobs_init(void) {
     for (int i = 0; i < HV_K_COUNT; i++)
@@ -36,6 +36,7 @@ static void knobs_init(void) {
     if (!getenv("HV_DNS_PROXY")) hv_knob[HV_K_DNSPROXY] = 1;
     if (!getenv("HV_RANGE_DROP")) hv_knob[HV_K_RANGEDROP] = 256;
     if (!getenv("HV_SYNC_WAIT")) hv_knob[HV_K_SYNCWAIT] = 1;
+    if (!getenv("HV_SMC_FINE")) hv_knob[HV_K_SMCFINE] = 2048;
 }
 
 int hv_knob_set(HvMachine *m, const char *name, int value) {
@@ -107,6 +108,10 @@ static int init_rest(HvMachine *m) {
        issue #75 measured the logged clear slower over a cold boot on a Mac; off until a device A/B says the same). */
     if (getenv("HV_TLB_FLUSH_ALL")) hv_knob[HV_K_FLUSHALL] = atoi(getenv("HV_TLB_FLUSH_ALL"));
     if (getenv("HV_GROUPS")) hv_knob[HV_K_GROUPS] = atoi(getenv("HV_GROUPS"));
+    /* A write to a page with translated code only drops the page's blocks when it lands on instructions one was
+       made from (hv_code_written); the number is how many other writes a page takes before it is dropped anyway,
+       to be written freely again. HV_SMC_FINE=0: any write drops them, as before. */
+    hv_knob[HV_K_SMCFINE] = getenv("HV_SMC_FINE") ? atoi(getenv("HV_SMC_FINE")) : 2048;
     /* So the tests can run the translator these ways too (the iOS and --phone paths read them in knobs_init). */
     if (getenv("HV_SUPERBLOCKS")) hv_knob[HV_K_SUPERBLOCKS] = atoi(getenv("HV_SUPERBLOCKS"));
     if (getenv("HV_JIT_SEGMENTS")) hv_knob[HV_K_JITSEGS] = atoi(getenv("HV_JIT_SEGMENTS"));
@@ -414,6 +419,9 @@ void hv_machine_free(HvMachine *m) {
     for (int i = 0; i < m->nram; i++) {
         free(m->ram[i].code_pages);
         free(m->ram[i].page_gen);
+        free(m->ram[i].code_mask);
+        free(m->ram[i].xlating);
+        free(m->ram[i].code_quiet);
         free(m->ram[i].whint);
         free(m->ram[i].ijc_va);
         free(m->ram[i].xhead);
@@ -481,7 +489,10 @@ int hv_machine_add_ram(HvMachine *m, uint64_t pa, uint64_t size, void *host, int
     r->whint = calloc(pages * HV_MAX_CPUS, sizeof *r->whint);
     r->ijc_va = calloc(pages, sizeof *r->ijc_va);
     r->xhead = calloc(pages, sizeof *r->xhead);
-    return r->code_pages && r->page_gen && r->whint && r->ijc_va && r->xhead ? 0 : -1;
+    r->code_mask = calloc(pages, sizeof *r->code_mask);
+    r->xlating = calloc(pages, sizeof *r->xlating);
+    r->code_quiet = calloc(pages, sizeof *r->code_quiet);
+    return r->code_pages && r->page_gen && r->whint && r->ijc_va && r->xhead && r->code_mask && r->xlating && r->code_quiet ? 0 : -1;
 }
 
 int hv_machine_add_mmio(HvMachine *m, uint64_t pa, uint64_t size, void *opaque,
@@ -544,6 +555,10 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
     /* Blocks remember the generation they were made under; a stale one is
        retranslated the next time it is looked up. The block running now may
        finish with the old code, as it would with a real instruction pipeline. */
+    /* The parts noted as code go first: a block that notes its part after this was made under the new generation
+       (it read the generation before its code), or is stale already. */
+    __atomic_store_n(&r->code_mask[pg], 0, __ATOMIC_SEQ_CST);
+    r->code_quiet[pg] = 0;
     r->code_pages[pg] = 0;
     __atomic_add_fetch(&r->page_gen[pg], 1, __ATOMIC_SEQ_CST);
     m->stats.flush_smc++;
@@ -609,6 +624,41 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
     hv_machine_kick_all(m);
 }
 
+/* HV_SMC_FINE. A guest write of len bytes at pa, inside one page that has translated code: must the page's blocks
+   go? Only when the write lands on instructions a block was made from, or while one is being made from the page.
+
+   A JIT in the guest (JavaScriptCore, V8) keeps writing new functions into pages whose older functions are running,
+   and each such write used to drop every block of the 16 KB page, send every CPU out of its chain and take the
+   translation lock: on the phone (2026-11-20, macOS 27.2 with a Node program at work) 530 times a second, with
+   1.5 million stale blocks in the hash and 40% of a CPU waiting for that lock.
+
+   Each page has a 64-bit mask, one bit per 256 bytes, set where a block's instructions lie (lookup in dispatch.c
+   sets it after translating, having counted itself in xlating before it read the code), cleared when the page's
+   blocks are dropped. The write is checked here both before it is made and after: a block made from bytes this
+   write changed either had its bits set by the second check, or was still counted in xlating then. A page that
+   stays protected has its writes take this slow path, so after hv_knob[HV_K_SMCFINE] of them without a drop the
+   page is dropped anyway and takes writes inline again until code on it next runs.
+
+   Returns 1 when the blocks were dropped. `after`: the write has been made. */
+int hv_code_written(HvMachine *m, HvRam *r, uint64_t pa, uint64_t len, int after) {
+    uint64_t off = pa - r->pa, pg = off >> HV_TLB_PAGE_BITS;
+    if (!__atomic_load_n(&r->code_pages[pg], __ATOMIC_ACQUIRE)) return 0;
+    int budget = hv_knob[HV_K_SMCFINE];
+    if (budget > 0) {
+        uint64_t bits = hv_code_bits(off & ((1ull << HV_TLB_PAGE_BITS) - 1), len);
+        if (!(__atomic_load_n(&r->code_mask[pg], __ATOMIC_SEQ_CST) & bits) && !__atomic_load_n(&r->xlating[pg], __ATOMIC_SEQ_CST)) {
+            if (after) return 0;
+            if (++r->code_quiet[pg] < budget) {
+                m->stats.smc_kept++;
+                return 0;
+            }
+            m->stats.smc_quiet++;
+        }
+    }
+    hv_invalidate_code(m, r->pa + (pg << HV_TLB_PAGE_BITS));
+    return 1;
+}
+
 void hv_dma_written(HvMachine *m, uint64_t pa, uint64_t len) {
     HvRam *r = hv_ram_lookup(m, pa);
     if (!r || !len || pa + len - r->pa > r->size) return;
@@ -656,8 +706,12 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
         if (r->readonly) return 0; /* ROM: writes are ignored */
         uint64_t off = pa - r->pa;
         uint64_t first = off >> HV_TLB_PAGE_BITS, last = (off + len - 1) >> HV_TLB_PAGE_BITS;
+        int code = 0; /* a write to a page with translated code: see hv_code_written */
         for (uint64_t pg = first; pg <= last; pg++)
-            if (r->code_pages[pg]) hv_invalidate_code(m, r->pa + (pg << HV_TLB_PAGE_BITS)); /* a write to code */
+            if (r->code_pages[pg]) {
+                uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;
+                if (!hv_code_written(m, r, r->pa + lo, hi - lo, 0)) code = 1;
+            }
         if (m->watch_pa && m->watch_pa - pa < len) {
             uint64_t v = 0;
             memcpy(&v, (const uint8_t *)buf + (m->watch_pa - pa), len - (m->watch_pa - pa) < 8 ? len - (m->watch_pa - pa) : 8);
@@ -666,6 +720,11 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
                     (unsigned long long)m->access_pc);
         }
         memcpy(r->host + off, buf, len);
+        if (code) /* the blocks were kept: was one made from these bytes meanwhile? */
+            for (uint64_t pg = first; pg <= last; pg++) {
+                uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;
+                hv_code_written(m, r, r->pa + lo, hi - lo, 1);
+            }
         return 0;
     }
     HvMmio *d = hv_mmio_lookup(m, pa);

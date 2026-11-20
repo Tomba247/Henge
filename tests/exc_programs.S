@@ -334,6 +334,33 @@ PROGRAM p_smc_nomaint
 5:
 END p_smc_nomaint
 
+// Copied to the start of a writable page by the test. Writes far from its own code in the same page (data, then a
+// new subroutine): the page's translations stay (HV_SMC_FINE). Then the subroutine is run, rewritten and run again:
+// that write lands on translated code, and the new code must be what runs.
+PROGRAM p_smc_far
+0:  adr x2, 0b
+    add x5, x2, #0x1000
+    mov x3, #0x55
+    str x3, [x5]
+    ldr x6, [x5]
+    ldr w3, 4f
+    str w3, [x5, #0x100]
+    ldr w3, 6f
+    str w3, [x5, #0x104]
+    add x7, x5, #0x100
+    blr x7
+    mov x8, x0
+    ldr w3, 5f
+    str w3, [x5, #0x100]
+    blr x7
+    mov x9, x0
+    b 7f
+4:  mov x0, #1
+5:  mov x0, #2
+6:  ret
+7:
+END p_smc_far
+
 // TTBR0_EL1 read back after a write, CONTEXTIDR_EL1 both ways (also through the stolen x18 and XZR),
 // DCZID_EL0: the registers translated MRS / MSR reach in the HvCpu beyond one load's reach.
 PROGRAM p_farregs

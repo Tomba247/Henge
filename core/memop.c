@@ -415,7 +415,10 @@ static int rmw_target(HvCpu *cpu, uint64_t va, uint32_t bytes, int el, uint64_t 
     if (*host) {
         /* Same rule as other writes: drop translations made from this page. */
         uint64_t pg = (pa - ram->pa) >> HV_TLB_PAGE_BITS;
-        if (ram->code_pages[pg]) hv_invalidate_code(cpu->m, pa);
+        if (ram->code_pages[pg]) { /* the caller writes through the pointer, so there is no check after the write: always */
+            cpu->m->stats.smc_atomic++;
+            hv_invalidate_code(cpu->m, pa);
+        }
     }
     *mmio_pa = pa;
     return 0;

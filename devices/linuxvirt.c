@@ -148,6 +148,10 @@ static uint8_t *make_dtb(HvLinuxVirt *b, const HvLinuxVirtConfig *c, size_t *len
     char bootargs[1024];
     if (!strstr(args, "kpti=") && !getenv("HV_LINUX_KPTI")) snprintf(bootargs, sizeof bootargs, "%s kpti=0", args);
     else snprintf(bootargs, sizeof bootargs, "%s", args);
+    /* HV_FIXED_ADDR: programs and their libraries at the same addresses in every process (norandmaps), so the
+       engine's translated code, kept by address, serves each new process: see hv_spawn_fixed in core/exception.c. */
+    if (getenv("HV_FIXED_ADDR") && atoi(getenv("HV_FIXED_ADDR")) && !strstr(bootargs, "norandmaps") && strlen(bootargs) + 12 < sizeof bootargs)
+        strcat(bootargs, " norandmaps");
     hv_fdt_str(&f, "bootargs", bootargs);
     hv_fdt_str(&f, "stdout-path", uart_path);
     if (b->initrd_size) {
