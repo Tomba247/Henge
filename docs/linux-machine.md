@@ -181,24 +181,31 @@ Next for the GPU: the screen as a Metal texture (UTM's virglrenderer can hand
 out a resource's `MTLTexture`) rather than read back, a CAMetalLayer for it, and
 the display following the app's window size.
 
-## Vulkan (in progress)
+## Vulkan (parked)
+
+Parked on 2026-11-20: the desktop and its browsers draw with OpenGL, which is
+already on the GPU, and their time goes to the guest's translated CPU, so
+Vulkan would only serve programs that ask for it. What is here stays behind
+`hengelinux --venus`; the images and the workflow no longer carry it (the
+self-test's Vulkan lines appear when `vulkan-tools` is installed in a guest).
 
 The way to Vulkan on the host's GPU is Venus: Mesa's Venus driver in the guest
 sends Vulkan calls through virtio-gpu to virglrenderer, which runs them on the
 host's Vulkan (on a phone that would be MoltenVK, on Metal).
 
-- **Done:** the images have the Vulkan loader, `vulkaninfo`, `vkcube` and Mesa's
-  Vulkan drivers (one package: lavapipe, Vulkan on the guest's CPU, and Venus).
-  Until the machine's GPU offers Venus the guest's Vulkan is lavapipe: correct,
-  slow. GTK 4 is kept on OpenGL (`GSK_RENDERER=ngl`). The self-test reports the
-  devices (`vulkan:`), draws `vkcube` on the desktop, and asks Mesa's Venus
-  driver alone what it makes of the machine's GPU (`venus:`).
-- **Done:** the workflow tries the host's half without a machine: Mesa's Venus
-  driver against virglrenderer's test server (`virgl_test_server --venus`) on
-  lavapipe. Ubuntu 24.04's virglrenderer 1.0.0 serves Mesa 25.2's Venus
-  (Vulkan 1.2).
-- **Written, being tried (`hengelinux --venus`, Linux hosts):** what Venus asks
-  of virtio-gpu.
+- **Tried:** the host's half without a machine, on the arm64 runner and on
+  x86: Mesa's Venus driver (`mesa-vulkan-drivers`, which also has lavapipe)
+  against virglrenderer's test server (`virgl_test_server --venus`, package
+  `virgl-server`) on lavapipe gives "Virtio-GPU Venus (llvmpipe)". Ubuntu
+  24.04's virglrenderer 1.0.0 serves Mesa 25.2's Venus (Vulkan 1.2).
+- **Tried:** with `mesa-vulkan-drivers` and `vulkan-tools` in an image, the
+  guest's own lavapipe draws `vkcube` on GNOME (the workflow's run 37).
+- **Written (`hengelinux --venus`, Linux hosts):** what Venus asks of
+  virtio-gpu. With the engine itself under qemu-aarch64 on x86, a guest's Mesa
+  connects, maps its ring from the window, and the render server runs its
+  commands as far as a Vulkan device; it then stalls on the ring's idle
+  handshake, which relies on a store being seen by a following load in another
+  process, an order qemu does not keep. Not yet seen on arm64 itself.
   - Context types (`VIRTIO_GPU_F_CONTEXT_INIT`) and the Venus capset.
   - Blob resources (`VIRTIO_GPU_F_RESOURCE_BLOB`): created, mapped, unmapped.
   - The host-visible window: one block of reserved host memory that is guest
@@ -223,6 +230,19 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   - Risks: `shm_open` inside the iOS sandbox, MoltenVK's limits, the app's
     memory limit (each mapped allocation is shared memory), and a Vulkan fault
     taking the whole app down since nothing is in a separate process.
+
+## What the desktop images hold
+
+- **Network:** on Ubuntu GNOME NetworkManager runs the card (netplan's renderer
+  is NetworkManager), so GNOME has its network icon and Settings panel; Kali
+  uses NetworkManager too. Ubuntu Xfce and the server use systemd-networkd.
+- **Browsers:** Firefox (Mozilla's deb on Ubuntu, Firefox ESR on Kali) and a
+  second one, Google Chrome on Ubuntu (Google's arm64 package) or Chromium on
+  Kali, with a policy file that skips its first-run questions and keeps
+  hardware acceleration on. The self-test opens it and prints how its GPU
+  process was started.
+- **YouTube app (`yt`):** yt-dlp and mpv. YouTube needs yt-dlp to run
+  JavaScript, which it does with Deno (`/usr/local/bin/deno`).
 
 ## Next
 

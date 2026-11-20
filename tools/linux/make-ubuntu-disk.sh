@@ -123,7 +123,18 @@ HOST=henge-$DISTRO
 echo $HOST > "$ROOT/etc/hostname"
 printf '127.0.0.1 localhost\n127.0.1.1 %s\n' $HOST > "$ROOT/etc/hosts"
 # The network: virtio-net on Henge's user-mode network, by DHCP (Kali: NetworkManager does it on its own).
-if [ "$DISTRO" = ubuntu ]; then
+if [ "$DISTRO" = ubuntu ] && [ "$DESKTOP" = gnome ]; then
+# Ubuntu's desktop: NetworkManager runs every card, so GNOME has its network icon and Settings panel (it is
+# installed with the desktop below). It brings a wired card up by DHCP on its own.
+cat > "$ROOT/etc/netplan/01-henge.yaml" <<'YAML'
+network:
+  version: 2
+  renderer: NetworkManager
+YAML
+chmod 600 "$ROOT/etc/netplan/01-henge.yaml"
+ln -sf /dev/null "$ROOT/etc/systemd/system/systemd-networkd-wait-online.service"
+ln -sf /dev/null "$ROOT/etc/systemd/system/NetworkManager-wait-online.service"
+elif [ "$DISTRO" = ubuntu ]; then
 cat > "$ROOT/etc/netplan/01-henge.yaml" <<'YAML'
 network:
   version: 2
@@ -259,6 +270,33 @@ if [ -n "$ff" ]; then
         tail -25 /tmp/henge-ff.log | sed "s/^/ffw: /"
     fi
     dmesg | grep -iE "firefox|Web Content|Isolated|GPU Process|segfault|unhandled|traps" | tail -15 | sed "s/^/kernel: /"
+fi
+# The second browser: its version, then a window on the desktop and how its GPU process was started (the GPU's
+# OpenGL through ANGLE, or SwiftShader when it drew in software).
+ch=$(command -v google-chrome || command -v chromium || true)
+if [ -n "$ch" ] && [ -n "$desktop" ]; then
+    echo "chrome: $(runuser -u henge -- env HOME=/home/henge timeout 60 "$ch" --version 2>&1 | tail -1)"
+    if [ "$desktop" = xfce ]; then cenv="DISPLAY=:0"
+    else cenv="WAYLAND_DISPLAY=wayland-0 DISPLAY=:0 XAUTHORITY=$xa"; fi
+    runuser -u henge -- env HOME=/home/henge XDG_RUNTIME_DIR=/run/user/$u $cenv DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$u/bus \
+        "$ch" --no-first-run file:///tmp/henge-ff.html > /tmp/henge-chrome.log 2>&1 &
+    sleep 60
+    echo "chrome window: $(pgrep -u henge -c -f "$(basename "$(readlink -f "$ch")")|chrome") processes after 60 s"
+    g=$(ps -u henge -o args= | grep -m1 -e "--type=gpu-process")
+    if [ -n "$g" ]; then echo "chrome gpu process: $(echo "$g" | tr " " "\n" | grep -E "^--(use-gl|use-angle|ozone-platform|disable-gpu|enable-features|gpu-preferences)" | cut -c1-60 | tr "\n" " ")"
+    else echo "chrome gpu process: none"; fi
+    grep -iE "gpu|angle|egl|gl_|vulkan|error" /tmp/henge-chrome.log | grep -viE "dbus|bluez|gcm|registration" | head -8 | cut -c1-200 | sed "s/^/chrome: /"
+    pkill -u henge -f "$(dirname "$(readlink -f "$ch")")" 2>/dev/null
+fi
+# YouTube: yt-dlp, its JavaScript runtime, and one search (needs the network: the workflow's boots have none).
+if command -v yt-dlp >/dev/null 2>&1; then
+    echo "yt-dlp: $(timeout 120 yt-dlp --version 2>&1 | tail -1); deno: $(timeout 120 deno --version 2>&1 | head -1)"
+    if ip -4 route show default 2>/dev/null | grep -q default; then
+        echo "yt-dlp search: $(runuser -u henge -- env HOME=/home/henge timeout 240 yt-dlp --flat-playlist --print "%(id)s %(title)s" "ytsearch1:big buck bunny" 2>&1 | tail -2 | cut -c1-160 | tr "\n" ";")"
+    fi
+fi
+if command -v nmcli >/dev/null 2>&1; then
+    echo "network manager: $(systemctl is-active NetworkManager 2>&1); $(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>&1 | grep -v "^lo:" | head -4 | tr "\n" ";")"
 fi
 # Video: how fast this CPU decodes YouTube-like H.264 (300 frames, as fast as it can; 30 fps is real time).
 for f in /usr/local/share/henge/sample*.mp4; do
@@ -411,7 +449,7 @@ if [ "$DESKTOP" = gnome ] && [ "$DISTRO" = ubuntu ]; then
         gnome-shell-extension-ubuntu-dock gnome-shell-extension-appindicator \
         yaru-theme-gnome-shell yaru-theme-gtk yaru-theme-icon yaru-theme-sound fonts-ubuntu ubuntu-wallpapers ubuntu-wallpapers-noble \
         nautilus gnome-terminal gnome-text-editor eog gnome-calculator gnome-system-monitor file-roller gnome-control-center gnome-tweaks \
-        xwayland pipewire-pulse wireplumber dconf-cli \
+        network-manager xwayland pipewire-pulse wireplumber dconf-cli \
         libgl1-mesa-dri libegl-mesa0 mesa-utils
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get purge -y gnome-initial-setup 2>/dev/null || true
     # GDM signs henge in on its own, into Ubuntu's session (GNOME on Wayland; GDM falls back to Xorg itself).
@@ -451,12 +489,43 @@ enable-animations=false
 
 [org.gnome.shell]
 welcome-dialog-last-shown-version='999'
-favorite-apps=['BROWSER.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+favorite-apps=['BROWSER.desktop', 'CHROME.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
 
 [org.gnome.shell:ubuntu]
-favorite-apps=['BROWSER.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
+favorite-apps=['BROWSER.desktop', 'CHROME.desktop', 'yt.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Settings.desktop']
 GS
     sed -i "s/'BROWSER.desktop'/'$BROWSER.desktop'/" "$ROOT/usr/share/glib-2.0/schemas/99_henge.gschema.override"
+fi
+
+CHROME=""
+if [ -n "$DESKTOP" ]; then
+    # A second browser: Google Chrome on Ubuntu (Google's own arm64 package, which adds its apt repository for
+    # updates; Ubuntu's chromium is a snap), Chromium on Kali (Debian's package). The image is made without it if
+    # it cannot be had. It draws with the GPU on its own once the machine has 3D; the self-test says how.
+    if [ "$DISTRO" = ubuntu ]; then
+        if curl -fsSL --retry 3 https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb -o "$ROOT/tmp/chrome.deb" &&
+            chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/chrome.deb; then
+            CHROME=google-chrome
+        fi
+        rm -f "$ROOT/tmp/chrome.deb"
+    elif chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium; then
+        CHROME=chromium
+    fi
+    if [ -n "$CHROME" ]; then
+        # No questions at first start, nothing left running when its windows close, hardware acceleration on.
+        for d in /etc/opt/chrome/policies/managed /etc/chromium/policies/managed; do
+            mkdir -p "$ROOT$d"
+            printf '{"DefaultBrowserSettingEnabled": false, "MetricsReportingEnabled": false, "BackgroundModeEnabled": false,\n "HardwareAccelerationModeEnabled": true, "PromotionsEnabled": false}\n' > "$ROOT$d/henge.json"
+        done
+        [ "$DESKTOP" = xfce ] && [ "$DISTRO" = ubuntu ] && printf '[PlankDockItemPreferences]\nLauncher=file:///usr/share/applications/%s.desktop\n' "$CHROME" \
+            > "$ROOT/home/henge/.config/plank/dock1/launchers/$CHROME.dockitem"
+    else
+        echo "   no Chrome or Chromium to be had: the image has Firefox only"
+    fi
+fi
+if [ "$DESKTOP" = gnome ]; then
+    if [ -n "$CHROME" ]; then sed -i "s/'CHROME.desktop'/'$CHROME.desktop'/" "$ROOT/usr/share/glib-2.0/schemas/99_henge.gschema.override"
+    else sed -i "s/'CHROME.desktop', //" "$ROOT/usr/share/glib-2.0/schemas/99_henge.gschema.override"; fi
     chroot "$ROOT" glib-compile-schemas /usr/share/glib-2.0/schemas
 fi
 
@@ -499,14 +568,6 @@ if [ -n "$DESKTOP" ]; then
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,
     # at 720p H.264 (the self-test decodes 720p at about 6 times real time on the engine).
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3 ffmpeg pulseaudio-utils
-    # Vulkan: the loader, vulkaninfo and vkcube, and Mesa's drivers: lavapipe (Vulkan on the guest's CPU, what
-    # there is until the machine's GPU offers Venus) and Venus (Vulkan on the host's GPU through virtio-gpu).
-    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools
-    # GTK 4 apps keep drawing with OpenGL (virgl), as before there was a Vulkan driver in the image: newer GTK
-    # (Kali's) would otherwise pick Vulkan when it finds a device. For the session and for what systemd starts.
-    echo "GSK_RENDERER=ngl" >> "$ROOT/etc/environment"
-    mkdir -p "$ROOT/etc/environment.d"
-    echo "GSK_RENDERER=ngl" > "$ROOT/etc/environment.d/90-henge-gtk.conf"
     # Sample videos for the self-test's playback speed check (H.264 as YouTube sends it, 30 fps, 10 s each).
     mkdir -p "$ROOT/usr/local/share/henge"
     for h in 360 480 720; do
@@ -516,6 +577,16 @@ if [ -n "$DESKTOP" ]; then
     done
     curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "$ROOT/usr/local/bin/yt-dlp"
     chmod 755 "$ROOT/usr/local/bin/yt-dlp"
+    # YouTube makes yt-dlp solve JavaScript challenges, which it does with Deno when Deno is installed (its
+    # default; without a runtime some formats are missing, and it is on its way out). yt-dlp's own file has the
+    # solver scripts. The image is made without Deno if it cannot be had.
+    if curl -fsSL --retry 3 https://github.com/denoland/deno/releases/latest/download/deno-aarch64-unknown-linux-gnu.zip -o "$WORK/deno.zip" &&
+        python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extract("deno", sys.argv[2])' "$WORK/deno.zip" "$ROOT/usr/local/bin"; then
+        chmod 755 "$ROOT/usr/local/bin/deno"
+    else
+        echo "   no Deno to be had: yt-dlp runs without a JavaScript runtime"
+    fi
+    rm -f "$WORK/deno.zip"
     cat > "$ROOT/usr/local/bin/yt" <<'YT'
 #!/bin/sh
 # YouTube without a browser (tools/linux/make-ubuntu-disk.sh): search or a link, pick, play in mpv.
