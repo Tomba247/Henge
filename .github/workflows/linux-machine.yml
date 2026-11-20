@@ -25,9 +25,9 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: "Desktop: gnome (Ubuntu), kali (Kali Xfce), kali-gnome, both (Ubuntu Xfce and GNOME), xfce or none (a server). On push: gnome, kali and kali-gnome"
+        description: "Desktop: gnome (Ubuntu), kali (Kali Xfce), kali-gnome, all (those three, what a release takes), both (Ubuntu Xfce and GNOME), xfce or none (a server). On push: all"
         type: choice
-        options: [gnome, kali, kali-gnome, both, xfce, none]
+        options: [gnome, kali, kali-gnome, all, both, xfce, none]
         default: gnome
       size:
         description: "Disk size"

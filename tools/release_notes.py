@@ -16,10 +16,10 @@ UPSTREAM = "https://github.com/Leviidev/Henge"
 FILES = {
     "Henge.ipa": ("The app", "Install it with SideStore, AltStore, Feather or another sideloader."),
     "Henge.tipa": ("The app, for TrollStore", "The same app, packaged for TrollStore."),
-    "Henge-Ubuntu-GNOME.zip": ("Ubuntu 24.04 · GNOME", "Ubuntu's own desktop and dock, Firefox, and a YouTube app."),
+    "Henge-Ubuntu-GNOME.zip": ("Ubuntu 24.04 · GNOME", "Ubuntu's own desktop and dock, Firefox, Google Chrome and a YouTube app."),
     "Henge-Ubuntu-Xfce.zip": ("Ubuntu 24.04 · Xfce", "A lighter desktop with Firefox and a YouTube app."),
-    "Henge-Kali.zip": ("Kali Linux · Xfce", "Kali rolling with Kali's own Xfce desktop, Firefox ESR and Kali's top 10 tools."),
-    "Henge-Kali-GNOME.zip": ("Kali Linux · GNOME", "Kali rolling with GNOME and a dock, Firefox ESR and Kali's top 10 tools."),
+    "Henge-Kali.zip": ("Kali Linux · Xfce", "Kali rolling with Kali's own Xfce desktop, Firefox ESR, Chromium and Kali's top 10 tools."),
+    "Henge-Kali-GNOME.zip": ("Kali Linux · GNOME", "Kali rolling with GNOME and a dock, Firefox ESR, Chromium and Kali's top 10 tools."),
 }
 
 
