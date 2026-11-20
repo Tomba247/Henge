@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.98",
+          "date": "2026-11-20T18:15:18Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Linux 3D: the render thread no longer looks at a posted job after freeing it (the app's crash a few seconds into a desktop)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 848233d\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-98/Henge.ipa",
+          "size": 14194044,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.97",
           "date": "2026-11-20T16:54:08Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -326,16 +336,6 @@
           "size": 9749086,
           "minOSVersion": "17.0",
           "branch": "henge-perf"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.45",
-          "date": "2026-11-14T21:43:32Z",
-          "localizedDescription": "What changed: Merge remote-tracking branch 'origin/perf-night' into merge-test\nBranch: henge-perf\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-45/Henge.ipa",
-          "size": 9721901,
-          "minOSVersion": "17.0",
-          "branch": "henge-perf"
         }
       ],
       "appPermissions": {
@@ -350,11 +350,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.97",
-      "versionDate": "2026-11-20T16:54:08Z",
-      "versionDescription": "What changed: Vulkan test build 4: the trap guard is as it was in build 94 (build 95 crashed at the desktop, with Vulkan on or off)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 1b26439\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-97/Henge.ipa",
-      "size": 14194879,
+      "buildVersion": "101.98",
+      "versionDate": "2026-11-20T18:15:18Z",
+      "versionDescription": "What changed: Linux 3D: the render thread no longer looks at a posted job after freeing it (the app's crash a few seconds into a desktop)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 848233d\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-98/Henge.ipa",
+      "size": 14194044,
       "minOSVersion": "17.0"
     }
   ],
