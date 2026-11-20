@@ -7,7 +7,7 @@
 # the arm64 cloud root file system and the stock generic kernel, its modules
 # indexed (depmod) since nothing installs them as packages here.
 #
-#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 60G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]
+#   sudo tools/linux/make-ubuntu-disk.sh OUTDIR [--size 60G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR] [--vulkan]
 #
 # --kernel-dir takes the kernel tools/linux/build-kernel.sh built (16 KB pages,
 # what HengeVM runs fastest: see henge-kernel.config) instead of Ubuntu's own
@@ -21,10 +21,12 @@
 # binfmt_misc. --pack writes disk.img.hvsparse (holes left out) for moving it
 # to the phone. Needs: curl, xz, zstd, mkfs.ext4 (e2fsprogs), depmod (kmod),
 # dpkg-deb, and a C compiler for --pack. Run as root (file ownership in the
-# image).
+# image). --vulkan adds Mesa's Vulkan drivers and tools to a desktop image, for
+# trying Vulkan (Venus, docs/linux-machine.md); the images handed out are made
+# without it.
 set -euo pipefail
 
-OUT=""; SIZE=60G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""; DISTRO=ubuntu
+OUT=""; SIZE=60G; DESKTOP=""; PACK=0; RELEASE=noble; KDIR=""; DISTRO=ubuntu; VULKAN=0
 # The release's own kernel series (noble: 6.8, what the Linux machine is tried with), not the
 # newer hardware-enablement kernels the same archive also has. KSERIES=7.0.0 picks those.
 KSERIES=${KSERIES:-6.8.0}
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
         --gnome) DESKTOP=gnome ;;
         --kali) DISTRO=kali ;;
         --pack) PACK=1 ;;
+        --vulkan) VULKAN=1 ;;
         --release) RELEASE=$2; shift ;;
         --kernel-dir) KDIR=$(cd "$2" && pwd); shift ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
@@ -44,7 +47,7 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 60G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR]" >&2; exit 2; }
+[ -n "$OUT" ] || { echo "usage: $0 OUTDIR [--size 60G] [--desktop | --gnome] [--pack] [--release noble] [--kernel-dir DIR] [--vulkan]" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "$0: run as root (the image's files keep their owners)" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$OUT"
@@ -231,6 +234,8 @@ if [ -n "$desktop" ]; then
             vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" VN_DEBUG=init timeout 120 vulkaninfo --summary > /tmp/henge-venus.txt 2>&1
             echo "venus: vulkaninfo exit $?; devices: $(grep deviceName /tmp/henge-venus.txt | sed "s/.*= //" | tr "\n" ";")"
             grep -E "MESA-VIRTIO|ERROR|apiVersion" /tmp/henge-venus.txt | tr -s " \t" " " | head -14 | sed "s/^/venus: /"
+            # What a window needs of it: a swapchain, and memory another driver (the desktop's OpenGL) can take.
+            echo "venus extensions: $(vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" timeout 120 vulkaninfo 2>/dev/null | grep -oE "VK_(KHR_swapchain|KHR_external_(memory|semaphore|fence)_fd|EXT_external_memory_dma_buf|EXT_image_drm_format_modifier|EXT_queue_family_foreign)\b" | sort -u | tr "\n" " ")"
             if grep -q "deviceName.*Venus" /tmp/henge-venus.txt; then
                 # The cube again, drawn by the host's Vulkan this time.
                 t0=$(date +%s.%N)
@@ -238,7 +243,7 @@ if [ -n "$desktop" ]; then
                 r=$?
                 t1=$(date +%s.%N)
                 echo "venus: vkcube exit $r, $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "120 frames in %.1f s, %.1f fps", b - a, 120 / (b - a) }')"
-                [ $r = 0 ] || tail -5 /tmp/henge-vkcube-venus.txt | sed "s/^/venus vkcube: /"
+                tail -5 /tmp/henge-vkcube-venus.txt | cut -c1-200 | sed "s/^/venus vkcube: /"
                 dmesg | grep -iE "virtio_gpu|\[drm.*(ERROR|error)" | tail -6 | sed "s/^/venus kernel: /"
             fi
         else
@@ -563,6 +568,16 @@ UNIT
         ln -sf /etc/systemd/system/henge-firefox.service "$ROOT/etc/systemd/system/multi-user.target.wants/henge-firefox.service"
     fi
     chroot "$ROOT" update-alternatives --set x-www-browser /usr/bin/firefox 2>/dev/null || true
+fi
+if [ -n "$DESKTOP" ] && [ "$VULKAN" = 1 ]; then
+    # Vulkan, for images made to try it: the loader, vulkaninfo and vkcube, and Mesa's drivers: lavapipe (Vulkan
+    # on the guest's CPU) and Venus (Vulkan on the host's GPU through virtio-gpu, when the machine offers it).
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools
+    # GTK 4 apps keep drawing with OpenGL (virgl), as in the images without a Vulkan driver: newer GTK (Kali's)
+    # would otherwise pick Vulkan when it finds a device. For the session and for what systemd starts.
+    echo "GSK_RENDERER=ngl" >> "$ROOT/etc/environment"
+    mkdir -p "$ROOT/etc/environment.d"
+    echo "GSK_RENDERER=ngl" > "$ROOT/etc/environment.d/90-henge-gtk.conf"
 fi
 if [ -n "$DESKTOP" ]; then
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,

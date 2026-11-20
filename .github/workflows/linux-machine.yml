@@ -41,6 +41,10 @@ on:
         description: "Kernel: henge (16 KB pages, built here) or ubuntu (stock, 4 KB pages: slow on the engine)"
         type: string
         default: "henge"
+      vulkan:
+        description: "Try Vulkan (Venus): Vulkan drivers in the image and a boot with Vulkan. Not a machine for a release"
+        type: boolean
+        default: false
   push:
     branches: ["claude/linux-runner-crash-flumcd"]
     paths:
@@ -72,6 +76,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq debootstrap build-essential e2fsprogs kmod zstd xz-utils curl bc bison flex libssl-dev libelf-dev python3 \
               libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2 pkg-config
+          if [ "${{ inputs.vulkan || false }}" = true ]; then
+            sudo apt-get install -y -qq --no-install-recommends virgl-server mesa-vulkan-drivers vulkan-tools
+          fi
 
       - name: Build the engine with the Linux machine (native arm64)
         run: |
@@ -99,6 +106,7 @@ jobs:
           kernel=""
           if [ -f kernel/Image ]; then kernel="--kernel-dir kernel"; fi
           case "${{ matrix.desktop }}" in xfce) desktop=--desktop ;; gnome) desktop=--gnome ;; kali) desktop="--kali --desktop" ;; kali-gnome) desktop="--kali --gnome" ;; *) desktop="" ;; esac
+          if [ "${{ inputs.vulkan || false }}" = true ]; then desktop="$desktop --vulkan"; fi
           sudo tools/linux/make-ubuntu-disk.sh machine --size "${{ inputs.size || '60G' }}" $desktop $kernel
           sudo chown -R "$(id -u):$(id -g)" machine
           ls -la machine
@@ -152,6 +160,52 @@ jobs:
           [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
           grep -q "gl: .*virgl" boot-gles.log
 
+      # Vulkan for the guests is Venus: Mesa's Venus driver in the guest, virglrenderer on the host, the host's
+      # Vulkan under it. This tries the host's half with no machine at all: Mesa's Venus driver talks to
+      # virglrenderer's test server over a socket (as it would over virtio-gpu), on lavapipe, the software Vulkan
+      # a runner has. If this passes and a guest's Venus does not, the fault is in the machine's virtio-gpu.
+      - name: Venus on this runner, without a machine (Mesa's Venus driver, virglrenderer, lavapipe)
+        if: ${{ success() && inputs.vulkan }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          venus=$(ls /usr/share/vulkan/icd.d/virtio_icd*.json | head -1)
+          want="VK_(KHR_swapchain|KHR_external_(memory|semaphore|fence)_fd|EXT_external_memory_dma_buf|EXT_image_drm_format_modifier|EXT_queue_family_foreign)\\b"
+          # lavapipe shares memory and fences with other drivers through udmabuf, which is root's on a runner.
+          ls -la /dev/udmabuf /dev/dri 2>&1 | head -8
+          sudo chmod a+rw /dev/udmabuf 2>/dev/null || true
+          echo "host lavapipe: $(VK_ICD_FILENAMES="$lvp" vulkaninfo 2>/dev/null | grep -oE "$want" | sort -u | tr '\n' ' ')" | tee vtest.log
+          VK_ICD_FILENAMES="$lvp" virgl_test_server --venus --no-virgl --socket-path "$PWD/vtest.sock" > vtest-server.log 2>&1 &
+          for i in $(seq 40); do [ -S vtest.sock ] && break; sleep 0.5; done
+          VTEST_SOCKET_NAME="$PWD/vtest.sock" VN_DEBUG=vtest,init VK_ICD_FILENAMES="$venus" timeout 180 vulkaninfo > vtest-full.log 2>&1
+          echo "vulkaninfo: exit $?" | tee -a vtest.log
+          grep -E "MESA-VIRTIO|deviceName|deviceType|driverName|driverInfo|apiVersion|ERROR" vtest-full.log | sort -u | head -30 | tee -a vtest.log
+          echo "host venus (vtest): $(grep -oE "$want" vtest-full.log | sort -u | tr '\n' ' ')" | tee -a vtest.log
+          kill %1 2>/dev/null || true
+          tail -20 vtest-server.log
+          grep -q "deviceName .*Virtio-GPU Venus" vtest-full.log
+
+      # Vulkan: Mesa's Venus driver in the guest, the machine's virtio-gpu (blobs, the host-visible window, context
+      # types), virglrenderer's render server, and lavapipe as the host's Vulkan (a runner has no GPU).
+      - name: Boot it with Vulkan (Venus, on lavapipe)
+        if: ${{ success() && inputs.vulkan }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          cp --sparse=always machine/disk.img boot-test.img
+          lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 VK_ICD_FILENAMES="$lvp" timeout 1800 build/linux-virgl/hengelinux --kernel machine/Image \
+              --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
+              < /dev/null 2>&1 | tee boot-venus.log
+          rm -f boot-test.img
+          grep -E "^virgl:|^virtio-gpu:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus" boot-venus.log | head -90
+          [ -f screen-venus.ppm ] && python3 tools/linux/ppm2png.py screen-venus.ppm screen-venus.png
+          grep -q "^desktop: .* up after" boot-venus.log
+          grep -q "gl: .*virgl" boot-venus.log
+          grep -q "^venus: .*devices: .*Virtio-GPU Venus" boot-venus.log
+
       - name: Pack the disk
         if: always()
         run: |
@@ -166,7 +220,8 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: henge-ubuntu-${{ matrix.desktop == 'none' && 'server' || matrix.desktop }}-${{ github.sha }}
+          # A machine made to try Vulkan has another name, so the app's build (which takes henge-ubuntu-*) leaves it.
+          name: henge-${{ inputs.vulkan && 'vulkan' || 'ubuntu' }}-${{ matrix.desktop == 'none' && 'server' || matrix.desktop }}-${{ github.sha }}
           path: machine/
           retention-days: 14
           compression-level: 0
@@ -183,16 +238,19 @@ jobs:
             screen-virgl.png
             boot-gles.log
             screen-gles.png
+            boot-venus.log
+            screen-venus.png
+            vtest.log
           if-no-files-found: ignore
 
       # Last, so the end of the job's log is what the boots found (the uploads above fill pages of it).
       - name: What the boots found
         if: always()
         run: |
-          for log in boot boot-virgl boot-gles; do
+          for log in vtest boot boot-virgl boot-gles boot-venus; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (renderer|EGL)|^desktop:|^gl:|glxinfo said|^vulkan:|^venus|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: stopped|henge-autotest: end" $log.log | cut -c1-230 | head -45
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL)|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: stopped|henge-autotest: end" $log.log | cut -c1-230 | head -45
           done
           # About what the release's zip of this machine will weigh (it must stay under 2 GiB).
           [ -f machine/disk.img.hvsparse ] && echo "disk: $(stat -c %s machine/disk.img.hvsparse) bytes packed, about $(zstd -3 -T0 -c machine/disk.img.hvsparse | wc -c) compressed"
