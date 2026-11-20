@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.95",
+          "date": "2026-11-20T16:16:49Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: GPU libraries: memory a guest exports but cannot map goes to a memory type MoltenVK can import into\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit b18f4b2\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-95/Henge.ipa",
+          "size": 14193667,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.94",
           "date": "2026-11-20T15:26:52Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -330,11 +340,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.94",
-      "versionDate": "2026-11-20T15:26:52Z",
-      "versionDescription": "What changed: Vulkan test build: Linux machines can use Vulkan (Venus on MoltenVK) when HV_LINUX_VULKAN=1 is in henge-env.txt. Untried on a phone; off otherwise\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit ee417d5\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-94/Henge.ipa",
-      "size": 14194539,
+      "buildVersion": "101.95",
+      "versionDate": "2026-11-20T16:16:49Z",
+      "versionDescription": "What changed: GPU libraries: memory a guest exports but cannot map goes to a memory type MoltenVK can import into\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit b18f4b2\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-95/Henge.ipa",
+      "size": 14193667,
       "minOSVersion": "17.0"
     }
   ],

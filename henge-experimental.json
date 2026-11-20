@@ -106,16 +106,6 @@
           "size": 9721417,
           "minOSVersion": "17.0",
           "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.42",
-          "date": "2026-11-14T20:09:31Z",
-          "localizedDescription": "What changed: Graphics: object type 12 (League of Legends' render targets) made as the GPU's own textures; without them its passes were skipped and nothing was drawn\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-42/Henge.ipa",
-          "size": 9721365,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
         }
       ],
       "appPermissions": {
