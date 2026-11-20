@@ -19,6 +19,15 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.83",
+          "date": "2026-11-20T00:04:26Z",
+          "localizedDescription": "[claude/linux-runner-crash-flumcd] Ubuntu machine: try apt again when Mozilla's repository is caught mid-sync\n(built from 950e102dc6de25c64a7e6321e26389da7ac1fb52)",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-83/Henge.ipa",
+          "size": 12175281,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.82",
           "date": "2026-11-19T23:05:47Z",
           "localizedDescription": "[claude/linux-runner-crash-flumcd] Kali GNOME machine: built and tested beside Ubuntu GNOME and Kali Xfce, released as Henge-Kali-GNOME.zip\n(built from ae1b9aea32620a767a13cabbe15d96a48bfc231d)",
@@ -228,11 +237,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.82",
-      "versionDate": "2026-11-19T23:05:47Z",
-      "versionDescription": "[claude/linux-runner-crash-flumcd] Kali GNOME machine: built and tested beside Ubuntu GNOME and Kali Xfce, released as Henge-Kali-GNOME.zip\n(built from ae1b9aea32620a767a13cabbe15d96a48bfc231d)",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-82/Henge.ipa",
-      "size": 12173529,
+      "buildVersion": "101.83",
+      "versionDate": "2026-11-20T00:04:26Z",
+      "versionDescription": "[claude/linux-runner-crash-flumcd] Ubuntu machine: try apt again when Mozilla's repository is caught mid-sync\n(built from 950e102dc6de25c64a7e6321e26389da7ac1fb52)",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-83/Henge.ipa",
+      "size": 12175281,
       "minOSVersion": "17.0"
     }
   ],
