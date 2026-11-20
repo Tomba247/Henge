@@ -21,6 +21,10 @@ on:
         description: "Linux machine build to attach as Henge-Ubuntu-Xfce.zip (run id; empty: the newest good one on this branch, if any)"
         type: string
         default: ""
+      vulkan_run:
+        description: "A Linux machine build made with its vulkan switch, to attach its machine as a Vulkan test image (run id; empty: none)"
+        type: string
+        default: ""
 
 env:
   HUSK: ${{ github.workspace }}/Husk
@@ -231,6 +235,7 @@ jobs:
           set -euo pipefail
           TAG="henge-linux-${GITHUB_RUN_NUMBER}" # the release's name in links: henge-linux-<build>, not the branch's name
           run="$LINUX_RUN"
+          if [ "$run" = none ]; then echo "no Linux machines asked for"; exit 0; fi
           if [ -z "$run" ]; then
             run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow linux-machine.yml --branch "$GITHUB_REF_NAME" --status success \
                   -L 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
@@ -272,6 +277,36 @@ jobs:
           done
           echo "(Linux machines from https://github.com/$GITHUB_REPOSITORY/actions/runs/$run)" >> /tmp/notes-linux.txt
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/notes-linux.txt
+
+      # A machine made for trying Vulkan (the Linux machine workflow's vulkan switch): the same desktop with Vulkan's
+      # drivers and a "Vulkan test" launcher. Only when asked for by run id; not one of the regular machines.
+      - name: Attach a Vulkan test machine
+        if: ${{ inputs.vulkan_run != '' }}
+        working-directory: Henge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VULKAN_RUN: ${{ inputs.vulkan_run }}
+        run: |
+          set -euo pipefail
+          TAG="henge-linux-${GITHUB_RUN_NUMBER}"
+          rm -rf /tmp/lv && mkdir -p /tmp/lv
+          gh run download "$VULKAN_RUN" --repo "$GITHUB_REPOSITORY" -p 'henge-vulkan-*' -D /tmp/lv || { echo "run $VULKAN_RUN has no Vulkan test machine"; exit 0; }
+          for d in /tmp/lv/henge-vulkan-*; do
+            case "$d" in
+              *-kali-gnome-*) folder="Kali GNOME Vulkan test" zip=Henge-Kali-GNOME-Vulkan-test.zip ;;
+              *-gnome-*) folder="Ubuntu GNOME Vulkan test" zip=Henge-Ubuntu-GNOME-Vulkan-test.zip ;;
+              *) continue ;;
+            esac
+            rm -rf /tmp/lmz && mkdir -p "/tmp/lmz/$folder"
+            mv "$d"/Image "$d"/disk.img.hvsparse "$d"/machine.json "/tmp/lmz/$folder/"
+            rm -rf "$d"
+            (cd /tmp/lmz && zip -6 -qr "/tmp/$zip" "$folder")
+            size=$(stat -f %z "/tmp/$zip")
+            echo "$zip: $size bytes, from Linux machine run $VULKAN_RUN"
+            [ "$size" -lt 2147483648 ] || { echo "::warning::$zip is over GitHub's 2 GiB limit for a release file: left out"; rm -f "/tmp/$zip"; continue; }
+            gh release upload "$TAG" "/tmp/$zip" --repo "$GITHUB_REPOSITORY"
+            rm -f "/tmp/$zip"
+          done
 
       # The release's title and notes in this fork's style: credit to Henge's author, what each file is (tools/release-notes.sh).
       - name: Release title and notes

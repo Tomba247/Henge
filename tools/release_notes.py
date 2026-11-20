@@ -20,6 +20,8 @@ FILES = {
     "Henge-Ubuntu-Xfce.zip": ("Ubuntu 24.04 · Xfce", "A lighter desktop with Firefox and a YouTube app."),
     "Henge-Kali.zip": ("Kali Linux · Xfce", "Kali rolling with Kali's own Xfce desktop, Firefox ESR, Chromium and Kali's top 10 tools."),
     "Henge-Kali-GNOME.zip": ("Kali Linux · GNOME", "Kali rolling with GNOME and a dock, Firefox ESR, Chromium and Kali's top 10 tools."),
+    "Henge-Ubuntu-GNOME-Vulkan-test.zip": ("Ubuntu 24.04 · GNOME, Vulkan test", "For trying Vulkan, not for everyday use: the same desktop with Vulkan's drivers and a **Vulkan test** button in the dock. Vulkan is off unless the line `HV_LINUX_VULKAN=1` is in Files › On My iPhone › Henge › henge-env.txt."),
+    "Henge-Kali-GNOME-Vulkan-test.zip": ("Kali Linux · GNOME, Vulkan test", "For trying Vulkan, not for everyday use: the same desktop with Vulkan's drivers and a **Vulkan test** button in the dock. Vulkan is off unless the line `HV_LINUX_VULKAN=1` is in Files › On My iPhone › Henge › henge-env.txt."),
 }
 
 
