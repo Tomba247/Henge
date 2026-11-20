@@ -199,6 +199,31 @@ if [ -n "$desktop" ]; then
     fi
     echo "gl: $(echo "$g" | grep -E "OpenGL renderer|OpenGL version|direct rendering" | tr -s " " | tr "\n" ";")"
     echo "$g" | grep -q "OpenGL renderer" || echo "glxinfo said: $(echo "$g" | tail -6 | tr "\n" ";")"
+    # Vulkan: the devices the guest has (its own software Vulkan, lavapipe, until the machine's GPU offers Venus),
+    # a cube drawn in a window on the desktop, and what Mesa's Venus driver says of this machine's GPU.
+    if command -v vulkaninfo >/dev/null 2>&1; then
+        if [ "$desktop" = xfce ]; then venv="DISPLAY=:0"
+        else venv="WAYLAND_DISPLAY=wayland-0 DISPLAY=:0 XAUTHORITY=$xa"; fi
+        vk() { runuser -u henge -- env HOME=/home/henge XDG_RUNTIME_DIR=/run/user/$u $venv "$@"; }
+        vk timeout 180 vulkaninfo --summary > /tmp/henge-vk.txt 2>&1
+        echo "vulkan: vulkaninfo exit $?; devices: $(grep deviceName /tmp/henge-vk.txt | sed "s/.*= //" | tr "\n" ";")"
+        grep -E "apiVersion|driverInfo" /tmp/henge-vk.txt | tr -s " \t" " " | sed "s/^/vulkan:/"
+        grep -q deviceName /tmp/henge-vk.txt || tail -4 /tmp/henge-vk.txt | sed "s/^/vulkan: /"
+        t0=$(date +%s.%N)
+        vk timeout 240 vkcube --c 120 > /tmp/henge-vkcube.txt 2>&1
+        r=$?
+        t1=$(date +%s.%N)
+        echo "vulkan: vkcube exit $r, $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "120 frames in %.1f s, %.1f fps", b - a, 120 / (b - a) }')"
+        [ $r = 0 ] || tail -5 /tmp/henge-vkcube.txt | sed "s/^/vkcube: /"
+        icd=$(ls /usr/share/vulkan/icd.d/virtio_icd*.json 2>/dev/null | head -1)
+        if [ -n "$icd" ]; then
+            vk env VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" VN_DEBUG=init timeout 120 vulkaninfo --summary > /tmp/henge-venus.txt 2>&1
+            echo "venus: vulkaninfo exit $?; devices: $(grep deviceName /tmp/henge-venus.txt | sed "s/.*= //" | tr "\n" ";")"
+            grep -E "MESA-VIRTIO|ERROR|apiVersion" /tmp/henge-venus.txt | tr -s " \t" " " | head -14 | sed "s/^/venus: /"
+        else
+            echo "venus: Mesa's Venus driver is not in this image"
+        fi
+    fi
 fi
 echo "state: $(systemctl is-system-running)"
 echo "failed units:"
@@ -464,6 +489,14 @@ if [ -n "$DESKTOP" ]; then
     # YouTube without a browser (a browser's JavaScript JIT is slow on the engine): search, pick, play in mpv,
     # at 720p H.264 (the self-test decodes 720p at about 6 times real time on the engine).
     chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mpv zenity python3 ffmpeg pulseaudio-utils
+    # Vulkan: the loader, vulkaninfo and vkcube, and Mesa's drivers: lavapipe (Vulkan on the guest's CPU, what
+    # there is until the machine's GPU offers Venus) and Venus (Vulkan on the host's GPU through virtio-gpu).
+    chroot "$ROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools
+    # GTK 4 apps keep drawing with OpenGL (virgl), as before there was a Vulkan driver in the image: newer GTK
+    # (Kali's) would otherwise pick Vulkan when it finds a device. For the session and for what systemd starts.
+    echo "GSK_RENDERER=ngl" >> "$ROOT/etc/environment"
+    mkdir -p "$ROOT/etc/environment.d"
+    echo "GSK_RENDERER=ngl" > "$ROOT/etc/environment.d/90-henge-gtk.conf"
     # Sample videos for the self-test's playback speed check (H.264 as YouTube sends it, 30 fps, 10 s each).
     mkdir -p "$ROOT/usr/local/share/henge"
     for h in 360 480 720; do

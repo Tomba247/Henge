@@ -78,6 +78,26 @@ jobs:
           # And with 3D for virtio-gpu through virglrenderer (the runner's Mesa, surfaceless EGL).
           make linux-test LXCC=gcc LX_VIRGL=1 LXB=build/linux-virgl
 
+      # Vulkan for the guests is Venus: Mesa's Venus driver in the guest, virglrenderer on the host, the host's
+      # Vulkan under it. This tries the host's half with no machine at all: Mesa's Venus driver talks to
+      # virglrenderer's test server over a socket (as it would over virtio-gpu), on lavapipe, the software Vulkan
+      # a runner has. If this passes and a guest's Venus does not, the fault is in the machine's virtio-gpu.
+      - name: Venus on this runner, without a machine (Mesa's Venus driver, virglrenderer, lavapipe)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          sudo apt-get install -y -qq --no-install-recommends virgl-server mesa-vulkan-drivers vulkan-tools
+          lvp=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          venus=$(ls /usr/share/vulkan/icd.d/virtio_icd*.json | head -1)
+          VK_ICD_FILENAMES="$lvp" virgl_test_server --venus --no-virgl --socket-path "$PWD/vtest.sock" > vtest-server.log 2>&1 &
+          for i in $(seq 40); do [ -S vtest.sock ] && break; sleep 0.5; done
+          VTEST_SOCKET_NAME="$PWD/vtest.sock" VN_DEBUG=vtest,init VK_ICD_FILENAMES="$venus" timeout 180 vulkaninfo --summary > vtest.log 2>&1
+          echo "vulkaninfo: exit $?"
+          grep -E "MESA-VIRTIO|deviceName|deviceType|driverName|driverInfo|apiVersion|ERROR" vtest.log
+          kill %1 2>/dev/null || true
+          tail -20 vtest-server.log
+          grep -q "deviceName .*Virtio-GPU Venus" vtest.log
+
       - name: Kernel cache
         if: ${{ (inputs.kernel || 'henge') == 'henge' }}
         uses: actions/cache@v4
@@ -131,7 +151,7 @@ jobs:
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot-virgl.log
           rm -f boot-test.img
-          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said" boot-virgl.log | head -30
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus:" boot-virgl.log | head -60
           sed -n '/henge-autotest: Ubuntu is up/,/henge-autotest: end/p' boot-virgl.log
           [ -f screen-virgl.ppm ] && python3 tools/linux/ppm2png.py screen-virgl.ppm screen-virgl.png
           grep -q "gl: .*virgl" boot-virgl.log
@@ -147,7 +167,7 @@ jobs:
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest" \
               < /dev/null 2>&1 | tee boot-gles.log
           rm -f boot-test.img
-          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said" boot-gles.log | head -60
+          grep -E "^virgl:|^virtio-gpu:|glamor|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus:" boot-gles.log | head -90
           [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
           grep -q "gl: .*virgl" boot-gles.log
 

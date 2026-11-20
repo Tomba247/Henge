@@ -181,6 +181,30 @@ Next for the GPU: the screen as a Metal texture (UTM's virglrenderer can hand
 out a resource's `MTLTexture`) rather than read back, a CAMetalLayer for it, and
 the display following the app's window size.
 
+## Vulkan (in progress)
+
+The way to Vulkan on the host's GPU is Venus: Mesa's Venus driver in the guest
+sends Vulkan calls through virtio-gpu to virglrenderer, which runs them on the
+host's Vulkan (on a phone that would be MoltenVK, on Metal).
+
+- **Done:** the images have the Vulkan loader, `vulkaninfo`, `vkcube` and Mesa's
+  Vulkan drivers (one package: lavapipe, Vulkan on the guest's CPU, and Venus).
+  Until the machine's GPU offers Venus the guest's Vulkan is lavapipe: correct,
+  slow. GTK 4 is kept on OpenGL (`GSK_RENDERER=ngl`). The self-test reports the
+  devices (`vulkan:`), draws `vkcube` on the desktop, and asks Mesa's Venus
+  driver alone what it makes of the machine's GPU (`venus:`).
+- **Done:** the workflow tries the host's half without a machine: Mesa's Venus
+  driver against virglrenderer's test server (`virgl_test_server --venus`) on
+  lavapipe. Ubuntu 24.04's virglrenderer 1.0.0 serves Mesa 25.2's Venus
+  (Vulkan 1.2).
+- **Missing in `devices/virtio_gpu.c`:** context types
+  (`VIRTIO_GPU_F_CONTEXT_INIT`), blob resources (`VIRTIO_GPU_F_RESOURCE_BLOB`),
+  the host-visible memory window (a virtio shared memory region the guest maps
+  blobs from) and the Venus capset.
+- **Unknown:** the phone's half: virglrenderer's Venus built for iOS and run
+  inside the app (iOS has no helper processes), on MoltenVK, and a Vulkan frame
+  getting to the screen without dma-buf.
+
 ## Next
 
 - Try it on a phone.
