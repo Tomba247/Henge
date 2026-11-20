@@ -37,10 +37,10 @@ while :; do
                     t1=$(date +%s)
                     ( ulimit -s 65520; exec "./build/$t" ) > /tmp/henge-run.log 2>&1 &
                     pid=$!
-                    ( sleep 600; kill -9 $pid 2>/dev/null ) > /dev/null 2>&1 &
-                    dog=$!
+                    n=0 # up to 10 minutes
+                    while kill -0 $pid 2>/dev/null && [ $n -lt 600 ]; do sleep 1; n=$((n + 1)); done
+                    kill -9 $pid 2>/dev/null
                     wait $pid; rc=$?
-                    kill $dog 2>/dev/null
                     t2=$(date +%s)
                     if [ $rc = 0 ]; then
                         echo "PASS $t (build $((t1 - t0)) s, run $((t2 - t1)) s): $(tail -1 /tmp/henge-run.log)"
