@@ -227,22 +227,33 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   newer Mesa, or virglrenderer answering for the host. After the swapchain, the
   frame has to reach the desktop's OpenGL: a blob of the Venus context taken
   into the virgl context (a dma-buf on Linux hosts, shared memory on Apple's).
-- **A window, on the runner:** with `/dev/udmabuf` opened to the runner's user,
-  lavapipe has the sync-file and dma-buf extensions and Ubuntu's Venus device
-  offers `VK_KHR_swapchain`. Mapped memory then failed: the guest's kernel
-  rounds a blob up to its 16 KB page, the runner's pages are 4 KB, and
-  virglrenderer refuses a blob larger than the memory behind it
-  (`vkr: mem dma_buf_size 4096 < blob_size 16384`; Mesa's own small
-  allocations, its fence feedback buffer first). A phone's pages are 16 KB, so
-  this is the runner's problem only: `ios/patches/virglrenderer-guest-page-size.patch`
-  rounds such allocations up when `VKR_GUEST_PAGE_SIZE` is set, and the
-  workflow's Vulkan boot runs on the app's virglrenderer (UTM's fork with
-  `ios/patches`, built for Linux with the render server as threads) with it
-  set. Ubuntu's virglrenderer 1.0.0 cannot be helped that way and is no longer
-  booted with `--venus`.
-- **The app:** the GPU libraries build for iOS with Venus and MoltenVK
-  (run 44751391258); `HV_LINUX_VULKAN=1` in henge-env.txt turns it on. Untried
-  on a phone.
+- **Works on the runner (2026-11-20, run 44758218302, Ubuntu GNOME):** on the
+  app's virglrenderer (UTM's fork with `ios/patches`, built for Linux with its
+  render server as threads) and lavapipe, `henge-vkmap` passes (mapped memory,
+  a submit, a fence) and `vkcube` on the Venus device draws its 120 frames in
+  a window on GNOME (89 fps; the screenshot has the cube), the frame reaching
+  the desktop's OpenGL as a dma-buf. What it took on the runner:
+  - `/dev/udmabuf` opened to the runner's user: lavapipe then has the
+    sync-file and dma-buf extensions, and Ubuntu's Venus offers
+    `VK_KHR_swapchain`.
+  - `VKR_GUEST_PAGE_SIZE=16384` (`virglrenderer-guest-page-size.patch`): the
+    guest's kernel rounds a blob up to its 16 KB page, the runner's pages are
+    4 KB, and virglrenderer refuses a blob larger than the memory behind it
+    (`vkr: mem dma_buf_size 4096 < blob_size 16384`). A phone's pages are
+    16 KB. Ubuntu's own virglrenderer 1.0.0 cannot be helped that way and is
+    not booted with `--venus`.
+  - `virglrenderer-thread-server-fence-table.patch`: with the render server as
+    threads, UTM's code freed the renderer's fence table when the last Venus
+    context went, and the next OpenGL fence crashed the engine.
+- **The app:** the GPU libraries build for iOS with Venus and MoltenVK and the
+  patches above; `HV_LINUX_VULKAN=1` in henge-env.txt turns Vulkan on, and
+  images made with `--vulkan` have a "Vulkan test" launcher whose result goes
+  to the app's log. Untried on a phone. What differs there from the runner:
+  MoltenVK instead of lavapipe, memory as shared memory imported with
+  `VK_EXT_external_memory_host` (or files, `virglrenderer-shm-fallback.patch`)
+  instead of dma-bufs, no sync files (so Mesa 25.2's Venus, Ubuntu 24.04's,
+  may again offer no swapchain there; Kali's 26.1 does not need them), and a
+  frame handed to ANGLE as a Metal texture.
 - UTM's release notes (5.0.7) say a Linux desktop drawn with Vulkan (Zink)
   does not work on MoltenVK yet (indirect draws with geometry shaders); to be
   tried here once Vulkan runs on a phone.

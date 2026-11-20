@@ -274,5 +274,7 @@ jobs:
             echo "== $log"
             grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen |received signal|== where it stopped|^#[0-9]+ |^(pc|sp|x[0-2]) |^=> |^Thread [0-9]+ \\(" $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube|^#|^Thread/' | head -230
           done
+          # The screen of the Vulkan boot as characters (taken with vkcube's window up, when it drew).
+          [ -f boot-venus.log ] && grep -aE "^colours:|^\\|.{80}\\|$" boot-venus.log | tail -25
           # About what the release's zip of this machine will weigh (it must stay under 2 GiB).
           [ -f machine/disk.img.hvsparse ] && echo "disk: $(stat -c %s machine/disk.img.hvsparse) bytes packed, about $(zstd -3 -T0 -c machine/disk.img.hvsparse | wc -c) compressed"
