@@ -1,0 +1,96 @@
+diff --git a/src/venus/vkr_common.c b/src/venus/vkr_common.c
+index 8ff62c7..7f38784 100644
+--- a/src/venus/vkr_common.c
++++ b/src/venus/vkr_common.c
+@@ -5,6 +5,8 @@
+ 
+ #include "vkr_common.h"
+ 
++pthread_mutex_t vkr_host_lifecycle_mutex = PTHREAD_MUTEX_INITIALIZER;
++
+ #include <stdarg.h>
+ #include <stdio.h>
+ 
+diff --git a/src/venus/vkr_common.h b/src/venus/vkr_common.h
+index 283794b..1c9e8f8 100644
+--- a/src/venus/vkr_common.h
++++ b/src/venus/vkr_common.h
+@@ -36,6 +36,13 @@
+ 
+ #include "vkr_renderer.h"
+ 
++/* Henge: with the render server as threads, every context's Vulkan instance and device live in one process.
++ * MoltenVK (Metal under it) did not survive two devices being torn down at the same moment (two guest programs
++ * exiting together crashed in MVKQueue's destructor), so instances and devices are made and destroyed one at a
++ * time across contexts. */
++#include <pthread.h>
++extern pthread_mutex_t vkr_host_lifecycle_mutex;
++
+ /* cap instance and device api versions to this */
+ #define VKR_MAX_API_VERSION VK_API_VERSION_1_4
+ 
+diff --git a/src/venus/vkr_device.c b/src/venus/vkr_device.c
+index 81c694c..b9c744a 100644
+--- a/src/venus/vkr_device.c
++++ b/src/venus/vkr_device.c
+@@ -194,8 +194,10 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
+    }
+ 
+    vn_replace_vkCreateDevice_args_handle(args);
++   pthread_mutex_lock(&vkr_host_lifecycle_mutex);
+    args->ret = vk->CreateDevice(args->physicalDevice, args->pCreateInfo, NULL,
+                                 &dev->base.handle.device);
++   pthread_mutex_unlock(&vkr_host_lifecycle_mutex);
+    if (args->ret != VK_SUCCESS) {
+       free(exts);
+       free(dev);
+@@ -220,7 +222,7 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
+                                         args->pCreateInfo->pQueueCreateInfos);
+    if (args->ret != VK_SUCCESS) {
+       struct vn_device_proc_table *vk = &dev->proc_table;
+-      vk->DestroyDevice(dev->base.handle.device, NULL);
++      { pthread_mutex_lock(&vkr_host_lifecycle_mutex); vk->DestroyDevice(dev->base.handle.device, NULL); pthread_mutex_unlock(&vkr_host_lifecycle_mutex); }
+       free(dev);
+       return;
+    }
+@@ -379,7 +381,7 @@ vkr_device_destroy(struct vkr_context *ctx, struct vkr_device *dev, bool destroy
+    mtx_destroy(&dev->free_sync_mutex);
+ 
+    if (destroy_vk || ctx->on_worker_thread)
+-      vk->DestroyDevice(device, NULL);
++      { pthread_mutex_lock(&vkr_host_lifecycle_mutex); vk->DestroyDevice(device, NULL); pthread_mutex_unlock(&vkr_host_lifecycle_mutex); }
+ 
+    list_del(&dev->base.track_head);
+ 
+diff --git a/src/venus/vkr_instance.c b/src/venus/vkr_instance.c
+index 27bf2dc..a9b2ed7 100644
+--- a/src/venus/vkr_instance.c
++++ b/src/venus/vkr_instance.c
+@@ -215,7 +215,9 @@ vkr_dispatch_vkCreateInstance(struct vn_dispatch_context *dispatch,
+    instance->api_version = app_info.apiVersion;
+ 
+    vn_replace_vkCreateInstance_args_handle(args);
++   pthread_mutex_lock(&vkr_host_lifecycle_mutex);
+    args->ret = vk->CreateInstance(create_info, NULL, &instance->base.handle.instance);
++   pthread_mutex_unlock(&vkr_host_lifecycle_mutex);
+    if (args->ret != VK_SUCCESS) {
+       free(instance);
+       return;
+@@ -237,7 +239,7 @@ vkr_dispatch_vkCreateInstance(struct vn_dispatch_context *dispatch,
+                                                          &instance->validation_messenger);
+       if (args->ret != VK_SUCCESS) {
+          struct vn_instance_proc_table *vk = &instance->proc_table;
+-         vk->DestroyInstance(instance->base.handle.instance, NULL);
++         { pthread_mutex_lock(&vkr_host_lifecycle_mutex); vk->DestroyInstance(instance->base.handle.instance, NULL); pthread_mutex_unlock(&vkr_host_lifecycle_mutex); }
+          free(instance);
+          return;
+       }
+@@ -267,7 +269,7 @@ vkr_instance_destroy(struct vkr_context *ctx,
+    }
+ 
+    if (destroy_vk || ctx->on_worker_thread)
+-      vk->DestroyInstance(instance->base.handle.instance, NULL);
++      { pthread_mutex_lock(&vkr_host_lifecycle_mutex); vk->DestroyInstance(instance->base.handle.instance, NULL); pthread_mutex_unlock(&vkr_host_lifecycle_mutex); }
+ 
+    free(instance->physical_device_handles);
+    free(instance->physical_devices);

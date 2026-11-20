@@ -274,6 +274,16 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   be imported. Unexplained: the app died without a word when Chrome was
   started with Vulkan on (a bus error or trap, which the app did not log; it
   does from the next build).
+- **Two Vulkan programs at once (build 101.97):** the self-test and a second
+  `vulkaninfo` ran together and exited together, and the app took a
+  segmentation fault in MoltenVK's `MVKQueue` destructor (`vkDestroyDevice`
+  from two ring threads). With the render server as threads all contexts
+  share the process; `virglrenderer-one-device-at-a-time.patch` creates and
+  destroys instances and devices one at a time. Probably what ended the app
+  when Chrome was started (unconfirmed).
+- Build 101.95's report of bus errors and traps from the JIT's trap guard was
+  taken out again: with it the app crashed in libxpc seconds after GNOME came
+  up, Vulkan on or off, and 101.97 without it does not. Why is not understood.
 - **Hands off:** `HV_LINUX_APPEND=henge.autotest=gpu` in henge-env.txt adds to
   the kernel's command line, so an image with the self-test runs its display
   and Vulkan part by itself at start and powers off; the result is on the
