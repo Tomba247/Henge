@@ -1,4 +1,5 @@
 #include "harness.h"
+#include "exception.h"
 #include "translate.h"
 
 #include <mach/mach_time.h>
@@ -224,6 +225,39 @@ int main(void) {
         memcpy(code, p->start, len);
         TestProgram copy = {p->name, NULL, code, code + ((const char *)p->end - (const char *)p->start)};
         if (!run(&copy, &c, 0)) check(p->name, "1 then 2 after patching", c.x[1], 3);
+    }
+
+    /* HV_FIXED_ADDR: a posix_spawn call's attributes gain the flag for loading at the program's own address; a
+       call without attributes, or with ones that do not look like any, is left alone. */
+    {
+        static HvCpu s;
+        hv_cpu_reset(&s, &m);
+        uint64_t *desc = (uint64_t *)(void *)(stack + 0x400);
+        uint16_t *attr = (uint16_t *)(void *)(stack + 0x800);
+        desc[0] = 0x150, desc[1] = ADDR(attr), attr[0] = 0x0040, attr[1] = 0x1234;
+        s.x[2] = ADDR(desc);
+        hv_spawn_fixed(&s);
+        check("spawn", "flags gain 0x100", attr[0], 0x0140);
+        check("spawn", "the word after the flags", attr[1], 0x1234);
+        hv_spawn_fixed(&s);
+        check("spawn", "flags stay", attr[0], 0x0140);
+        attr[0] = 0, desc[0] = 8; /* too small to be attributes */
+        hv_spawn_fixed(&s);
+        check("spawn", "a small block is left alone", attr[0], 0);
+        desc[0] = 0x150, desc[1] = 0; /* no attributes */
+        hv_spawn_fixed(&s);
+        check("spawn", "no attributes", attr[0], 0);
+        desc[1] = ADDR(exc_programs_begin); /* read-only memory */
+        uint16_t before;
+        memcpy(&before, exc_programs_begin, 2);
+        hv_spawn_fixed(&s);
+        check("spawn", "read-only attributes", *(const uint16_t *)(const void *)exc_programs_begin, before);
+        s.x[2] = 0;
+        hv_spawn_fixed(&s);
+        s.x[2] = 0x7000000000ull; /* nothing there */
+        hv_spawn_fixed(&s);
+        check("spawn", "calls counted", m.stats.spawns, 7);
+        check("spawn", "calls changed", m.stats.spawns_fixed, 2);
     }
 
     printf("%d checks, %d failures\n", checks, failures);

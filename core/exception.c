@@ -236,6 +236,47 @@ void hv_debug_args(HvCpu *cpu) {
     }
 }
 
+/* HV_FIXED_ADDR: programs load where they were linked to, not at a random address (macOS; a Linux guest gets
+   norandmaps on its command line instead, devices/linuxvirt.c).
+
+   macOS loads each new process's program at a different address, and translated code is kept by address (and
+   physical page), so every process started is new code to the engine even when the same program ran a second
+   before. On the phone (2026-11-20, macOS 27.2, the cache at 1.5 GB, tools/mac-bench.sh): a compile's clang
+   processes had the engine translating 100-430K blocks a second and dropping a cache segment about twice a second;
+   the same compile under a launcher that turns randomization off translated 1-5K a second and took 9 s, not 16.5.
+
+   The launcher's way, for every process: posix_spawn's attributes carry a flag for it (_POSIX_SPAWN_DISABLE_ASLR,
+   what a debugger sets), and a process started with it passes it on to the ones it starts. launchd starts
+   everything with attributes, so setting the flag in each posix_spawn call as it is made covers the system from
+   its first process on. The call's third argument points at { size_t attr_size; attributes *attrp; ... }, and the
+   attributes begin with the 16-bit flags. A call with no attributes, or whose attributes are not there to write
+   (not mapped, read-only), is left as it is: its process loads as its parent's did.
+
+   It gives up what the randomization is for: a guest program's addresses are no secret to code attacking it from
+   inside the guest. Off unless asked. */
+#define SYS_POSIX_SPAWN 244
+#define SPAWN_DISABLE_ASLR 0x0100
+void hv_spawn_fixed(HvCpu *cpu) {
+    HvMachine *m = cpu->m;
+    uint64_t desc = cpu->x[2], pa, size, attrp;
+    uint16_t flags;
+    const uint8_t *p;
+    m->stats.spawns++;
+    if (!desc || (desc & 7) || (desc & 0xfff) > 0xff0) return;
+    if (hv_mmu_access(cpu, desc, HV_ACC_READ, 0, &pa) || !(p = hv_phys_ptr(m, pa, 16))) return;
+    memcpy(&size, p, 8);
+    memcpy(&attrp, p + 8, 8);
+    if (!attrp || (attrp & 7) || size < 64 || size > 4096) return;
+    if (hv_mmu_access(cpu, attrp, HV_ACC_WRITE, 0, &pa) || !(p = hv_phys_ptr(m, pa, 2))) return;
+    memcpy(&flags, p, 2);
+    if (!(flags & SPAWN_DISABLE_ASLR)) {
+        flags |= SPAWN_DISABLE_ASLR;
+        hv_phys_write(m, pa, &flags, 2);
+        memcpy(&flags, p, 2);
+    }
+    if (flags & SPAWN_DISABLE_ASLR) m->stats.spawns_fixed++;
+}
+
 int hv_exception_insn(HvCpu *cpu, uint32_t insn, uint64_t pc) {
     uint32_t imm16 = (insn >> 5) & 0xffff;
     uint32_t opc = (insn >> 21) & 7, ll = insn & 3;
@@ -244,6 +285,7 @@ int hv_exception_insn(HvCpu *cpu, uint32_t insn, uint64_t pc) {
         hv_debug_args(cpu);
     }
     if (opc == 0 && ll == 1) { /* SVC: ELR is the next instruction */
+        if (hv_knob[HV_K_FIXEDADDR] && imm16 == 0x80 && cpu->el == 0 && cpu->x[16] == SYS_POSIX_SPAWN) hv_spawn_fixed(cpu);
         hv_take_exception(cpu, HV_EXC_SYNC, HV_EC_SVC64 << 26 | 1u << 25 | imm16, 0, 0, pc + 4);
         return 1;
     }

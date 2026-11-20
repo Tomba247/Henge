@@ -952,6 +952,8 @@ static void print_stats(HvCpu *cpu, int force) {
                 RATE(fr_fail[1]), RATE(fr_fail[2]), RATE(fr_fail[3]), RATE(fr_fail[4]));
         fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s; WFE waits for an interrupt %.0f/s (%.1f%% of one CPU asleep in them)\n", RATE(wfe_waits),
                 RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes), RATE(wfe_polls), RATE(wfe_poll_ticks) / 240000.0);
+        if (hv_knob[HV_K_FIXEDADDR])
+            fprintf(stderr, "  programs started (posix_spawn) %.1f/s, %.1f/s of them asked to load at their own address (HV_FIXED_ADDR)\n", RATE(spawns), RATE(spawns_fixed));
         fprintf(stderr, "  exit requests/s: TLBI posts %.0f, wakes %.0f (of them device work %.0f), kick all %.0f, own %.0f\n",
                 RATE(kick_src[0]), RATE(kick_src[1]), RATE(kick_src[3]), RATE(kick_src[2]), RATE(kick_src[4]));
         fprintf(stderr, "  light refills %.0fK/s, light branch-cache fills %.0fK/s, chained to other pages %.0f/s\n", RATE(refills) / 1e3,
