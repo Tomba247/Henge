@@ -197,13 +197,32 @@ host's Vulkan (on a phone that would be MoltenVK, on Metal).
   driver against virglrenderer's test server (`virgl_test_server --venus`) on
   lavapipe. Ubuntu 24.04's virglrenderer 1.0.0 serves Mesa 25.2's Venus
   (Vulkan 1.2).
-- **Missing in `devices/virtio_gpu.c`:** context types
-  (`VIRTIO_GPU_F_CONTEXT_INIT`), blob resources (`VIRTIO_GPU_F_RESOURCE_BLOB`),
-  the host-visible memory window (a virtio shared memory region the guest maps
-  blobs from) and the Venus capset.
-- **Unknown:** the phone's half: virglrenderer's Venus built for iOS and run
-  inside the app (iOS has no helper processes), on MoltenVK, and a Vulkan frame
-  getting to the screen without dma-buf.
+- **Written, being tried (`hengelinux --venus`, Linux hosts):** what Venus asks
+  of virtio-gpu.
+  - Context types (`VIRTIO_GPU_F_CONTEXT_INIT`) and the Venus capset.
+  - Blob resources (`VIRTIO_GPU_F_RESOURCE_BLOB`): created, mapped, unmapped.
+  - The host-visible window: one block of reserved host memory that is guest
+    RAM at `0x1000000000`, shown to Linux as a 64-bit BAR with a virtio shared
+    memory region over it. The PCI bridge's 64-bit range is exactly the BAR's
+    size, so Linux can only put it there. A blob is mapped over part of the
+    block (`virgl_renderer_resource_map_fixed`, or its file with `mmap`), so
+    the engine's memory code (`core/`) is unchanged.
+  - Fences on a context's own timelines (`VIRTIO_GPU_FLAG_INFO_RING_IDX`).
+  - virglrenderer runs Vulkan in its render server; OpenGL stays in the engine.
+- **The phone's half, from reading UTM's virglrenderer fork (1.3.0, the one the
+  app already builds):** nothing here is tried yet.
+  - It has Venus for Apple devices: `-Dvenus=true -Drender-server-mode=thread
+    -Drender-server-worker=thread` runs the render server as threads inside the
+    app (no helper process, which iOS would not allow), on MoltenVK.
+  - Memory the guest maps is POSIX shared memory imported into Vulkan
+    (`VK_EXT_external_memory_host`), so every blob is a file that
+    `virgl_renderer_resource_map_fixed` can map into the window: the same
+    design as above.
+  - A Vulkan frame reaches the OpenGL compositor as a linear image in shared
+    memory, wrapped as a Metal texture (no dma-buf, no IOSurface).
+  - Risks: `shm_open` inside the iOS sandbox, MoltenVK's limits, the app's
+    memory limit (each mapped allocation is shared memory), and a Vulkan fault
+    taking the whole app down since nothing is in a separate process.
 
 ## Next
 
