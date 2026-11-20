@@ -25,6 +25,19 @@ enum EngineTuning {
         "HV_STATS": "10",      // seconds between engine stats lines in the log; 0 = off
     ]
 
+    /// Documents/henge-env.txt: one NAME=value a line, read when a machine starts (apply). Settings > Engine options
+    /// edits it, so nobody has to make a text file in the Files app.
+    static var optionsURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("henge-env.txt")
+    }
+    static func loadOptions() -> String {
+        (try? String(contentsOf: optionsURL, encoding: .utf8)) ?? ""
+    }
+    static func saveOptions(_ text: String) {
+        if text == loadOptions() { return } // also: no empty file made just by opening Settings
+        try? text.write(to: optionsURL, atomically: true, encoding: .utf8)
+    }
+
     static func apply() {
         var env = defaults
         let d = UserDefaults.standard

@@ -23,6 +23,7 @@ struct SettingsView: View {
     @AppStorage(EngineTuning.windowKey) private var el0window = false
     @AppStorage(EngineTuning.linux3DKey) private var linux3D = true
     @AppStorage(EngineTuning.linuxGPUAsyncKey) private var linuxGPUAsync = true
+    @State private var engineOptions = ""
     @AppStorage(Microphone.key) private var microphone = false
     @AppStorage(JITBootstrap.codeCacheKey) private var codeCacheMB = JITBootstrap.defaultCodeCacheMB
     @AppStorage(DeskAppearance.key) private var appearance = DeskAppearance.system
@@ -173,6 +174,19 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)
+                Section("Engine options") {
+                    TextEditor(text: $engineOptions)
+                        .font(.system(.footnote, design: .monospaced))
+                        .frame(minHeight: 96)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.asciiCapable)
+                        .onChange(of: engineOptions) { text in EngineTuning.saveOptions(text) }
+                    Text("For testing: one NAME=value on each line, for example HV_JIT_SEGMENTS=32. The same as the file henge-env.txt in Henge's folder in the Files app. They apply the next time a Mac or Linux machine starts; clear the box to go back to Henge's own settings.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Desk.card)
+                .onAppear { engineOptions = EngineTuning.loadOptions() }
                 Section("Instant Resume") {
                     Toggle("Resume where you left off", isOn: $instantResume)
                     Text("When you leave Henge, the running Mac is saved to storage, and opening it again picks up where it was in a few seconds, even after iOS closes Henge. The save is about the size of the Mac's memory in use, compressed. The Mac pauses while Henge is in the background, so its sound stops. Experimental.")
