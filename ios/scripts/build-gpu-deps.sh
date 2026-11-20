@@ -9,6 +9,9 @@
 #   ANGLE (WebKit's tree)  OpenGL ES 3 and EGL on Metal    BSD
 #   libepoxy               GL function loading, over EGL   MIT
 #   virglrenderer          virgl (Gallium) commands to GL  MIT
+#                          and Venus: Vulkan calls to Vulkan
+#   MoltenVK               Vulkan on Metal (Khronos's own   Apache-2.0
+#                          build, not compiled here)
 #
 # Each library becomes a framework in <out>/Frameworks (the app embeds them);
 # their headers go to <out>/include. On a Mac with Xcode; meson, ninja and
@@ -27,6 +30,11 @@ EPOXY_REPO=https://github.com/utmapp/libepoxy.git
 EPOXY_COMMIT=bf98587477fe68d07b93319ece7b40a7d0e2eabe
 VIRGL_REPO=https://github.com/utmapp/virglrenderer.git
 VIRGL_COMMIT=dd0652b13e589c4c124ea79123a3adcd85173f4f
+# Vulkan for the guests (Venus, docs/linux-machine.md): virglrenderer's Venus on MoltenVK, Khronos's release build
+# for iOS. VENUS=0 builds without either, as before.
+VENUS=${VENUS:-1}
+MVK_VERSION=v1.4.2
+MVK_URL=https://github.com/KhronosGroup/MoltenVK/releases/download/$MVK_VERSION/MoltenVK-ios.tar
 
 mkdir -p "$WORK"
 # Python for the code generators, in an environment of its own: virglrenderer's format tables need PyYAML
@@ -155,11 +163,40 @@ meson_build() {
     )
 }
 
+VENUS_OPTS="-Dvenus=false"
+MVK_SHA=""
+if [ "$VENUS" = 1 ]; then
+    echo "== MoltenVK ($MVK_VERSION, Khronos's build)"
+    rm -rf "$WORK/MoltenVK" && mkdir -p "$WORK/MoltenVK" "$PREFIX/Frameworks"
+    curl -fsSL --retry 3 "$MVK_URL" -o "$WORK/MoltenVK-ios.tar"
+    MVK_SHA=$(shasum -a 256 "$WORK/MoltenVK-ios.tar" | cut -d' ' -f1)
+    echo "   sha256 $MVK_SHA"
+    tar -xf "$WORK/MoltenVK-ios.tar" -C "$WORK/MoltenVK"
+    # The dynamic framework for devices (not the simulator's), and Vulkan's headers.
+    MVK_FW=$(find "$WORK/MoltenVK" -type d -name MoltenVK.framework -path '*dynamic*' -path '*ios-arm64/*' ! -path '*simulator*' | head -1)
+    if [ -z "$MVK_FW" ]; then
+        echo "no MoltenVK.framework for iOS devices in $MVK_URL:"
+        find "$WORK/MoltenVK" -maxdepth 6 | head -80
+        exit 1
+    fi
+    cp -a "$MVK_FW" "$PREFIX/Frameworks/"
+    MVK_INC=$(find "$WORK/MoltenVK" -type d -name vulkan -path '*include*' | head -1)
+    rsync -a "$(dirname "$MVK_INC")/" "$PREFIX/include/"
+    lipo -info "$PREFIX/Frameworks/MoltenVK.framework/MoltenVK"
+    otool -L "$PREFIX/Frameworks/MoltenVK.framework/MoltenVK" | head -4
+    printf 'prefix=%s\nName: vulkan\nDescription: MoltenVK, as the Vulkan library\nVersion: 1.4.0\nLibs: -F${prefix}/Frameworks -framework MoltenVK\nCflags: -I${prefix}/include\n' \
+        "$PREFIX" > "$PREFIX/lib/pkgconfig/vulkan.pc"
+    # Venus inside the app: the render server and its workers are threads (iOS has no helper processes), and
+    # MoltenVK is linked, not looked for by a library name at run time.
+    VENUS_OPTS="-Dvenus=true -Dvulkan-dload=false -Drender-server-mode=thread -Drender-server-worker=thread"
+fi
+
 echo "== libepoxy"
 meson_build ios "$WORK/libepoxy" -Dtests=false -Dglx=no -Degl=yes -Dx11=false -Ddocs=false
 
 echo "== virglrenderer"
-meson_build darwin "$WORK/virglrenderer" -Dtests=false -Dcheck-gl-errors=false -Dvenus=false -Dneptune=false \
+# shellcheck disable=SC2086
+meson_build darwin "$WORK/virglrenderer" -Dtests=false -Dcheck-gl-errors=false $VENUS_OPTS -Dneptune=false \
     -Dplatforms=egl -Dvideo=false -Dvtest=false
 
 echo "== frameworks"
@@ -189,6 +226,8 @@ for f in $libs; do
 </dict></plist>
 EOF
 done
+# MoltenVK is a framework already (named @rpath/MoltenVK.framework/MoltenVK).
+if [ -d "$PREFIX/Frameworks/MoltenVK.framework" ]; then cp -a "$PREFIX/Frameworks/MoltenVK.framework" "$OUT/Frameworks/"; fi
 for fw in "$OUT"/Frameworks/*.framework; do
     bin="$fw/$(basename "$fw" .framework)"
     for dep in $(otool -L "$bin" | tail -n +2 | awk '{print $1}'); do
@@ -203,6 +242,7 @@ cat > "$OUT/VERSIONS" <<EOF
 ANGLE (WebKit) $WEBKIT_REPO $WEBKIT_COMMIT
 libepoxy $EPOXY_REPO $EPOXY_COMMIT
 virglrenderer $VIRGL_REPO $VIRGL_COMMIT
+Venus $VENUS${MVK_SHA:+, MoltenVK $MVK_URL sha256 $MVK_SHA}
 iOS $MINVER arm64
 EOF
 ls -la "$OUT/Frameworks"

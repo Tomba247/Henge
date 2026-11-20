@@ -340,8 +340,16 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
                                 .fb_width = c->fb_width ? c->fb_width : 1280, .fb_height = c->fb_height ? c->fb_height : 800,
                                 .cmdline = c->linux_cmdline && *c->linux_cmdline ? c->linux_cmdline
                                                                                  : "console=tty0 console=ttyAMA0 root=/dev/vda rw rootwait"};
-        /* 3D: virgl, on ANGLE (Metal) in the app; none without the GPU libraries (ios/scripts/build-gpu-deps.sh). */
-        if (lc.gpu && !getenv("HV_LINUX_NO_3D") && (linux_virgl = hv_vgpu_virgl_create(&linux_gl, 1))) lc.gl = &linux_gl;
+        /* 3D: virgl, on ANGLE (Metal) in the app; none without the GPU libraries (ios/scripts/build-gpu-deps.sh).
+           HV_LINUX_VULKAN=1 (being tried, off unless asked): Vulkan too, Venus on MoltenVK, when those libraries
+           have it; the guest maps Vulkan's memory from a window of HV_LINUX_VULKAN_MB (1024) megabytes. */
+        int vulkan = getenv("HV_LINUX_VULKAN") && atoi(getenv("HV_LINUX_VULKAN")) > 0;
+        if (lc.gpu && !getenv("HV_LINUX_NO_3D") && (linux_virgl = hv_vgpu_virgl_create_flags(&linux_gl, HV_VIRGL_GLES | (vulkan ? HV_VIRGL_VENUS : 0))))
+            lc.gl = &linux_gl;
+        if (lc.gl && linux_gl.create_blob) {
+            int mb = getenv("HV_LINUX_VULKAN_MB") ? atoi(getenv("HV_LINUX_VULKAN_MB")) : 1024;
+            lc.hostmem_size = (uint64_t)(mb >= 64 ? mb : 1024) << 20;
+        }
         if (hv_linuxvirt_create(&linux_vm, &board, &m, cpus, &lc) != 0)
             return fail(err, errlen, "Cannot build the Linux machine (not enough memory for the guest's RAM?).");
         hv_vgpu_virgl_bind(linux_virgl, linux_vm.gpu);
@@ -353,7 +361,8 @@ int hv_vm_create(const HvVmConfig *c, char *err, size_t errlen) {
         os_unfair_lock_unlock(&display_lock);
         if (hv_linuxvirt_boot_files(&linux_vm, &lc, c->linux_kernel, c->linux_initrd, err, errlen) != 0) return -1;
         fprintf(stderr, "hengevm: Linux machine, %d CPUs, %llu MB, %ux%u screen (%s), kernel %s\n", ncpus,
-                (unsigned long long)(ram >> 20), lc.fb_width, lc.fb_height, !lc.gpu ? "framebuffer" : lc.gl ? "virtio-gpu, virgl 3D" : "virtio-gpu, 2D", c->linux_kernel);
+                (unsigned long long)(ram >> 20), lc.fb_width, lc.fb_height, !lc.gpu ? "framebuffer" : !lc.gl ? "virtio-gpu, 2D" : linux_vm.hostmem ? "virtio-gpu, virgl 3D and Vulkan" : "virtio-gpu, virgl 3D",
+                c->linux_kernel);
     } else {
         if (hv_vmapple_create(&board, &m, cpus, (c->ram_mb ? c->ram_mb : 2048) << 20, &disk, &aux, &cfg, mac) != 0)
             return fail(err, errlen, "Cannot build the machine (not enough memory for the guest's RAM?).");

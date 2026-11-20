@@ -31,11 +31,9 @@ void hv_vgpu_virgl_destroy(HvVgpuVirgl *v) { (void)v; }
 #include <unistd.h>
 #include <virglrenderer.h>
 
-/* Venus (Vulkan) where virglrenderer is linked in, a Linux host; the app's virglrenderer is loaded at run time and
-   built without Venus so far. */
-#ifndef HV_VIRGL_DLOPEN
+/* Venus (Vulkan), when the caller asks for it and this virglrenderer has it: always where it is linked in (a
+   Linux host); in the app, where it is loaded at run time, when its build has Venus (ios/scripts/build-gpu-deps.sh). */
 #define HV_VENUS 1
-#endif
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -67,7 +65,13 @@ void hv_vgpu_virgl_destroy(HvVgpuVirgl *v) { (void)v; }
 #define EGL_FNS(X)                                                                                                \
     X(eglGetProcAddress) X(eglInitialize) X(eglBindAPI) X(eglChooseConfig) X(eglCreateContext) X(eglMakeCurrent)    \
     X(eglGetError) X(eglQueryString) X(eglDestroyContext) X(eglTerminate) X(eglGetCurrentContext)
+/* Venus's: only in a virglrenderer built with it. */
+#define VENUS_FNS(X)                                                                                              \
+    X(virgl_renderer_resource_create_blob) X(virgl_renderer_resource_export_blob) X(virgl_renderer_resource_get_map_info) \
+    X(virgl_renderer_context_create_fence)
 #define DECLARE(f) static __typeof__(&f) p_##f;
+VENUS_FNS(DECLARE)
+static int (*p_map_fixed)(uint32_t, void *);
 static void (*p_glFinish)(void);
 static int (*p_get_info_ext)(int, struct virgl_renderer_resource_info_ext *);
 VIRGL_FNS(DECLARE)
@@ -96,9 +100,21 @@ static int load_libraries(void) {
     void *gles = dlopen("@rpath/GLESv2.framework/GLESv2", RTLD_NOW | RTLD_LOCAL);
     p_glFinish = gles ? (void (*)(void))dlsym(gles, "glFinish") : NULL;
     p_get_info_ext = (int (*)(int, struct virgl_renderer_resource_info_ext *))dlsym(vr, "virgl_renderer_resource_get_info_ext");
+#define LOAD_OPTIONAL(f) p_##f = (__typeof__(p_##f))dlsym(vr, #f);
+    VENUS_FNS(LOAD_OPTIONAL)
+    p_map_fixed = (int (*)(uint32_t, void *))dlsym(vr, "virgl_renderer_resource_map_fixed");
     loaded = 1;
     return 0;
 }
+/* Whether the loaded virglrenderer has what Venus needs of it (and a Vulkan to run on: it says so when it starts). */
+static int venus_available(void) {
+    return p_virgl_renderer_resource_create_blob && p_virgl_renderer_resource_export_blob && p_virgl_renderer_resource_get_map_info &&
+           p_virgl_renderer_context_create_fence;
+}
+#define virgl_renderer_resource_create_blob p_virgl_renderer_resource_create_blob
+#define virgl_renderer_resource_export_blob p_virgl_renderer_resource_export_blob
+#define virgl_renderer_resource_get_map_info p_virgl_renderer_resource_get_map_info
+#define virgl_renderer_context_create_fence p_virgl_renderer_context_create_fence
 #define virgl_renderer_init p_virgl_renderer_init
 #define virgl_renderer_poll p_virgl_renderer_poll
 #define virgl_renderer_cleanup p_virgl_renderer_cleanup
@@ -132,6 +148,7 @@ static int load_libraries(void) {
 #define eglGetCurrentContext p_eglGetCurrentContext
 #else
 static int load_libraries(void) { return 0; }
+static int venus_available(void) { return 1; }
 #endif
 #include <dlfcn.h>
 
@@ -647,9 +664,13 @@ static int create_blob(void *o, uint32_t ctx, uint32_t res, uint32_t blob_mem, u
 static void j_map_blob(HvVgpuVirgl *v, void *a_) {
     Args *a = a_;
     uint32_t res = a->u[0];
+#ifdef HV_VIRGL_DLOPEN
+    int (*map_fixed)(uint32_t, void *) = p_map_fixed;
+#else
     static int (*map_fixed)(uint32_t, void *);
     static int looked;
     if (!looked++) map_fixed = (int (*)(uint32_t, void *))dlsym(RTLD_DEFAULT, "virgl_renderer_resource_map_fixed");
+#endif
     int r = map_fixed ? map_fixed(res, a->out) : -1;
     uint32_t fd_type = 0;
     if (r) {
@@ -803,11 +824,11 @@ HvVgpuVirgl *hv_vgpu_virgl_create_flags(HvVgpu3d *gl, int vflags) {
     if (!v) return NULL;
     int gles = (vflags & HV_VIRGL_GLES) != 0;
     v->gles = gles;
-#ifdef HV_VENUS
     v->venus = (vflags & HV_VIRGL_VENUS) != 0;
-#else
-    if (vflags & HV_VIRGL_VENUS) fprintf(stderr, "virgl: Venus (Vulkan) is not in this build: OpenGL only\n");
-#endif
+    if (v->venus && !venus_available()) {
+        fprintf(stderr, "virgl: this virglrenderer was built without Venus (Vulkan): OpenGL only\n");
+        v->venus = 0;
+    }
     v->log = getenv("HV_VIRGL_LOG") ? atoi(getenv("HV_VIRGL_LOG")) + (atoi(getenv("HV_VIRGL_LOG")) == 0) : 0; /* 2: every command buffer */
 #ifdef HV_VIRGL_ANGLE
     v->own_egl = 1;
