@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.92",
+          "date": "2026-11-20T12:57:46Z",
+          "branch": "claude/linux-runner-crash-flumcd",
+          "localizedDescription": "What changed: HV_SMC_FINE: a write to a code page drops its blocks only when it lands on translated code\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 60b60f2\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-92/Henge.ipa",
+          "size": 12203864,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.91",
           "date": "2026-11-20T06:12:58Z",
           "branch": "claude/linux-runner-crash-flumcd",
@@ -300,11 +310,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.91",
-      "versionDate": "2026-11-20T06:12:58Z",
-      "versionDescription": "What changed: HV_FIXED_ADDR: guest programs load at their own addresses\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 361fda7\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-91/Henge.ipa",
-      "size": 12199954,
+      "buildVersion": "101.92",
+      "versionDate": "2026-11-20T12:57:46Z",
+      "versionDescription": "What changed: HV_SMC_FINE: a write to a code page drops its blocks only when it lands on translated code\nBranch: claude/linux-runner-crash-flumcd \u00b7 commit 60b60f2\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-92/Henge.ipa",
+      "size": 12203864,
       "minOSVersion": "17.0"
     }
   ],

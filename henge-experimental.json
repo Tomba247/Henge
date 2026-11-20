@@ -136,16 +136,6 @@
           "size": 9719844,
           "minOSVersion": "17.0",
           "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.35",
-          "date": "2026-11-13T16:10:36Z",
-          "localizedDescription": "What changed: Microphone: half a second kept when the Mac is late for a buffer (a tenth cut the sound: clicks, static); gaps counted; the first 15 s saved to Documents/mic-capture.raw\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-35/Henge.ipa",
-          "size": 9703626,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
         }
       ],
       "appPermissions": {
