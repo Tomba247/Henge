@@ -182,7 +182,7 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.asciiCapable)
                         .onChange(of: engineOptions) { text in EngineTuning.saveOptions(text) }
-                    Text("For testing: one NAME=value on each line, for example HV_JIT_SEGMENTS=32. The same as the file henge-env.txt in Henge's folder in the Files app. They apply the next time a Mac or Linux machine starts; clear the box to go back to Henge's own settings.")
+                    Text("For testing: one NAME=value on each line, for example HV_JIT_SEGMENTS=32. The same as the file henge-env.txt in Henge's folder in the Files app. They apply the next time a Mac or Linux machine starts; clear the box to go back to Henge's own settings. A line HENGE_LOG_URL=https://… sends Henge's log to that address while Henge is open, a piece a minute, for whoever is helping you: only use an address you were given for that.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)

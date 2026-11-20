@@ -80,6 +80,8 @@ enum EngineTuning {
                     .trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "{Documents}", with: docs.path)
             }
         }
+        // Not an engine setting, and not for the log (its address is a secret): where the log is sent (LogUpload.swift).
+        LogUpload.configure(env.removeValue(forKey: "HENGE_LOG_URL"))
         for (k, v) in env.sorted(by: { $0.key < $1.key }) {
             setenv(k, v, 1)
             HengeLog.log("tuning", "\(k)=\(v)")
