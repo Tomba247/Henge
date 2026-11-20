@@ -1,0 +1,28 @@
+diff --git a/src/mesa/util/anon_file.c b/src/mesa/util/anon_file.c
+index c363891..809c664 100644
+--- a/src/mesa/util/anon_file.c
++++ b/src/mesa/util/anon_file.c
+@@ -179,6 +179,23 @@ os_create_anonymous_file(off_t size, const char *debug_name)
+      if (errno != EEXIST)
+        break;
+    }
++   /* Henge: an iOS app without an app group may be refused POSIX shared memory altogether. A file in the app's
++    * temporary directory, unlinked at once, is mapped the same way (MAP_SHARED); the log says which it is. */
++   if (fd < 0) {
++     const int shm_errno = errno;
++     const char *tmp = getenv("TMPDIR");
++     char path[1024];
++     static int told;
++     snprintf(path, sizeof(path), "%s/henge-gpu-XXXXXX", (tmp && tmp[0]) ? tmp : "/tmp");
++     fd = mkstemp(path);
++     if (fd >= 0) {
++       unlink(path);
++       fcntl(fd, F_SETFD, FD_CLOEXEC);
++     }
++     if (!told++)
++       fprintf(stderr, "anon_file: no POSIX shared memory (%s): %s\n", strerror(shm_errno),
++               fd >= 0 ? "unlinked files in the temporary directory instead" : "and no temporary file either");
++   }
+ #elif defined(__OpenBSD__)
+    char template[] = "/tmp/mesa-XXXXXXXXXX";
+    fd = shm_mkstemp(template);
