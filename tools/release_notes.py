@@ -32,11 +32,13 @@ def main():
     tag, repo = sys.argv[2], sys.argv[3]
     change = sys.argv[4].strip() if len(sys.argv) > 4 else ""
     name, body = rel.get("name") or "", rel.get("body") or ""
+    # The version: from notes already written here, else from the title a build first gave ("Henge 0.3.0 (101.84) ...").
+    kept = re.search(r"^\*\*Version:\*\* ([\d.]+ \(build [\d.]+\))", body, re.M)
     m = re.search(r"Henge ([\d.]+) \(([\d.]+)\)", name)
-    version = f"{m.group(1)} (build {m.group(2)})" if m else tag
+    version = kept.group(1) if kept else f"{m.group(1)} (build {m.group(2)})" if m else tag
     if not change:
         old = re.search(r"^\*\*What changed:\*\* (.*)$", body, re.M)
-        change = old.group(1) if old else (body.strip().splitlines() or [""])[0]
+        change = old.group(1).strip() if old else (body.strip().splitlines() or [""])[0]
     sha = re.search(r"built from ([0-9a-f]{40})", body)
     assets = {a["name"]: a["size"] for a in rel.get("assets", [])}
     machines = [f for f in FILES if f.endswith(".zip") and f in assets]
