@@ -48,6 +48,64 @@ HV_CLOCK_DIV=20 qemu-aarch64 -cpu max build/linux/hengelinux --kernel Image \
 `--kernel` takes an uncompressed arm64 `Image` (Ubuntu's `vmlinuz` is gzip:
 `zcat vmlinuz > Image`). Without an initramfs, use `root=/dev/vda`, not a label.
 
+### On a Mac host, and under a sanitizer
+
+`make mac-linux-test` builds the same tool for an Apple-silicon Mac
+(`build/hengelinux`; no 3D there yet: the GPU libraries are built for iOS
+only). GitHub's Apple-silicon runner (`xcode-27`, the image the app is built
+on: an M1 virtual Mac with 3 CPUs, 7 GB, 16 KB pages, macOS 27) boots a
+released Ubuntu GNOME machine with it to the desktop and through the display
+part of the self-test in about a minute. `.github/workflows/mac-probe.yml`
+does that and says what else that runner is (2026-11-21):
+
+- The engine's nine tests pass there natively: `MAP_JIT` memory works for an
+  ad-hoc signed program. Its write/execute switch is not enforced in the
+  virtual Mac (a write while the region is executable goes through), so a
+  mistake with it shows on real hardware only.
+- Metal is an "Apple Paravirtual device" (not Metal 3, no Apple GPU family).
+  MoltenVK 1.4.2 answers on it with the phone's gaps: no `nullDescriptor`,
+  `logicOp` or `geometryShader`, no `VK_KHR_external_semaphore_fd`;
+  `VK_EXT_external_memory_host` is there.
+- No Hypervisor.framework: `hengevm-ref` builds and cannot run.
+- `free()` clears a freed block, as on a phone: of blocks of 32 to 4096 bytes
+  every byte past the first 16 reads 0 afterwards. A read after `free()`
+  finds zeros there; glibc leaves what was written.
+
+`LX_SAN` (Linux host) and `MAC_SAN` (Mac host) build the device layer and
+the tool with a sanitizer and leave `core/` as it is, since translated code
+enters it with the guest's registers live:
+
+```sh
+make linux-test LXCC=gcc LX_VIRGL=1 LX_SAN=-fsanitize=address LXB=build/linux-virgl-asan
+make mac-linux-test B=build/san MAC_SAN=-fsanitize=address
+ASAN_OPTIONS=detect_leaks=0:use_sigaltstack=0 build/san/hengelinux ...
+```
+
+`use_sigaltstack=0`: the engine's CPU threads install their own alternate
+signal stack (64 KB from `malloc`), and the sanitizer, which unmaps what it
+takes for its own when a thread ends, otherwise stops a clean run at its end
+with "failed to deallocate 0x10000 bytes". On a Linux host the engine's
+signals stay its own with `handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1`.
+
+`linux-machine.yml` boots every machine once this way (3D, the iPhone's way
+of drawing) and fails on a report. What it is for: builds 85 to 97 of the app
+read a posted job after freeing it (`devices/vgpu_virgl.c`); iOS's `free()`
+had cleared it, the code then wrote into the freed block, and the app died
+seconds into a desktop somewhere in the system's own code. No boot on a
+runner showed anything, and an earlier sanitizer run had only virglrenderer
+instrumented, not the engine. With that file as it was, the device layer
+under AddressSanitizer reports it at the first drawing command
+(`mac-probe.yml`'s proof step): heap-use-after-free, a read of size 4 in
+`render_thread`, 16 bytes inside a 32-byte block freed two lines earlier.
+
+With all of the engine built with AddressSanitizer and UBSan the nine tests
+run too, and what they report is not memory errors: left shifts of negative
+branch offsets (`core/translate.c`, `core/memop.c`) and `HV_EC_BRK << 26` in
+an `int` (`core/exception.c`), which the compilers in use shift as meant;
+and `test_mem`'s checks that the fast path was taken and one of
+`test_devices`' that an operation took under 50 ms, which an instrumented
+build does not meet.
+
 ## Tested so far (qemu-aarch64 on x86, 2026-11-18)
 
 Kernel: Ubuntu 24.04's stock `linux-image-unsigned-6.8.0-149-generic` (arm64).
