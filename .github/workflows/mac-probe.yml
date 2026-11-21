@@ -1,6 +1,6 @@
 name: Mac runner probe and sanitizer check
 
-# Two questions, asked by hand (nothing here runs on a push, and nothing here is part of a release):
+# Two questions, asked by hand or by a push that changes this file (nothing here is part of a release):
 #
 #   mac         What can GitHub's Apple-silicon runner do for this engine? The engine's own home is a Mac host
 #               (the Makefile's default targets), and the iPhone app shares its code. This job says what the runner
@@ -19,6 +19,11 @@ on:
         description: "The release whose Ubuntu GNOME machine is booted"
         type: string
         default: "henge-linux-99"
+  # GitHub only lists a workflow for starting by hand once it has run from a push (or is on the default branch):
+  # a push that changes this file, on the branch it was written on, is that run.
+  push:
+    branches: ["claude/blissful-cori-6o3jo3"]
+    paths: [".github/workflows/mac-probe.yml"]
 
 jobs:
   mac:
