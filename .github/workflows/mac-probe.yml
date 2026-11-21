@@ -59,6 +59,57 @@ jobs:
           EOF
           xcrun swiftc -O metal.swift -o metal-probe && ./metal-probe
 
+      # What free() leaves in a block (the phone's allocator cleared the field the app then read: is a Mac's the
+      # same?), and whether this virtual Mac enforces the write/execute switch of JIT memory as real hardware does.
+      - name: The allocator and JIT memory on this host
+        continue-on-error: true
+        run: |
+          set +e
+          cat > freeprobe.c <<'EOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          int main(void) {
+              static const size_t sizes[] = {16, 32, 48, 64, 128, 256, 1024, 4096}; /* not the large ones: free() unmaps those */
+              for (size_t i = 0; i < sizeof sizes / sizeof *sizes; i++) {
+                  size_t n = sizes[i], zero = 0, kept = 0;
+                  volatile unsigned char *p = malloc(n);
+                  memset((void *)p, 0xa5, n);
+                  free((void *)p);
+                  for (size_t k = 16; k < n; k++) { if (p[k] == 0) zero++; else if (p[k] == 0xa5) kept++; } /* past the first 16 bytes */
+                  printf("free(): a %zu-byte block afterwards: %zu of %zu bytes read 0, %zu still read as written\n", n, zero, n > 16 ? n - 16 : 0, kept);
+              }
+              return 0;
+          }
+          EOF
+          clang -O0 freeprobe.c -o freeprobe && ./freeprobe
+          cat > jitprobe.c <<'EOF'
+          #include <pthread.h>
+          #include <signal.h>
+          #include <setjmp.h>
+          #include <stdio.h>
+          #include <stdint.h>
+          #include <sys/mman.h>
+          #include <libkern/OSCacheControl.h>
+          static sigjmp_buf env;
+          static void on_fault(int s) { siglongjmp(env, s); }
+          int main(void) {
+              uint32_t *p = mmap(NULL, 16384, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+              if (p == MAP_FAILED) { perror("MAP_JIT"); return 1; }
+              pthread_jit_write_protect_np(0);
+              p[0] = 0x52800540; p[1] = 0xd65f03c0; /* mov w0, #42; ret */
+              pthread_jit_write_protect_np(1);
+              sys_icache_invalidate(p, 8);
+              printf("jit: code in MAP_JIT memory returned %d\n", ((int (*)(void))p)());
+              signal(SIGBUS, on_fault); signal(SIGSEGV, on_fault);
+              int s = sigsetjmp(env, 1);
+              if (s == 0) { p[2] = 0xd503201f; printf("jit: a write while the memory is executable went through: the switch is NOT enforced here\n"); }
+              else printf("jit: a write while the memory is executable raised signal %d: the switch is enforced, as on real hardware\n", s);
+              return 0;
+          }
+          EOF
+          clang -O0 jitprobe.c -o jitprobe && ./jitprobe
+
       - name: The engine's tests, natively (the JIT on Darwin)
         run: |
           set +e
@@ -83,9 +134,10 @@ jobs:
           SAN="-std=c11 -Wall -Wextra -O1 -g -Icore -Ihost -Idevices -DHV_TLB_BITS=13 -fsanitize=address,undefined -fno-omit-frame-pointer"
           for t in test_classify test_jit_region test_operands test_jit test_mem test_mmu test_exc test_devices test_shutdown; do
             if make B=build/san CFLAGS="$SAN" build/san/$t > san-$t.log 2>&1; then
-              out=$(ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 build/san/$t 2>&1); r=$?
+              ASAN_OPTIONS=detect_leaks=0:use_sigaltstack=0 UBSAN_OPTIONS=print_stacktrace=1 build/san/$t > san-run-$t.log 2>&1; r=$?
               echo "== $t: exit $r"
-              echo "$out" | grep -E "ERROR: AddressSanitizer|runtime error|SUMMARY|failures|cases|checks|returned" | head -10 | cut -c1-220
+              grep -E "ERROR: AddressSanitizer|runtime error|SUMMARY|failures|cases|checks|returned" san-run-$t.log | awk '!seen[$0]++' | head -10 | cut -c1-220
+              if [ $r != 0 ]; then echo "-- what failed:"; grep -v -E "runtime error|SUMMARY: Undefined|^ +#[0-9]" san-run-$t.log | grep -i -E "fail|wrong|mismatch|expected|differ|not ok|: bad" | head -30 | cut -c1-220; fi
             else
               echo "== $t: DID NOT BUILD with the sanitizers"; grep -E "error" -A3 san-$t.log | head -20
             fi
@@ -111,6 +163,14 @@ jobs:
           ls -la build/hengelinux
           file build/hengelinux
 
+      - name: Mac-host targets that no workflow builds (do they still build?)
+        continue-on-error: true
+        run: |
+          set +e
+          for t in build/test_vm_lifecycle build/test_pvg_lifecycle build/hengevm-ref build/density; do
+            if make $t > "stale-$(basename $t).log" 2>&1; then echo "builds: $t"; else echo "DOES NOT BUILD: $t"; grep -E "error|Undefined symbols|ld:" -A4 "stale-$(basename $t).log" | head -14 | cut -c1-200; fi
+          done
+
       - name: A released Linux machine
         run: |
           set -euo pipefail
@@ -135,13 +195,16 @@ jobs:
           [ -f screen-mac.ppm ] && python3 tools/linux/ppm2png.py screen-mac.ppm screen-mac.png
           grep -aq "^desktop: .* up after" boot-mac.log
 
+      # use_sigaltstack=0: each CPU thread has the engine's own alternate signal stack (64 KB from malloc,
+      # tools/hengelinux.c); left to itself the sanitizer unmaps "its" alternate stack when a thread ends, finds
+      # that one, and stops the process with "failed to deallocate 0x10000 bytes" after an otherwise clean run.
       - name: Boot it again with the device layer under AddressSanitizer
         continue-on-error: true
         run: |
           set +e
           make mac-linux-test B=build/san-dev MAC_SAN=-fsanitize=address > mac-linux-san.log 2>&1 || { tail -40 mac-linux-san.log; exit 1; }
           cp -c disk.img boot-test.img 2>/dev/null || ln disk.img boot-test.img
-          ASAN_OPTIONS=detect_leaks=0 perl -e 'alarm 2400; exec @ARGV' build/san-dev/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img \
+          ASAN_OPTIONS=detect_leaks=0:use_sigaltstack=0 perl -e 'alarm 2400; exec @ARGV' build/san-dev/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img \
               --cpus 3 --ram 3072 --fb 1280x800 --gpu \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-mac-asan.log 2>&1
           echo "hengelinux exit $?"
@@ -197,7 +260,7 @@ jobs:
         run: |
           set +e
           cp --sparse=always disk.img boot-test.img
-          ASAN_OPTIONS=detect_leaks=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 HV_VGPU_LOG=0 \
+          ASAN_OPTIONS=detect_leaks=0:use_sigaltstack=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 HV_VGPU_LOG=0 \
               timeout 2400 build/linux-virgl-asan/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img --cpus 4 --ram 4096 --fb 1280x800 --virgl \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-asan.log 2>&1
           echo "hengelinux exit $?"
@@ -216,7 +279,7 @@ jobs:
           make linux-test LXCC=gcc LX_VIRGL=1 LX_SAN=-fsanitize=address LXB=build/linux-virgl-asan-old > build-asan-old.log 2>&1 || { tail -40 build-asan-old.log; exit 1; }
           git checkout -- devices/vgpu_virgl.c
           cp --sparse=always disk.img boot-test.img
-          ASAN_OPTIONS=detect_leaks=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 HV_VGPU_LOG=0 \
+          ASAN_OPTIONS=detect_leaks=0:use_sigaltstack=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 HV_VGPU_LOG=0 \
               timeout 2400 build/linux-virgl-asan-old/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img --cpus 4 --ram 4096 --fb 1280x800 --virgl \
               --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-asan-old.log 2>&1
           echo "hengelinux exit $?"

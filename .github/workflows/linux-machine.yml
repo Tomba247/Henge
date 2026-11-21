@@ -165,6 +165,33 @@ jobs:
           [ -f screen-gles.ppm ] && python3 tools/linux/ppm2png.py screen-gles.ppm screen-gles.png
           grep -q "gl: .*virgl" boot-gles.log
 
+      # The same once more with the engine's device layer (devices/ and the tool; not core/, which translated code
+      # enters with the guest's registers live) built with AddressSanitizer, drawing the iPhone's way. A use after
+      # free there ended the app in builds 85 to 97 and no boot here could see it: glibc left the freed field as it
+      # was, iOS cleared it. The sanitizer reports the read itself (mac-probe.yml's proof step shows it doing so
+      # for that bug). A report fails the job: a machine is not handed out over a memory error in the app's code.
+      # use_sigaltstack=0: the engine's CPU threads have their own alternate signal stack, which the sanitizer
+      # would otherwise try to unmap when a thread ends.
+      - name: Boot it with 3D, the device layer under AddressSanitizer
+        if: ${{ success() && !inputs.vulkan && matrix.desktop != 'none' }}
+        run: |
+          set +e
+          make linux-test LXCC=gcc LX_VIRGL=1 LX_SAN=-fsanitize=address LXB=build/linux-virgl-asan > make-asan.log 2>&1 || { grep -E "error" -A4 make-asan.log | head -40; exit 1; }
+          cp --sparse=always machine/disk.img boot-test.img
+          ASAN_OPTIONS=detect_leaks=0:use_sigaltstack=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 \
+              HV_VGPU_LOG=0 HV_VIRGL_OWN_EGL=1 timeout 1800 build/linux-virgl-asan/hengelinux --kernel machine/Image --disk boot-test.img \
+              --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --virgl \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-asan.log 2>&1
+          echo "hengelinux exit $?"
+          rm -f boot-test.img
+          grep -aE -A26 "ERROR: AddressSanitizer" boot-asan.log | head -80 | cut -c1-220
+          grep -aE "^desktop:|^gl:|henge-autotest: end|hengelinux: stopped" boot-asan.log | cut -c1-200
+          if grep -aq "ERROR: AddressSanitizer" boot-asan.log; then
+            echo "::error::AddressSanitizer reported a memory error in the engine's device layer (boot-asan.log)"
+            exit 1
+          fi
+          grep -aq "gl: .*virgl" boot-asan.log && grep -aq "henge-autotest: end" boot-asan.log
+
       # Vulkan for the guests is Venus: Mesa's Venus driver in the guest, virglrenderer on the host, the host's
       # Vulkan under it. This tries the host's half with no machine at all: Mesa's Venus driver talks to
       # virglrenderer's test server over a socket (as it would over virtio-gpu), on lavapipe, the software Vulkan
@@ -207,11 +234,13 @@ jobs:
           git -C virgl-fork fetch -q --depth 1 "$repo" "$commit"
           git -C virgl-fork checkout -q FETCH_HEAD
           for p in ios/patches/virglrenderer-*.patch; do [ -f "$p" ] && git -C virgl-fork apply "$PWD/$p" && echo "patched: $p"; done
-          # asan: the library and what it allocates are checked (the sanitizer's runtime is loaded first, into the
-          # engine only, not into gdb); the engine's own signals stay the engine's.
-          san= pre=
+          # asan: the library, the engine's device layer (LX_SAN) and what they allocate are checked (the
+          # sanitizer's runtime is loaded first, into the engine only, not into gdb); the engine's own signals and
+          # its alternate signal stack stay the engine's.
+          san= pre= lxsan=
           if [ "${{ inputs.asan }}" = true ]; then
             san="-Db_sanitize=address -Db_lundef=false"
+            lxsan="-fsanitize=address"
             pre=$(gcc -print-file-name=libasan.so)
             echo "AddressSanitizer: $pre"
           fi
@@ -220,7 +249,7 @@ jobs:
               -Dc_args="-Wno-error=pedantic -Wno-pedantic" $san > meson-fork.log 2>&1 || { tail -30 meson-fork.log; exit 1; }
           meson compile -C virgl-fork/build > ninja-fork.log 2>&1 || { grep -E "error|FAILED" -A6 ninja-fork.log | head -60; exit 1; }
           meson install -C virgl-fork/build > /dev/null
-          PKG_CONFIG_PATH="$PWD/virgl-fork/inst/lib/pkgconfig" make linux-test LXCC=gcc LX_VIRGL=1 LXB=build/linux-virgl-fork > make-fork.log 2>&1 || { grep -E "error" -A4 make-fork.log | head -40; exit 1; }
+          PKG_CONFIG_PATH="$PWD/virgl-fork/inst/lib/pkgconfig" make linux-test LXCC=gcc LX_VIRGL=1 LX_SAN="$lxsan" LXB=build/linux-virgl-fork > make-fork.log 2>&1 || { grep -E "error" -A4 make-fork.log | head -40; exit 1; }
           export LD_LIBRARY_PATH="$PWD/virgl-fork/inst/lib"
           ldd build/linux-virgl-fork/hengelinux | grep virgl
           cp --sparse=always machine/disk.img boot-test.img
@@ -229,7 +258,7 @@ jobs:
           HV_FB_DUMP=screen-venus.ppm HV_VGPU_LOG=0 HV_VIRGL_LOG=1 VKR_GUEST_PAGE_SIZE=16384 VKR_NO_SEMAPHORE_FD=1 VK_ICD_FILENAMES="$lvp" \
               timeout 1800 gdb -q -batch -ex "set pagination off" -ex "set print thread-events off" -ex "set debuginfod enabled off" -ex "handle SIGPIPE nostop noprint pass" \
               -ex "set environment LD_PRELOAD $pre" \
-              -ex "set environment ASAN_OPTIONS detect_leaks=0:abort_on_error=1:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1:print_stacktrace=1" \
+              -ex "set environment ASAN_OPTIONS detect_leaks=0:use_sigaltstack=0:abort_on_error=1:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1:print_stacktrace=1" \
               -ex run -ex "echo == where it stopped ==\n" -ex bt -ex "info registers pc sp x0 x1 x2" -ex "x/6i \$pc" -ex "echo == all threads ==\n" -ex "thread apply all bt 12" \
               --args build/linux-virgl-fork/hengelinux \
               --kernel machine/Image --disk boot-test.img --cpus "${{ inputs.cpus || '4' }}" --ram 4096 --fb 1280x800 --venus \
@@ -274,6 +303,7 @@ jobs:
             screen-virgl.png
             boot-gles.log
             screen-gles.png
+            boot-asan.log
             boot-venus.log
             screen-venus.png
             vtest.log
@@ -283,10 +313,10 @@ jobs:
       - name: What the boots found
         if: always()
         run: |
-          for log in vtest boot boot-virgl boot-gles boot-venus; do
+          for log in vtest boot boot-virgl boot-gles boot-asan boot-venus; do
             [ -f $log.log ] || continue
             echo "== $log"
-            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen |received signal|AddressSanitizer|^SUMMARY|^ +#[0-9]+ 0x|is located|freed by thread|allocated by thread|== where it stopped|^#[0-9]+ |^(pc|sp|x[0-2]) |^=> |^Thread [0-9]+ \\(" $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube|^#|^Thread/' | head -230
+            grep -aE "^virgl: (Venus|no Venus|renderer|EGL|blob .*(refused|-> -))|^virtio-gpu: (blob|command|the guest)|vkr: |proxy: |render_server|^linuxvirt:|^desktop:|^gl:|glxinfo said|^vulkan:|^vkcube:|^venus|^vktest:|^host |deviceName|vulkaninfo: exit|^state:|^firefox (version|window)|^chrome|^yt-dlp|^network manager:|^video |^sound:|hengelinux: (stopped|virtio-gpu screen)|henge-autotest: end|^screen |received signal|AddressSanitizer|heap-use-after-free|heap-buffer-overflow|^SUMMARY|^ +#[0-9]+ 0x|is located|freed by thread|allocated by thread|== where it stopped|^#[0-9]+ |^(pc|sp|x[0-2]) |^=> |^Thread [0-9]+ \\(" $log.log | cut -c1-230 | awk '!seen[$0]++ || /^venus|^vulkan|^vkcube|^#|^Thread/' | head -230
           done
           # The screen of the Vulkan boot as characters (taken with vkcube's window up, when it drew).
           [ -f boot-venus.log ] && grep -aE "^colours:|^\\|.{80}\\|$" boot-venus.log | tail -25
