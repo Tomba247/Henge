@@ -7,6 +7,7 @@ RELEASE.json is `gh release view --json name,body,assets`. Prints the title on t
 first line and the notes after it. CHANGE is the build's change (default: the one
 already in the notes, or their first line).
 """
+import os
 import json
 import re
 import sys
@@ -42,6 +43,11 @@ def main():
         old = re.search(r"^\*\*What changed:\*\* (.*)$", body, re.M)
         change = old.group(1).strip() if old else (body.strip().splitlines() or [""])[0]
     sha = re.search(r"built from ([0-9a-f]{40})", body)
+    # The commit the tag points at now, when the caller knows it (tools/release-notes.sh): after history was
+    # rewritten, the id in the old notes names a commit that is no longer on any branch.
+    now = os.environ.get("TAG_SHA", "")
+    if sha and re.fullmatch(r"[0-9a-f]{40}", now):
+        sha = re.match(r"(.*)", now)
     assets = {a["name"]: a["size"] for a in rel.get("assets", [])}
     machines = [f for f in FILES if f.endswith(".zip") and f in assets]
 

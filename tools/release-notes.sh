@@ -9,9 +9,12 @@ REPO=${GITHUB_REPOSITORY:-Tomba247/Henge}
 HERE=$(cd "$(dirname "$0")" && pwd)
 TMP=$(mktemp -d)
 gh release view "$TAG" --repo "$REPO" --json name,body,assets > "$TMP/release.json"
+# The tag's commit as it is now (a lightweight tag: the ref's object is the commit).
+TAG_SHA=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)
+export TAG_SHA
 python3 "$HERE/release_notes.py" "$TMP/release.json" "$TAG" "$REPO" "$CHANGE" > "$TMP/out.md"
 head -1 "$TMP/out.md" > "$TMP/title"
 tail -n +2 "$TMP/out.md" > "$TMP/notes.md"
-gh release edit "$TAG" --repo "$REPO" --title "$(cat "$TMP/title")" --notes-file "$TMP/notes.md"
+gh release edit "$TAG" --repo "$REPO" --title "$(cat "$TMP/title")" --notes-file "$TMP/notes.md" ${TAG_SHA:+--target "$TAG_SHA"}
 echo "release $TAG: $(cat "$TMP/title")"
 rm -rf "$TMP"
