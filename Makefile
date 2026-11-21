@@ -81,7 +81,7 @@ $(B)/%.o: host/%.c host/*.h core/*.h devices/*.h | $(B)
 $(B)/%.o: host/%.S | $(B)
 	$(CC) -c $< -o $@
 $(B)/%.o: devices/%.c devices/*.h core/*.h host/*.h | $(B)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(MAC_SAN) -c $< -o $@
 
 $(B)/test_classify: tests/test_classify.c tests/classify_cases.s $(B)/classify.o
 	$(CC) $(CFLAGS) $^ -o $@
@@ -309,6 +309,7 @@ test-gesture-engine: $(B)/test_gesture_engine
 # LX_VIRGL=1 adds 3D for virtio-gpu through the host's virglrenderer (linked dynamically then: EGL, Mesa).
 LXCC ?= aarch64-linux-gnu-gcc
 LXB = $(B)/linux
+LX_SAN ?=
 LXFLAGS = -std=gnu11 -O2 -g -Wall -Wno-unused-parameter -Ihost/linux -include host/linux/compat.h -Icore -Ihost -Idevices
 LX_SRC = $(filter-out core/window.c,$(wildcard core/*.c)) host/linux/window_stub.c host/jit_region.c host/disk.c host/linux/ulock.c devices/gicv3.c devices/timer.c \
          devices/pl011.c devices/pl031.c devices/pcie.c devices/virtio.c devices/virtio_blk.c devices/virtio_net.c \
@@ -320,6 +321,8 @@ LX_LINK = $(shell pkg-config --libs virglrenderer egl)
 else
 LX_LINK = -static
 endif
+$(LXB)/devices/%.o: LXFLAGS += $(LX_SAN)
+$(LXB)/tools/%.o: LXFLAGS += $(LX_SAN)
 $(LXB)/%.o: %.c core/*.h host/*.h devices/*.h host/linux/*.h host/linux/*/*.h
 	@mkdir -p $(dir $@)
 	$(LXCC) $(LXFLAGS) -c $< -o $@
@@ -329,6 +332,21 @@ $(LXB)/enter.o: host/enter.S
 	sed 's/\b_hv_/hv_/g' $< > $(LXB)/enter.S
 	$(LXCC) -c $(LXB)/enter.S -o $@
 $(LXB)/hengelinux: $(LX_OBJ)
-	$(LXCC) $(filter -static,$(LX_LINK)) -o $@ $(LX_OBJ) -lpthread -latomic $(filter-out -static,$(LX_LINK))
+	$(LXCC) $(LX_SAN) $(if $(LX_SAN),,$(filter -static,$(LX_LINK))) -o $@ $(LX_OBJ) -lpthread -latomic $(filter-out -static,$(LX_LINK))
 linux-test: $(LXB)/hengelinux
 .PHONY: linux-test
+
+# The same tool on a Mac host (Apple silicon), where Mach's headers are the real ones: a Linux machine on Darwin,
+# with the system's allocator and tools. No 3D yet: there are no GPU libraries built for a Mac host.
+#   make mac-linux-test                                           build/hengelinux
+#   make mac-linux-test B=build/san MAC_SAN=-fsanitize=address    the device layer and the tool with a sanitizer
+# MAC_SAN (and LX_SAN for the Linux host: make linux-test LX_VIRGL=1 LX_SAN=-fsanitize=address LXB=build/linux-asan)
+# leaves core/ as it is: translated code enters it with the guest's registers live. The app's use after free of
+# builds 85 to 97 (devices/vgpu_virgl.c) is the kind of thing this is for: the sanitizer reports the read.
+MAC_SAN ?=
+MACLX_OBJ = $(patsubst %,$(B)/%.o,gicv3 timer pl011 pl031 pcie virtio virtio_blk virtio_net virtio_input virtio_snd xhci fdt linuxvirt \
+              virtio_gpu vgpu_virgl)
+$(B)/hengelinux: tools/hengelinux.c $(ENGINE) $(MACLX_OBJ)
+	$(CC) $(CFLAGS) $(MAC_SAN) tools/hengelinux.c $(ENGINE) $(MACLX_OBJ) -o $@
+mac-linux-test: $(B)/hengelinux
+.PHONY: mac-linux-test

@@ -1,0 +1,230 @@
+name: Mac runner probe and sanitizer check
+
+# Two questions, asked by hand (nothing here runs on a push, and nothing here is part of a release):
+#
+#   mac         What can GitHub's Apple-silicon runner do for this engine? The engine's own home is a Mac host
+#               (the Makefile's default targets), and the iPhone app shares its code. This job says what the runner
+#               is, whether Metal and MoltenVK answer on it, runs the engine's tests natively (the JIT on Darwin),
+#               builds the Linux machine's runner for a Mac host (make mac-linux-test) and boots a released Linux
+#               machine on it, once as built and once with the device layer under AddressSanitizer.
+#
+#   linux-asan  The Linux host's 3D boot with the device layer under AddressSanitizer, and proof that it reports
+#               the use after free that ended the app in builds 85 to 97 (devices/vgpu_virgl.c read a posted job
+#               after freeing it; iOS's allocator made that fatal, glibc's hid it, and the runner never saw it):
+#               the same boot with that file as it was must end in the sanitizer's report.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "The release whose Ubuntu GNOME machine is booted"
+        type: string
+        default: "henge-linux-99"
+
+jobs:
+  mac:
+    name: An Apple-silicon runner
+    # The image the app is built on (build-henge.yml): a standard runner, free for a public repository.
+    runs-on: xcode-27
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The machine
+        run: |
+          set +e
+          sw_vers | tr '\n' ' '; echo; uname -m
+          echo "chip: $(sysctl -n machdep.cpu.brand_string), model $(sysctl -n hw.model)"
+          echo "cpus $(sysctl -n hw.ncpu), memory $(( $(sysctl -n hw.memsize) >> 20 )) MB, page size $(sysctl -n hw.pagesize)"
+          echo "hypervisor (Hypervisor.framework, for hengevm-ref): kern.hv_support = $(sysctl -n kern.hv_support 2>/dev/null || echo unknown)"
+          echo "disk: $(df -h / | tail -1 | tr -s ' ')"
+          xcodebuild -version | tr '\n' ' '; echo; clang --version | head -1
+          system_profiler SPDisplaysDataType 2>/dev/null | sed -n 1,24p
+
+      - name: Metal
+        continue-on-error: true
+        run: |
+          cat > metal.swift <<'EOF'
+          import Metal
+          let all = MTLCopyAllDevices()
+          print("metal: \(all.count) device(s)")
+          for d in all {
+              print("metal: \(d.name), low power \(d.isLowPower), headless \(d.isHeadless), unified memory \(d.hasUnifiedMemory), Metal 3 \(d.supportsFamily(.metal3)), Apple7 \(d.supportsFamily(.apple7)), largest buffer \(d.maxBufferLength >> 20) MB")
+          }
+          print("metal: default device \(MTLCreateSystemDefaultDevice()?.name ?? "none")")
+          EOF
+          xcrun swiftc -O metal.swift -o metal-probe && ./metal-probe
+
+      - name: The engine's tests, natively (the JIT on Darwin)
+        run: |
+          set +e
+          ulimit -s 65520 # a test keeps a whole HvCpu on its stack (the Makefile's test target does the same)
+          fail=0
+          for t in test_classify test_jit_region test_operands test_jit test_mem test_mmu test_exc test_devices test_shutdown; do
+            if make build/$t > build-$t.log 2>&1; then
+              out=$(build/$t 2>&1); r=$?
+              echo "== $t: exit $r"; echo "$out" | tail -3 | cut -c1-200
+              [ $r = 0 ] || fail=1
+            else
+              echo "== $t: DID NOT BUILD"; tail -25 build-$t.log; fail=1
+            fi
+          done
+          exit $fail
+
+      - name: The same tests with AddressSanitizer and UndefinedBehaviorSanitizer (all of the engine)
+        continue-on-error: true
+        run: |
+          set +e
+          ulimit -s 65520
+          SAN="-std=c11 -Wall -Wextra -O1 -g -Icore -Ihost -Idevices -DHV_TLB_BITS=13 -fsanitize=address,undefined -fno-omit-frame-pointer"
+          for t in test_classify test_jit_region test_operands test_jit test_mem test_mmu test_exc test_devices test_shutdown; do
+            if make B=build/san CFLAGS="$SAN" build/san/$t > san-$t.log 2>&1; then
+              out=$(ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 build/san/$t 2>&1); r=$?
+              echo "== $t: exit $r"
+              echo "$out" | grep -E "ERROR: AddressSanitizer|runtime error|SUMMARY|failures|cases|checks|returned" | head -10 | cut -c1-220
+            else
+              echo "== $t: DID NOT BUILD with the sanitizers"; grep -E "error" -A3 san-$t.log | head -20
+            fi
+          done
+
+      - name: Vulkan on Metal (MoltenVK), as the phone has it
+        continue-on-error: true
+        run: |
+          set +e
+          brew install molten-vk vulkan-loader vulkan-tools > brew.log 2>&1 || tail -8 brew.log
+          icd=$(ls "$(brew --prefix molten-vk)"/etc/vulkan/icd.d/*.json "$(brew --prefix molten-vk)"/share/vulkan/icd.d/*.json 2>/dev/null | head -1)
+          echo "MoltenVK's driver file: ${icd:-not found}"
+          export VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd"
+          vulkaninfo --summary > vulkaninfo-summary.txt 2>&1; echo "vulkaninfo exit $?"
+          grep -E "deviceName|deviceType|apiVersion|driverName|driverInfo|ERROR|Cannot|failed" vulkaninfo-summary.txt | tr -s ' \t' ' ' | head -12
+          # What the phone's MoltenVK lacked for Zink and for Venus's swapchain: is a Mac's the same?
+          vulkaninfo 2> /dev/null | grep -E "nullDescriptor|geometryShader|logicOp |VK_KHR_external_semaphore_fd|VK_EXT_external_memory_host|VK_KHR_external_memory_fd" | tr -s ' \t' ' ' | sort -u | head -12
+
+      - name: The Linux machine's runner, built for this Mac
+        run: |
+          make mac-linux-test > mac-linux.log 2>&1 || { tail -60 mac-linux.log; exit 1; }
+          make build/hvsparse > /dev/null
+          ls -la build/hengelinux
+          file build/hengelinux
+
+      - name: A released Linux machine
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -sS -o machine.zip "https://github.com/${{ github.repository }}/releases/download/${{ inputs.release || 'henge-linux-99' }}/Henge-Ubuntu-GNOME.zip"
+          unzip -q machine.zip && rm machine.zip
+          build/hvsparse unpack "Ubuntu GNOME/disk.img.hvsparse" disk.img && rm "Ubuntu GNOME/disk.img.hvsparse"
+          ls -la disk.img "Ubuntu GNOME"
+          echo "on disk: $(du -h disk.img | cut -f1)"
+
+      - name: Boot it on this Mac (no 3D; the guest draws its screen itself)
+        continue-on-error: true
+        run: |
+          set +e
+          cp -c disk.img boot-test.img 2>/dev/null || ln disk.img boot-test.img # a copy-on-write clone (APFS); never a plain copy of a 60 GB sparse file
+          HV_FB_DUMP=screen-mac.ppm perl -e 'alarm 2400; exec @ARGV' build/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img \
+              --cpus 3 --ram 3072 --fb 1280x800 --gpu \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-mac.log 2>&1
+          echo "hengelinux exit $?"
+          rm -f boot-test.img
+          grep -aE "Linux version|^desktop:|^gl:|^vulkan:|henge-autotest|hengelinux:|Kernel panic|FATAL" boot-mac.log | cut -c1-200 | head -40
+          echo "-- the last lines:"; tail -6 boot-mac.log | cut -c1-200
+          [ -f screen-mac.ppm ] && python3 tools/linux/ppm2png.py screen-mac.ppm screen-mac.png
+          grep -aq "^desktop: .* up after" boot-mac.log
+
+      - name: Boot it again with the device layer under AddressSanitizer
+        continue-on-error: true
+        run: |
+          set +e
+          make mac-linux-test B=build/san-dev MAC_SAN=-fsanitize=address > mac-linux-san.log 2>&1 || { tail -40 mac-linux-san.log; exit 1; }
+          cp -c disk.img boot-test.img 2>/dev/null || ln disk.img boot-test.img
+          ASAN_OPTIONS=detect_leaks=0 perl -e 'alarm 2400; exec @ARGV' build/san-dev/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img \
+              --cpus 3 --ram 3072 --fb 1280x800 --gpu \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-mac-asan.log 2>&1
+          echo "hengelinux exit $?"
+          rm -f boot-test.img
+          grep -aE -A14 "ERROR: AddressSanitizer" boot-mac-asan.log | head -45 | cut -c1-220
+          grep -aE "^desktop:|henge-autotest: end|hengelinux: stopped|SUMMARY: AddressSanitizer" boot-mac-asan.log | cut -c1-200 | head -10
+          echo "-- the last lines:"; tail -4 boot-mac-asan.log | cut -c1-200
+          grep -aq "^desktop: .* up after" boot-mac-asan.log && ! grep -aq "ERROR: AddressSanitizer" boot-mac-asan.log
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-probe-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            *.log
+            vulkaninfo-summary.txt
+            screen-mac.png
+
+  linux-asan:
+    name: The device layer under AddressSanitizer (Linux host, 3D)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the proof step takes one file as it was before the fix
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential unzip python3 pkg-config \
+              libvirglrenderer-dev libepoxy-dev libegl-dev libgbm-dev libegl-mesa0 libgl1-mesa-dri libgles2
+
+      - name: Build with 3D, the device layer and the tool under AddressSanitizer
+        run: |
+          make linux-test LXCC=gcc LX_VIRGL=1 LX_SAN=-fsanitize=address LXB=build/linux-virgl-asan > build-asan.log 2>&1 || { tail -40 build-asan.log; exit 1; }
+          ldd build/linux-virgl-asan/hengelinux | grep -E "asan|virgl"
+          cc -O2 -std=gnu11 -Ihost tools/hvsparse_main.c host/hvsparse.c -o hvsparse
+
+      - name: A released Linux machine
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -sS -o machine.zip "https://github.com/${{ github.repository }}/releases/download/${{ inputs.release || 'henge-linux-99' }}/Henge-Ubuntu-GNOME.zip"
+          unzip -q machine.zip && rm machine.zip
+          ./hvsparse unpack "Ubuntu GNOME/disk.img.hvsparse" disk.img && rm "Ubuntu GNOME/disk.img.hvsparse"
+          ls -la disk.img "Ubuntu GNOME"
+
+      - name: Boot it with 3D (the code as it is)
+        continue-on-error: true
+        run: |
+          set +e
+          cp --sparse=always disk.img boot-test.img
+          ASAN_OPTIONS=detect_leaks=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 HV_VGPU_LOG=0 \
+              timeout 2400 build/linux-virgl-asan/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img --cpus 4 --ram 4096 --fb 1280x800 --virgl \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-asan.log 2>&1
+          echo "hengelinux exit $?"
+          rm -f boot-test.img
+          grep -aE -A16 "ERROR: AddressSanitizer" boot-asan.log | head -50 | cut -c1-220
+          grep -aE "^desktop:|^gl:|^vulkan:|henge-autotest: end|hengelinux: stopped|SUMMARY: AddressSanitizer|AddressSanitizer failed" boot-asan.log | cut -c1-200 | head -12
+          grep -aq "gl: .*virgl" boot-asan.log && grep -aq "henge-autotest: end" boot-asan.log && ! grep -aq "ERROR: AddressSanitizer" boot-asan.log
+
+      - name: Proof (the render thread as it was in builds 85 to 97 must be reported)
+        run: |
+          set +e
+          fix=$(git log --format=%H --grep='no longer looks at a posted job after freeing it' -1)
+          [ -n "$fix" ] || { echo "the fix's commit was not found in this history"; exit 1; }
+          git show "$fix^:devices/vgpu_virgl.c" > devices/vgpu_virgl.c
+          grep -n "if (!j->async) j->done = 1" devices/vgpu_virgl.c || { echo "that version does not have the line"; exit 1; }
+          make linux-test LXCC=gcc LX_VIRGL=1 LX_SAN=-fsanitize=address LXB=build/linux-virgl-asan-old > build-asan-old.log 2>&1 || { tail -40 build-asan-old.log; exit 1; }
+          git checkout -- devices/vgpu_virgl.c
+          cp --sparse=always disk.img boot-test.img
+          ASAN_OPTIONS=detect_leaks=0:handle_segv=0:handle_sigbus=0:handle_sigill=0:handle_sigfpe=0:allow_user_segv_handler=1 HV_VGPU_LOG=0 \
+              timeout 2400 build/linux-virgl-asan-old/hengelinux --kernel "Ubuntu GNOME/Image" --disk boot-test.img --cpus 4 --ram 4096 --fb 1280x800 --virgl \
+              --append "console=ttyAMA0 root=/dev/vda rw rootwait henge.autotest=gpu" < /dev/null > boot-asan-old.log 2>&1
+          echo "hengelinux exit $?"
+          rm -f boot-test.img
+          grep -aE -A22 "ERROR: AddressSanitizer" boot-asan-old.log | head -60 | cut -c1-220
+          grep -aq "ERROR: AddressSanitizer: heap-use-after-free" boot-asan-old.log
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-asan-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            *.log
