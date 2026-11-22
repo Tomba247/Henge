@@ -64,11 +64,11 @@ while :; do
         curl -sS -m 120 --data-binary "@$OUT" "$DROP/selftest-$short.txt" || echo "selftest-loop: upload failed (kept in $OUT)"
         last=$new
         # A load test when one is asked for: tools/bench-request holds a number, and a new number (also the first
-        # one this loop sees) runs tools/mac-bench.sh, about 10 minutes of work, and sends its report.
+        # one this loop sees) runs tools/mac-bench.sh for 3 minutes (one part, no address A/B) and sends its report.
         want=$(cat tools/bench-request 2>/dev/null)
         if [ -n "$want" ] && [ "$want" != "$benched" ] && [ -f tools/mac-bench.sh ]; then
             echo "selftest-loop: $(date '+%H:%M:%S') load test $want (about 10 minutes)"
-            sh tools/mac-bench.sh > /tmp/henge-bench.txt 2>&1
+            sh tools/mac-bench.sh 3 plain > /tmp/henge-bench.txt 2>&1
             tail -3 /tmp/henge-bench.txt
             curl -sS -m 120 --data-binary "@/tmp/henge-bench.txt" "$DROP/bench-$want-$(date -u '+%H%M%S').txt" || echo "selftest-loop: upload failed (kept in /tmp/henge-bench.txt)"
             benched=$want
