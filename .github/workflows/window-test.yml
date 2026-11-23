@@ -25,18 +25,18 @@ jobs:
           mkdir -p build
           make build/test_window 2>&1 | grep -E "error|warning" | head -40 || true
           make test-window || echo "::warning::a setting failed"
-      # The largest window hung here once (2026-11-23): where, if it does again.
-      - name: The largest window, three times, with a sample of the stacks if it hangs
+      # A run hung here now and then (2026-11-23, after test_sweep's first line): where, if it does again.
+      - name: Twelve more runs, with a sample of the stacks if one hangs
         run: |
           set +e
           fail=0
-          for i in 1 2 3; do
-            HV_WINDOW_PAGES=65536 build/test_window > big-$i.log 2>&1 &
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            HV_WINDOW_PAGES=$((i % 2 ? 64 : 65536)) build/test_window > big-$i.log 2>&1 &
             pid=$!
-            for t in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+            for t in $(seq 1 60); do kill -0 $pid 2>/dev/null || break; sleep 1; done
             if kill -0 $pid 2>/dev/null; then
-              echo "== run $i still going after 90 s"; tail -5 big-$i.log
-              sample $pid 2 -mayDie 2>&1 | sed -n '1,120p'
+              echo "== run $i still going after 60 s"; tail -5 big-$i.log
+              sample $pid 2 -mayDie 2>&1 | sed -n '1,160p'
               kill -9 $pid; fail=1
             else
               wait $pid; echo "== run $i: exit $?"; tail -2 big-$i.log
