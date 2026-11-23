@@ -177,6 +177,37 @@ static void *other(void *arg) {
     return NULL;
 }
 
+/* What the engine holds for f and g, when a result is wrong: which link is the stale one. */
+static void dump_state(void) {
+    HvRam *r = hv_ram_lookup(&m, P);
+    uint64_t pg = (P - r->pa) >> HV_TLB_PAGE_BITS;
+    uint32_t now;
+    memcpy(&now, mem + (G - BASE), 4);
+    printf("    page: gen %u code_pages %d mask %llx xlating %d; g is now %x\n", r->page_gen[pg], r->code_pages[pg], (unsigned long long)r->code_mask[pg], (int)r->xlating[pg], now);
+    for (int w = 0; w < 2; w++) {
+        uint64_t va = w ? G : F;
+        uint32_t h = hv_block_hash(va, va, HV_BLOCK_EL1 | HV_BLOCK_SPX);
+        for (uint32_t flags = 0; flags < 16; flags++) {
+            h = hv_block_hash(va, va, flags);
+            for (HvBlock *b = m.hash[h]; b; b = b->next) {
+                if (b->va != va || b->flags != flags) continue;
+                printf("    %s block %p flags %x gen %u%s sum %08x%08x insns %u code %p\n", w ? "g" : "f", (void *)b, b->flags, b->gen, b->gen == r->page_gen[pg] ? " (current)" : "", b->sum_hi, b->sum_lo,
+                       b->ninsns, (void *)b->code);
+                if (w) continue;
+                for (uint32_t idx = 0; idx < m.nslots; idx++) {
+                    uint32_t *site = hv_slot_dec(&m, m.slot_site[idx]);
+                    if (!site || site < b->code || site >= b->code + 256) continue;
+                    uint64_t to = *HV_SLOT(&m, idx);
+                    HvBlock *t = to ? hv_block_at(&m, (const uint32_t *)(uintptr_t)to) : NULL;
+                    printf("      slot %u: to %llx", idx, (unsigned long long)to);
+                    if (t) printf(" = block %p va %llx gen %u sum %08x%08x", (void *)t, (unsigned long long)t->va, t->gen, t->sum_hi, t->sum_lo);
+                    printf("; listed %llx tseg %u xa %llx; site insn %08x\n", (unsigned long long)m.slot_xpa[idx], m.slot_tseg[idx], (unsigned long long)m.slot_xa[idx], *site);
+                }
+            }
+        }
+    }
+}
+
 static void test_two_cpus(void) {
     uint64_t t0 = m.stats.translations, r0 = m.stats.revived;
     pthread_t t;
@@ -187,7 +218,10 @@ static void test_two_cpus(void) {
         guest_write(&cpu_a, G, ADD_X0(v));
         uint64_t got = call(&cpu_a, i & 1, F, 0);
         if (got != 1 + v) {
-            if (bad++ < 5) printf("  round %d: f gave %llx, want %x (how %d, ic drops %llu)\n", i, (unsigned long long)got, 1 + v, i & 1, (unsigned long long)m.stats.flush_ic);
+            if (bad++ < 3) {
+                printf("  round %d: f gave %llx, want %x (how %d)\n", i, (unsigned long long)got, 1 + v, i & 1);
+                dump_state();
+            }
         }
         if (i % 4 == 0 && (got = call(&cpu_a, 2, F2, 0)) != 2 + v) {
             if (bad++ < 5) printf("  round %d: f2 gave %llx, want %x\n", i, (unsigned long long)got, 2 + v);

@@ -1,0 +1,30 @@
+name: HV_REVIVE test (arm64 Linux)
+
+# tests/test_revive.c natively on arm64 cores: two CPUs on one page of code that is rewritten under them, with
+# HV_REVIVE on and off. By hand, or by a push that changes the test or this file.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/blissful-cori-6o3jo3"]
+    paths:
+      - tests/test_revive.c
+      - .github/workflows/revive-test.yml
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run
+        run: |
+          set -uo pipefail
+          make linux-test-revive LXCC=gcc 2>&1 | grep -E "error|warning" | head -20 || true
+          fail=0
+          for i in 1 2 3 4 5 6 7 8; do
+            for r in 0 1; do
+              HV_REVIVE=$r build/linux/test_revive > revive.log 2>&1 || { fail=1; echo "== HV_REVIVE=$r run $i"; cat revive.log; }
+            done
+          done
+          tail -8 revive.log
+          exit $fail
