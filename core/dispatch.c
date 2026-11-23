@@ -202,7 +202,10 @@ void hv_evict_blocks(HvMachine *m) {
         hv_jit_poison(r, (uint32_t *)lo, r->seg_words);
     }
 #undef GONE
-    m->stats.evict_ticks += mach_absolute_time() - t0;
+    uint64_t took = mach_absolute_time() - t0;
+    m->stats.evict_ticks += took;
+    if (took > m->stats.evict_longest) m->stats.evict_longest = took;
+    if (took > m->stats.evict_longest_now) m->stats.evict_longest_now = took;
 }
 
 /* Ask for room: an eviction, unless something wants (or the ring needs) a full flush. */
@@ -885,6 +888,14 @@ static void print_stats(HvCpu *cpu, int force) {
             fprintf(stderr, "  switch-flush checks/s: %.0f, entries walked %.0f, found out of date %.0f (flushed), access flag only %.0f\n",
                     RATE(flush_checked), RATE(flush_check_entries), RATE(flush_check_bad), RATE(flush_check_af));
         fprintf(stderr, "  TTBR0 writes/s that changed nothing: %.0f\n", RATE(ttbr0_same));
+        { /* the code cache's ring, and what taking a segment back costs each time (every CPU stops for it) */
+            uint64_t ev = s->evictions - last.evictions;
+            fprintf(stderr, "  code cache: %u segments of %.1f MB; evictions this interval %llu, %.1f ms each, longest %.1f ms; so far %llu, %.1f ms each, longest %.1f ms\n",
+                    m->jit.nseg, (double)m->jit.seg_words * 4 / (1 << 20), (unsigned long long)ev, ev ? (double)(s->evict_ticks - last.evict_ticks) / 24e3 / (double)ev : 0.0,
+                    (double)s->evict_longest_now / 24e3, (unsigned long long)s->evictions, s->evictions ? (double)s->evict_ticks / 24e3 / (double)s->evictions : 0.0,
+                    (double)s->evict_longest / 24e3);
+            s->evict_longest_now = 0;
+        }
         if (hv_window_enabled()) { /* HV_EL0_WINDOW: what the windows cost (window.c) */
             static uint64_t wl[HV_WC_N];
             uint64_t wc[HV_WC_N];

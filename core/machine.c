@@ -160,6 +160,9 @@ static int init_rest(HvMachine *m) {
        The same number as hv_flush_blocks sets: this said 8 until 2026-11-23 while that said 128, and a machine
        that never flushed everything (a phone's log: 0 full flushes, 26 evictions of about 197 ms) kept 8. */
     hv_jit_ring(&m->jit, hv_jit_segments());
+    if (getenv("HV_STATS") || getenv("HV_JIT_SEGMENTS"))
+        fprintf(stderr, "henge: code cache ring: %u segments of %.1f MB (HV_JIT_SEGMENTS %s)\n", m->jit.nseg, (double)m->jit.seg_words * 4 / (1 << 20),
+                hv_knob[HV_K_JITSEGS] ? "set" : "not set: the default");
     if (!m->slots || !m->slot_site || !m->slot_stub || !m->slot_cond || !m->slot_xa || !m->slot_xpa ||
         !m->slot_xnext || !m->slot_xprev || !m->slot_tseg || !m->slot_tprev || !m->slot_tnext) return -1;
     for (int i = 0; i < HV_MAX_CPUS; i++) { /* untouched pages cost nothing, so every CPU gets its tables now */
