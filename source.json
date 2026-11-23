@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.104",
+          "date": "2026-11-23T09:25:44Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Stats: the device lock's long holds and waits with who held it, and what a CPU that kept others waiting for a TLBI ack had to do with it\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit f392322\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-104/Henge.ipa",
+          "size": 14201617,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.103",
           "date": "2026-11-23T09:09:52Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -404,16 +414,6 @@
           "localizedDescription": "What changed: iPhone mouse: switch on when the mouse moves (iOS 27 reports AssistiveTouch as off while it is on), and move the Mac's pointer by the mouse's own motion one to one, clamped to the screen as AssistiveTouch's is (Madeira's way), with the Mac's own pointer hidden\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-54/Henge.ipa",
           "size": 9767531,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.53",
-          "date": "2026-11-17T23:43:02Z",
-          "localizedDescription": "What changed: iPhone mouse as Madeira does it: the Mac's pointer goes where AssistiveTouch's is (USB absolute pointer, from hover and its taps), its copies of clicks are kept from the trackpad, and the Mac's own pointer is not drawn while the mouse is in use\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-53/Henge.ipa",
-          "size": 9766823,
           "minOSVersion": "17.0",
           "branch": "league-el0"
         }
