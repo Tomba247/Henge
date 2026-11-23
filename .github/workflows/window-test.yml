@@ -59,7 +59,8 @@ jobs:
             for r in 0 1; do HV_REVIVE=$r build/test_revive > revive.log 2>&1 || { fail=1; echo "== HV_REVIVE=$r run $i"; cat revive.log; }; done
           done
           tail -8 revive.log
-          for t in test_jit test_mem test_mmu test_exc test_shutdown; do
+          # Not test_jit: its ring test fills the cache by translating the same code again, which is what this stops.
+          for t in test_mem test_mmu test_exc test_shutdown; do
             make build/$t > make-$t.log 2>&1 || { echo "$t: does not build"; tail -20 make-$t.log; fail=1; continue; }
             echo "== $t with HV_REVIVE=1"; HV_REVIVE=1 build/$t | tail -3 || fail=1
           done
