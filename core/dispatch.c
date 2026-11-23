@@ -3,6 +3,7 @@
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <sched.h>
+#include <sys/resource.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <dlfcn.h>
@@ -301,9 +302,13 @@ static inline void tr_lock(HvMachine *m) {
         got = pthread_mutex_trylock(&m->tr_mu) == 0;
     }
     if (!got) pthread_mutex_lock(&m->tr_mu);
-    if (m->stats_interval) {
+    if (m->stats_interval) { /* under the lock now */
+        uint64_t dt = mach_absolute_time() - w0;
         m->stats.tr_waits++;
-        m->stats.tr_wait_ticks += mach_absolute_time() - w0;
+        m->stats.tr_wait_ticks += dt;
+        if (dt >= 2400) m->stats.tr_wait_100us++;
+        if (dt >= 24000) m->stats.tr_wait_1ms++;
+        if (dt > m->stats.tr_wait_longest) m->stats.tr_wait_longest = dt;
     }
 }
 
@@ -374,6 +379,7 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     if (hv_translate_place(m, &nb) != 0) { /* JIT region full: make room */
         hv_translate_discard_slots(m);
         pthread_mutex_lock(&m->tr_mu);
+        hv_tr_held(m, HV_TR_OTHER);
         if (!m->jit.seg_words) m->stats.flush_full++;
         goto evict;
     }
@@ -382,10 +388,11 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     block_dump(&nb, code);
     /* ...then take the lock only to publish it. */
     tr_lock(m);
+    hv_tr_held(m, HV_TR_PUBLISH);
     b = find(m, h, va, pa, flags, gen); /* another CPU may have just made it: ours is dropped (its space stays used until its segment is taken back) */
     if (b) {
         hv_translate_discard_slots(m);
-        pthread_mutex_unlock(&m->tr_mu);
+        hv_tr_unlock(m);
         jc[j].va = va, jc[j].b = b;
         return b;
     }
@@ -419,16 +426,17 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     m->nblocks++;
     b->next = m->hash[h];
     __atomic_store_n(&m->hash[h], b, __ATOMIC_RELEASE);
-    pthread_mutex_unlock(&m->tr_mu);
+    hv_tr_unlock(m);
     return b;
 evict:
     request_evict(m);
     goto flush;
 flush_unlocked:
     pthread_mutex_lock(&m->tr_mu);
+    hv_tr_held(m, HV_TR_OTHER);
     if (failed) __atomic_store_n(&m->flush_pending, 1, __ATOMIC_SEQ_CST);
 flush:
-    pthread_mutex_unlock(&m->tr_mu);
+    hv_tr_unlock(m);
     hv_machine_kick_all(m);
     return NULL;
 }
@@ -888,6 +896,25 @@ static void print_stats(HvCpu *cpu, int force) {
             fprintf(stderr, "  switch-flush checks/s: %.0f, entries walked %.0f, found out of date %.0f (flushed), access flag only %.0f\n",
                     RATE(flush_checked), RATE(flush_check_entries), RATE(flush_check_bad), RATE(flush_check_af));
         fprintf(stderr, "  TTBR0 writes/s that changed nothing: %.0f\n", RATE(ttbr0_same));
+        { /* who holds the translation lock, and for how long (a holder the host takes off its core keeps the rest waiting) */
+            static const char *const kn[5] = {"publish", "chain", "invalidate", "evict", "other"};
+            fprintf(stderr, "  translation lock held, per s (%% of one CPU; holds over 100 us, over 1 ms; longest ever ms):");
+            for (int k = 0; k < 5; k++)
+                fprintf(stderr, " %s %.0f (%.1f%%; %.0f, %.0f; %.2f)", kn[k], RATE(tr_hold_n[k]), 100.0 * (double)(s->tr_hold_ticks[k] - last.tr_hold_ticks[k]) / (double)(now - last_t),
+                        RATE(tr_hold_100us[k]), RATE(tr_hold_1ms[k]), (double)s->tr_hold_longest[k] / 24e3);
+            fprintf(stderr, "\n  translation lock waits/s over 100 us %.0f, over 1 ms %.0f, longest this interval %.2f ms\n", RATE(tr_wait_100us), RATE(tr_wait_1ms),
+                    (double)s->tr_wait_longest / 24e3);
+            s->tr_wait_longest = 0;
+            /* The host's page faults in this process: memory the host had compressed or not yet given comes back
+               through one, and a fault while the lock is held is a long hold. */
+            static struct rusage ru0;
+            struct rusage ru;
+            if (getrusage(RUSAGE_SELF, &ru) == 0) {
+                fprintf(stderr, "  host page faults/s: %.0f without I/O, %.0f with; context switches/s: %.0f given up, %.0f taken away\n", (double)(ru.ru_minflt - ru0.ru_minflt) / dt,
+                        (double)(ru.ru_majflt - ru0.ru_majflt) / dt, (double)(ru.ru_nvcsw - ru0.ru_nvcsw) / dt, (double)(ru.ru_nivcsw - ru0.ru_nivcsw) / dt);
+                ru0 = ru;
+            }
+        }
         { /* the code cache's ring, and what taking a segment back costs each time (every CPU stops for it) */
             uint64_t ev = s->evictions - last.evictions;
             fprintf(stderr, "  code cache: %u segments of %.1f MB; evictions this interval %llu, %.1f ms each, longest %.1f ms; so far %llu, %.1f ms each, longest %.1f ms\n",
@@ -1077,8 +1104,9 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
         if (host - (b->va & ~((1ull << HV_TLB_PAGE_BITS) - 1)) != xa) return;
     }
     tr_lock(m);
+    hv_tr_held(m, HV_TR_CHAIN);
     if (__atomic_load_n(&b->ram->page_gen[b->pg], __ATOMIC_ACQUIRE) != b->gen || m->slot_tseg[idx] || *HV_SLOT(m, idx) || (xa && m->slot_xpa[idx])) {
-        pthread_mutex_unlock(&m->tr_mu);
+        hv_tr_unlock(m);
         return;
     }
     uint32_t tseg = hv_jit_seg_of(m, b->code);
@@ -1106,7 +1134,7 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
     }
     m->stats.chained++;
     if (xa && m->stats_interval) m->stats.xchained++;
-    pthread_mutex_unlock(&m->tr_mu);
+    hv_tr_unlock(m);
 }
 
 static int run_loop(HvCpu *cpu, int one);
@@ -1158,9 +1186,10 @@ static void stop_the_world(HvCpu *cpu) {
         }
         if (m->gen_checks) for (int i = 0; i < m->ncpus; i++) if (m->cpus[i] && m->cpus[i] != cpu && m->cpus[i]->pc_state->active) fprintf(stderr, "hengevm: flush while cpu %d is active\n", i);
         pthread_mutex_lock(&m->tr_mu);
+        hv_tr_held(m, HV_TR_EVICT);
         if (kind == HV_FLUSH_EVICT) hv_evict_blocks(m);
         else hv_flush_blocks(m);
-        pthread_mutex_unlock(&m->tr_mu);
+        hv_tr_unlock(m);
         if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, HV_PHASE_RUN, __ATOMIC_RELAXED);
         pthread_mutex_lock(&m->stw_mu);
         __atomic_store_n(&m->stw_active, 0, __ATOMIC_SEQ_CST);

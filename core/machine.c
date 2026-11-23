@@ -578,6 +578,7 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
        (whose next chain finds the new translation). Under the translation lock,
        as chaining them is: one that saw the old generation is done by now. */
     pthread_mutex_lock(&m->tr_mu);
+    hv_tr_held(m, HV_TR_INVALIDATE);
     for (uint32_t k = r->xhead[pg]; k;) {
         uint32_t idx = k - 1;
         k = m->slot_xnext[idx];
@@ -595,7 +596,7 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
         m->nxchained--;
     }
     r->xhead[pg] = 0;
-    pthread_mutex_unlock(&m->tr_mu);
+    hv_tr_unlock(m);
     /* The indirect-branch cache may lead into the stale blocks: drop those entries (or, without HV_IJC_PAGES, the
        whole cache), here at once and on the other CPUs before they next leave a block (their cache lookups and
        chained exits check exit_req first). Which entries: the page's blocks were cached under one VA page (ijc_va,

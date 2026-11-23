@@ -1,6 +1,7 @@
 #ifndef HENGEVM_MACHINE_H
 #define HENGEVM_MACHINE_H
 
+#include <mach/mach_time.h>
 #include <pthread.h>
 #include <stdint.h>
 
@@ -78,6 +79,9 @@ typedef struct HvStats {
     uint64_t blocks, translations, block_flushes;
     uint64_t evictions, evict_ticks, evict_blocks, evict_unchained; /* code-cache segments taken back, host ticks it took, blocks dropped, chained exits undone */
     uint64_t evict_phase[3];  /* of those ticks: caches, blocks and hash; the slots; the instruction-cache lines */
+    /* The translation lock (tr_mu), by what held it (HV_TR_*): times, ticks, the longest, and holds over 100 us and 1 ms. */
+    uint64_t tr_hold_n[5], tr_hold_ticks[5], tr_hold_longest[5], tr_hold_100us[5], tr_hold_1ms[5];
+    uint64_t tr_wait_100us, tr_wait_1ms, tr_wait_longest; /* waits for it that long, and the longest since the stats block last printed */
     uint64_t evict_longest, evict_longest_now; /* the longest one, in ticks: ever, and since the stats block last printed (it clears that one) */
     uint64_t flush_smc, flush_ic, flush_full;  /* why translations were dropped */
     uint64_t chained, ijc_fills, ijc_resets;
@@ -282,6 +286,8 @@ typedef struct HvMachine {
     uint64_t access_pc;  /* guest PC of the load/store being emulated, for logs */
     HvStats stats;
     char pad_after_stats[128]; /* as pad_before_stats */
+    uint64_t tr_hold_t0;     /* under tr_mu, with stats on: when it was taken, and for what (HV_TR_*) */
+    int tr_hold_kind;
     int chain;               /* block chaining and the indirect-branch cache are enabled */
     uint64_t *slots;         /* chainable exits, two words each (HV_SLOT): the block chained to (0: not chained), then the exit's guest target */
     uint32_t *slot_site;     /* JIT word offset + 1 (0: NULL) of the B chaining rewrites */
@@ -480,6 +486,25 @@ extern __thread HvCpu *hv_self;
 /* Segments of the code cache's ring, wherever it is set up (hv_machine_init, hv_flush_blocks): HV_JIT_SEGMENTS, or
    this. Every CPU stops while a segment's blocks go, and each eviction empties the branch caches as a flush does:
    on a phone (macOS 27.2, 1.5 GB) an eviction took about 200 ms with 8 segments and 30-50 ms with 32. */
+/* What takes the translation lock, for the stats block: a new block being published, an exit being chained, a
+   page's code being invalidated, a segment or everything being dropped, and the rest. */
+enum { HV_TR_PUBLISH, HV_TR_CHAIN, HV_TR_INVALIDATE, HV_TR_EVICT, HV_TR_OTHER };
+static inline void hv_tr_held(HvMachine *m, int kind) { /* right after taking tr_mu */
+    m->tr_hold_t0 = m->stats_interval ? mach_absolute_time() : 0;
+    m->tr_hold_kind = kind;
+}
+static inline void hv_tr_unlock(HvMachine *m) {
+    if (m->tr_hold_t0) {
+        uint64_t dt = mach_absolute_time() - m->tr_hold_t0;
+        int k = m->tr_hold_kind;
+        m->tr_hold_t0 = 0;
+        m->stats.tr_hold_n[k]++, m->stats.tr_hold_ticks[k] += dt;
+        if (dt > m->stats.tr_hold_longest[k]) m->stats.tr_hold_longest[k] = dt;
+        if (dt >= 2400) m->stats.tr_hold_100us[k]++;
+        if (dt >= 24000) m->stats.tr_hold_1ms[k]++;
+    }
+    pthread_mutex_unlock(&m->tr_mu);
+}
 #define HV_JIT_SEGS_DEFAULT 128
 static inline uint32_t hv_jit_segments(void) { return hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : HV_JIT_SEGS_DEFAULT; }
 void hv_dev_lock(HvMachine *m);
