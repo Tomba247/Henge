@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.106",
+          "date": "2026-11-23T09:57:02Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Stats: the device lock's holder is named by PCI device (virtio-blk, virtio-net, xhci ...) and by read or write\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 32b05dc\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-106/Henge.ipa",
+          "size": 14201107,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.104",
           "date": "2026-11-23T09:25:44Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -380,11 +390,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.104",
-      "versionDate": "2026-11-23T09:25:44Z",
-      "versionDescription": "What changed: Stats: the device lock's long holds and waits with who held it, and what a CPU that kept others waiting for a TLBI ack had to do with it\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit f392322\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-104/Henge.ipa",
-      "size": 14201617,
+      "buildVersion": "101.106",
+      "versionDate": "2026-11-23T09:57:02Z",
+      "versionDescription": "What changed: Stats: the device lock's holder is named by PCI device (virtio-blk, virtio-net, xhci ...) and by read or write\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 32b05dc\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-106/Henge.ipa",
+      "size": 14201107,
       "minOSVersion": "17.0"
     }
   ],
