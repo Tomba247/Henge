@@ -802,6 +802,7 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
         }
         memcpy(r->host + off, buf, len);
         HV_DBG("phys_write: stored at, checks", pa, code, 0);
+        if (code) __atomic_thread_fence(__ATOMIC_SEQ_CST); /* the write, then the count of translations: see lookup in dispatch.c */
         if (code) /* was a block made from these bytes meanwhile? */
             for (uint64_t pg = first; pg <= last; pg++) {
                 uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;

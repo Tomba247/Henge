@@ -421,6 +421,10 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
             if (m->cpus[i]) hv_tlb_protect_code_page(m->cpus[i], ram, pg);
         gen = __atomic_load_n(&ram->page_gen[pg], __ATOMIC_SEQ_CST);
     }
+    /* A full fence between counting this translation and reading the page's instructions (plain loads): the
+       writer stores, fences and then reads the count (hv_phys_write). Without both fences each side can miss the
+       other on arm64: this CPU reads the old instructions while the writer reads a count of zero. */
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     if (hv_knob[HV_K_REVIVE]) {
         int changed = 0;
         HvBlock *s = find_stale(m, h, va, pa, flags, gen, code, avail, &changed);
