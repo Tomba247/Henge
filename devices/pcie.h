@@ -21,6 +21,7 @@ typedef struct HvPciDev {
     uint8_t bar64[6];
     int intx;                 /* current INTA level */
     void *opaque;
+    char label[2][28];        /* for the stats block's device lock lines: what a read and a write of its BARs are called */
     uint64_t (*bar_read)(struct HvPciDev *d, int bar, uint64_t off, unsigned size);
     void (*bar_write)(struct HvPciDev *d, int bar, uint64_t off, uint64_t v, unsigned size);
 } HvPciDev;

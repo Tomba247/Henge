@@ -20,6 +20,16 @@ static uint32_t get32(const uint8_t *p) { uint32_t v; memcpy(&v, p, 4); return v
 
 void hv_pci_init(HvPciDev *d, uint16_t vendor, uint16_t device, uint32_t class_rev, uint16_t sub_vendor,
                  uint16_t sub_id) {
+    { /* a name for the log: the virtio device type, or the vendor and device */
+        static const char *const vio[] = {[1] = "net", [2] = "blk", [3] = "console", [4] = "rng", [5] = "balloon", [16] = "gpu", [18] = "input", [25] = "snd"};
+        unsigned t = vendor == 0x1af4 && device >= 0x1040 ? device - 0x1040u : 0;
+        const char *n = t && t < sizeof vio / sizeof vio[0] && vio[t] ? vio[t] : NULL;
+        for (int w = 0; w < 2; w++) {
+            if (n) snprintf(d->label[w], sizeof d->label[w], "virtio-%s %s", n, w ? "write" : "read");
+            else if (vendor == 0x1b36 && device == 0x000d) snprintf(d->label[w], sizeof d->label[w], "xhci %s", w ? "write" : "read");
+            else snprintf(d->label[w], sizeof d->label[w], "pci %04x:%04x %s", vendor, device, w ? "write" : "read");
+        }
+    }
     memset(d->config, 0, sizeof d->config);
     memset(d->wmask, 0, sizeof d->wmask);
     put16(d->config + 0x00, vendor);
@@ -120,6 +130,7 @@ static uint64_t window_read(void *opaque, uint64_t off, unsigned size) {
     uint64_t boff;
     HvPciDev *d = bar_lookup(p, p->mmio_base + off, &bar, &boff);
     if (!d || !d->bar_read) return ~0ull;
+    if (p->m->dev_depth == 1) p->m->dev_hold_by = d->label[0]; /* under the device lock: which device, for the stats */
     return d->bar_read(d, bar, boff, size);
 }
 
@@ -128,7 +139,10 @@ static void window_write(void *opaque, uint64_t off, uint64_t v, unsigned size) 
     int bar;
     uint64_t boff;
     HvPciDev *d = bar_lookup(p, p->mmio_base + off, &bar, &boff);
-    if (d && d->bar_write) d->bar_write(d, bar, boff, v, size);
+    if (d && d->bar_write) {
+        if (p->m->dev_depth == 1) p->m->dev_hold_by = d->label[1];
+        d->bar_write(d, bar, boff, v, size);
+    }
 }
 
 int hv_pcie_attach(HvPcie *p, HvPciDev *d) {
