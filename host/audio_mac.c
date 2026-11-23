@@ -13,8 +13,21 @@
 #else
 #define HV_OUTPUT_UNIT kAudioUnitSubType_DefaultOutput
 #endif
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+/* Starting and stopping the output takes iOS about a second, and the guest asks for it from a CPU
+   thread holding the device lock, which froze every device for that second. So the CPU thread
+   only records what it wants (want_*), and one worker thread makes the output match. au_mu
+   serializes everything that touches the units: the worker, the microphone and detach. */
+static pthread_mutex_t au_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t want_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t want_cv = PTHREAD_COND_INITIALIZER;
+static int want_on, want_busy, worker_up;
+static unsigned want_channels, want_format, want_rate;
+static uint64_t want_gen, done_gen;
+static void *want_dev;
 
 static AudioComponentInstance unit;
 static int unit_running;
@@ -73,7 +86,7 @@ static OSStatus capture(void *ref, AudioUnitRenderActionFlags *flags, const Audi
     return noErr;
 }
 
-static void in_stop(void *opaque) {
+static void in_stop_now(void *opaque) {
     (void)opaque;
     if (!in_unit) return;
     AudioOutputUnitStop(in_unit); /* waits for the capture callback to finish */
@@ -83,9 +96,15 @@ static void in_stop(void *opaque) {
     in_unit = NULL;
 }
 
-static int in_start(void *opaque, unsigned channels, unsigned format, unsigned rate_hz) {
+static void in_stop(void *opaque) {
+    pthread_mutex_lock(&au_mu);
+    in_stop_now(opaque);
+    pthread_mutex_unlock(&au_mu);
+}
+
+static int in_start_now(void *opaque, unsigned channels, unsigned format, unsigned rate_hz) {
     HvVirtioSnd *d = opaque;
-    in_stop(opaque);
+    in_stop_now(opaque);
     AudioComponentDescription desc = {kAudioUnitType_Output, kAudioUnitSubType_RemoteIO, kAudioUnitManufacturer_Apple, 0, 0};
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
     AudioComponentInstance u = NULL;
@@ -128,7 +147,7 @@ static int in_start(void *opaque, unsigned channels, unsigned format, unsigned r
     in_unit = u;
     if ((st = AudioOutputUnitStart(u)) != noErr) {
         fprintf(stderr, "hengevm: sound: the microphone did not start (status %d)\n", (int)st);
-        in_stop(opaque);
+        in_stop_now(opaque);
         return -1;
     }
     /* The input coming on changes the audio session's route (a route change is logged at this moment), and the
@@ -137,6 +156,13 @@ static int in_start(void *opaque, unsigned channels, unsigned format, unsigned r
     if (out_unit_restart() && !getenv("HV_MIC_NO_RESTART"))
         fprintf(stderr, "hengevm: sound: the output was restarted for the microphone's route\n");
     return 0;
+}
+
+static int in_start(void *opaque, unsigned channels, unsigned format, unsigned rate_hz) {
+    pthread_mutex_lock(&au_mu);
+    int r = in_start_now(opaque, channels, format, rate_hz);
+    pthread_mutex_unlock(&au_mu);
+    return r;
 }
 #endif
 
@@ -149,7 +175,7 @@ static OSStatus render(void *ref, AudioUnitRenderActionFlags *flags, const Audio
     return noErr;
 }
 
-static int start(void *opaque, unsigned channels, unsigned format, unsigned rate_hz) {
+static int start_now(void *opaque, unsigned channels, unsigned format, unsigned rate_hz) {
     HvVirtioSnd *d = opaque;
     if (unit && (channels != cur_channels || format != cur_format || rate_hz != cur_rate)) {
         AudioOutputUnitStop(unit);
@@ -188,10 +214,65 @@ static int start(void *opaque, unsigned channels, unsigned format, unsigned rate
     return unit_running ? 0 : -1;
 }
 
-static void stop(void *opaque) {
-    (void)opaque;
+static void stop_now(void) {
     if (unit && unit_running) AudioOutputUnitStop(unit); /* waits for the render callback to finish */
     unit_running = 0;
+}
+
+static void *worker(void *arg) {
+    (void)arg;
+    pthread_mutex_lock(&want_mu);
+    for (;;) {
+        while (done_gen == want_gen) pthread_cond_wait(&want_cv, &want_mu);
+        uint64_t gen = want_gen;
+        int on = want_on;
+        unsigned ch = want_channels, fmt = want_format, rate = want_rate;
+        HvVirtioSnd *d = want_dev;
+        want_busy = 1;
+        pthread_mutex_unlock(&want_mu);
+        pthread_mutex_lock(&au_mu);
+        if (!on) stop_now();
+        else if (start_now(d, ch, fmt, rate) != 0) {
+            /* The host cannot play it: the device drains by the clock instead (it reads this on its next poll). */
+            fprintf(stderr, "hengevm: sound: the output did not start; the Mac's sound plays to nowhere\n");
+            d->backend.start = NULL;
+        }
+        pthread_mutex_unlock(&au_mu);
+        pthread_mutex_lock(&want_mu);
+        done_gen = gen;
+        want_busy = 0;
+        pthread_cond_broadcast(&want_cv);
+    }
+    return NULL;
+}
+
+static void want(void *opaque, int on, unsigned channels, unsigned format, unsigned rate_hz) {
+    pthread_mutex_lock(&want_mu);
+    if (!worker_up) {
+        pthread_t t;
+        if (pthread_create(&t, NULL, worker, NULL) == 0) pthread_detach(t), worker_up = 1;
+    }
+    want_on = on;
+    if (on) want_dev = opaque, want_channels = channels, want_format = format, want_rate = rate_hz;
+    want_gen++;
+    pthread_cond_broadcast(&want_cv);
+    int up = worker_up;
+    pthread_mutex_unlock(&want_mu);
+    if (!up) { /* no thread: do it here, as before */
+        pthread_mutex_lock(&au_mu);
+        if (on) start_now(opaque, channels, format, rate_hz);
+        else stop_now();
+        pthread_mutex_unlock(&au_mu);
+    }
+}
+
+static int start(void *opaque, unsigned channels, unsigned format, unsigned rate_hz) {
+    want(opaque, 1, channels, format, rate_hz);
+    return 0;
+}
+
+static void stop(void *opaque) {
+    want(opaque, 0, 0, 0, 0);
 }
 
 void hv_audio_attach(HvVirtioSnd *d) {
@@ -203,9 +284,19 @@ void hv_audio_attach(HvVirtioSnd *d) {
 }
 
 void hv_audio_detach(void) {
+    /* Nothing more for the worker to do, and wait for what it is doing. */
+    pthread_mutex_lock(&want_mu);
+    want_on = 0;
+    if (worker_up) {
+        want_gen++;
+        pthread_cond_broadcast(&want_cv);
+        while (done_gen != want_gen || want_busy) pthread_cond_wait(&want_cv, &want_mu);
+    }
+    pthread_mutex_unlock(&want_mu);
 #if TARGET_OS_IPHONE
     in_stop(NULL);
 #endif
+    pthread_mutex_lock(&au_mu);
     if (unit) {
         AudioOutputUnitStop(unit);
         AudioUnitUninitialize(unit);
@@ -214,4 +305,5 @@ void hv_audio_detach(void) {
     }
     unit_running = 0;
     cur_channels = cur_format = cur_rate = 0;
+    pthread_mutex_unlock(&au_mu);
 }
