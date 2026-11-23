@@ -445,6 +445,9 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, HV_PHASE_TRANSLATE, __ATOMIC_RELAXED);
     failed = hv_translate_emit(m, &nb, code, avail) != 0;
     if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, phase0, __ATOMIC_RELAXED);
+    /* HV_REVIVE: the sum while this translation is still counted (xlating), as its code was read: a write since
+       the instructions were read has raised the generation or will, and the block is then published without it. */
+    uint64_t nb_sum = !failed && hv_knob[HV_K_REVIVE] ? code_sum(code, nb.ninsns) : 0;
     if (!failed) __atomic_or_fetch(&ram->code_mask[pg], hv_code_bits((pa - ram->pa) & ((1ull << HV_TLB_PAGE_BITS) - 1), 4ull * (nb.ninsns ? nb.ninsns : 1)), __ATOMIC_SEQ_CST);
     __atomic_sub_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
     if (failed) goto flush_unlocked;
@@ -492,10 +495,8 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
         hv_translate_discard_slots(m);
         goto evict;
     }
-    if (fresh) {
-        uint64_t sum = code_sum(code, nb.ninsns);
-        nb.sum_lo = (uint32_t)sum, nb.sum_hi = (uint32_t)(sum >> 32);
-    } else if (hv_knob[HV_K_REVIVE]) m->stats.revive_born_stale++;
+    if (fresh) nb.sum_lo = (uint32_t)nb_sum, nb.sum_hi = (uint32_t)(nb_sum >> 32);
+    else if (hv_knob[HV_K_REVIVE]) m->stats.revive_born_stale++;
     b = alloc_block_in_seg(m, seg);
     *b = nb;
     m->stats.translations++;
