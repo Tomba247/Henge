@@ -410,12 +410,16 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     /* HV_SMC_FINE: counted as translating this page before its code is read, until the block's part of the page is
        noted (hv_code_written: a write that finds neither drops nothing). */
     __atomic_add_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
-    if (!__atomic_load_n(&ram->code_pages[pg], __ATOMIC_RELAXED)) {
+    /* Until the page is marked as code under the generation this block will carry. The blocks may be dropped
+       (hv_invalidate_code: the mark goes, then the generation rises) while this CPU is in the TLBs below; the
+       generation read after that is the new one, and with the mark gone a write to the page was checked by nobody
+       (seen on real cores in tests/test_revive.c: the writing CPU ran the code it had just replaced). */
+    while (!__atomic_load_n(&ram->code_pages[pg], __ATOMIC_SEQ_CST)) {
         __atomic_store_n(&ram->code_pages[pg], 1, __ATOMIC_SEQ_CST); /* before the TLBs: see the end of tlb_fill */
         m->stats.code_protects++;
         for (int i = 0; i < m->ncpus; i++) /* in every CPU's TLB, or a write from another CPU goes unnoticed */
             if (m->cpus[i]) hv_tlb_protect_code_page(m->cpus[i], ram, pg);
-        gen = __atomic_load_n(&ram->page_gen[pg], __ATOMIC_ACQUIRE);
+        gen = __atomic_load_n(&ram->page_gen[pg], __ATOMIC_SEQ_CST);
     }
     if (hv_knob[HV_K_REVIVE]) {
         int changed = 0;

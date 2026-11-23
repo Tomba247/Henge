@@ -600,7 +600,7 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
     HvRam *r = hv_ram_lookup(m, pa);
     if (!r) return;
     uint64_t pg = (pa - r->pa) >> HV_TLB_PAGE_BITS;
-    if (!r->code_pages[pg]) return;
+    if (!__atomic_load_n(&r->code_pages[pg], __ATOMIC_SEQ_CST)) return;
     /* Blocks remember the generation they were made under; a stale one is
        retranslated the next time it is looked up. The block running now may
        finish with the old code, as it would with a real instruction pipeline. */
@@ -609,7 +609,10 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
     HV_DBG("invalidate: start, gen", r->page_gen[pg], r->code_mask[pg], r->xlating[pg]);
     __atomic_store_n(&r->code_mask[pg], 0, __ATOMIC_SEQ_CST);
     r->code_quiet[pg] = 0;
-    r->code_pages[pg] = 0;
+    /* In this order for every other CPU too, so not a plain store: on arm64 a plain store can become visible after
+       the generation's (seen on real cores in tests/test_revive.c: a CPU read the new generation, then the old 1
+       here, so did not set it again, and the page was left with a current block and writes that nobody checked). */
+    __atomic_store_n(&r->code_pages[pg], 0, __ATOMIC_SEQ_CST);
     __atomic_add_fetch(&r->page_gen[pg], 1, __ATOMIC_SEQ_CST);
     HV_DBG("invalidate: gen now", r->page_gen[pg], 0, 0);
     m->stats.flush_smc++;
@@ -713,11 +716,14 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
 int hv_code_written(HvMachine *m, HvRam *r, uint64_t pa, uint64_t len, int after) {
     uint64_t off = pa - r->pa, pg = off >> HV_TLB_PAGE_BITS;
     HV_DBG(after ? "written: after, code_pages mask xlating" : "written: before, code_pages mask xlating", r->code_pages[pg], r->code_mask[pg], r->xlating[pg]);
-    if (!__atomic_load_n(&r->code_pages[pg], __ATOMIC_ACQUIRE)) return 0;
+    if (!__atomic_load_n(&r->code_pages[pg], __ATOMIC_SEQ_CST)) return 0;
     int budget = hv_knob[HV_K_SMCFINE];
     if (budget > 0) {
         uint64_t bits = hv_code_bits(off & ((1ull << HV_TLB_PAGE_BITS) - 1), len);
-        if (!(__atomic_load_n(&r->code_mask[pg], __ATOMIC_SEQ_CST) & bits) && !__atomic_load_n(&r->xlating[pg], __ATOMIC_SEQ_CST)) {
+        /* The count first, then the mask: a translation notes its part of the page and only then stops being
+           counted, so read the other way round it could do both between the two reads and be missed. */
+        int making = __atomic_load_n(&r->xlating[pg], __ATOMIC_SEQ_CST) != 0;
+        if (!(__atomic_load_n(&r->code_mask[pg], __ATOMIC_SEQ_CST) & bits) && !making) {
             if (after) return 0;
             if (++r->code_quiet[pg] < budget) {
                 m->stats.smc_kept++;
@@ -779,7 +785,7 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
         uint64_t first = off >> HV_TLB_PAGE_BITS, last = (off + len - 1) >> HV_TLB_PAGE_BITS;
         int code = 0; /* a write to a page with translated code: see hv_code_written */
         for (uint64_t pg = first; pg <= last; pg++)
-            if (r->code_pages[pg]) {
+            if (__atomic_load_n(&r->code_pages[pg], __ATOMIC_SEQ_CST)) {
                 uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;
                 /* Checked again after the write whether the blocks were kept or dropped: once dropped, another CPU
                    may translate the page's old bytes under the new generation before this write is made (seen in
