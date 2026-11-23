@@ -19,6 +19,10 @@ jobs:
       - name: Build and run
         run: |
           set -uo pipefail
+          make linux-test-revive LXCC=gcc LXB=build/linux-dbg LX_DBG=-DHV_DBG_RING 2>&1 | grep -E "error|warning" | head -20 || true
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            HV_REVIVE=1 build/linux-dbg/test_revive > dbg.log 2>&1 || { echo "== with the event ring, run $i"; head -230 dbg.log; break; }
+          done
           make linux-test-revive LXCC=gcc 2>&1 | grep -E "error|warning" | head -20 || true
           fail=0
           for i in 1 2 3 4 5 6 7 8; do

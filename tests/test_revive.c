@@ -179,6 +179,13 @@ static void *other(void *arg) {
 
 /* What the engine holds for f and g, when a result is wrong: which link is the stale one. */
 static void dump_state(void) {
+#ifdef HV_DBG_RING
+    uint32_t end = hv_dbg_at;
+    for (uint32_t k = end > 160 ? end - 160 : 0; k < end; k++) {
+        HvDbgEvent *e = &hv_dbg_ring[k & 4095];
+        printf("    %llu cpu %d %s: %llx %llx %llx\n", (unsigned long long)e->t, e->cpu, e->what ? e->what : "?", (unsigned long long)e->a, (unsigned long long)e->b, (unsigned long long)e->c);
+    }
+#endif
     HvRam *r = hv_ram_lookup(&m, P);
     uint64_t pg = (P - r->pa) >> HV_TLB_PAGE_BITS;
     uint32_t now;
@@ -215,10 +222,13 @@ static void test_two_cpus(void) {
     int bad = 0, rounds = 20000;
     for (int i = 0; i < rounds; i++) {
         uint32_t v = 0x10 + (uint32_t)(i % 7);
+        HV_DBG("test: A writes g, round, value", i, v, 0);
         guest_write(&cpu_a, G, ADD_X0(v));
+        HV_DBG("test: A wrote; calls f", i, v, 0);
         uint64_t got = call(&cpu_a, i & 1, F, 0);
+        HV_DBG("test: A got", got, 1 + v, 0);
         if (got != 1 + v) {
-            if (bad++ < 3) {
+            if (bad++ < 1) {
                 printf("  round %d: f gave %llx, want %x (how %d)\n", i, (unsigned long long)got, 1 + v, i & 1);
                 dump_state();
             }

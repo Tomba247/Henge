@@ -420,6 +420,7 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     if (hv_knob[HV_K_REVIVE]) {
         int changed = 0;
         HvBlock *s = find_stale(m, h, va, pa, flags, gen, code, avail, &changed);
+        HV_DBG("revive: va, gen, found", va, gen, s ? s->sum_lo : 0);
         if (s) {
             __atomic_or_fetch(&ram->code_mask[pg], hv_code_bits((pa - ram->pa) & ((1ull << HV_TLB_PAGE_BITS) - 1), 4ull * s->ninsns), __ATOMIC_SEQ_CST);
             __atomic_sub_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
@@ -429,6 +430,7 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
             if (!b) {
                 if (m->flush_pending) goto flush;
                 __atomic_store_n(&s->gen, gen, __ATOMIC_RELEASE); /* the generation read before its instructions were summed */
+                HV_DBG("revive: published va, gen, page gen", va, gen, ram->page_gen[pg]);
                 m->stats.revived++;
                 b = s;
             }
@@ -506,6 +508,7 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     }
     if (fresh) nb.sum_lo = (uint32_t)nb_sum, nb.sum_hi = (uint32_t)(nb_sum >> 32);
     else if (hv_knob[HV_K_REVIVE]) m->stats.revive_born_stale++;
+    HV_DBG("translate: published va, gen, sum", va, gen, nb.sum_lo);
     b = alloc_block_in_seg(m, seg);
     *b = nb;
     m->stats.translations++;
@@ -1251,6 +1254,7 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
         m->slot_xpa[idx] = page_pa | 1;
         hv_slot_xlist_insert(m, b->ram, b->pg, idx); /* on the target page's list (hv_invalidate_code) */
     }
+    HV_DBG("chain: slot, to va, sum", idx, b->va, b->sum_lo);
     __atomic_store_n(slot, (uint64_t)(uintptr_t)b->code, __ATOMIC_RELEASE);
     /* And the stub's B, when the target is in its range: a direct branch, no load. */
     site = hv_slot_dec(m, m->slot_site[idx]);

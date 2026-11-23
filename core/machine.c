@@ -583,6 +583,15 @@ HvBlock *hv_block_at(HvMachine *m, const uint32_t *pc) {
     return best;
 }
 
+#ifdef HV_DBG_RING
+HvDbgEvent hv_dbg_ring[4096];
+_Atomic uint32_t hv_dbg_at;
+void hv_dbg(const char *what, uint64_t a, uint64_t b, uint64_t c) {
+    uint32_t i = atomic_fetch_add(&hv_dbg_at, 1) & 4095;
+    hv_dbg_ring[i] = (HvDbgEvent){mach_absolute_time(), what, a, b, c, hv_self ? (int)hv_self->index : -1};
+}
+#endif
+
 uint32_t *hv_smc_counts;
 uint64_t *hv_smc_last;
 uint64_t hv_smc_pages, hv_smc_cpu, hv_smc_dma;
@@ -597,10 +606,12 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
        finish with the old code, as it would with a real instruction pipeline. */
     /* The parts noted as code go first: a block that notes its part after this was made under the new generation
        (it read the generation before its code), or is stale already. */
+    HV_DBG("invalidate: start, gen", r->page_gen[pg], r->code_mask[pg], r->xlating[pg]);
     __atomic_store_n(&r->code_mask[pg], 0, __ATOMIC_SEQ_CST);
     r->code_quiet[pg] = 0;
     r->code_pages[pg] = 0;
     __atomic_add_fetch(&r->page_gen[pg], 1, __ATOMIC_SEQ_CST);
+    HV_DBG("invalidate: gen now", r->page_gen[pg], 0, 0);
     m->stats.flush_smc++;
     if (hv_smc_counts && pg < hv_smc_pages) {
         hv_smc_counts[pg]++;
@@ -701,6 +712,7 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
    Returns 1 when the blocks were dropped. `after`: the write has been made. */
 int hv_code_written(HvMachine *m, HvRam *r, uint64_t pa, uint64_t len, int after) {
     uint64_t off = pa - r->pa, pg = off >> HV_TLB_PAGE_BITS;
+    HV_DBG(after ? "written: after, code_pages mask xlating" : "written: before, code_pages mask xlating", r->code_pages[pg], r->code_mask[pg], r->xlating[pg]);
     if (!__atomic_load_n(&r->code_pages[pg], __ATOMIC_ACQUIRE)) return 0;
     int budget = hv_knob[HV_K_SMCFINE];
     if (budget > 0) {
@@ -783,6 +795,7 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
                     (unsigned long long)m->access_pc);
         }
         memcpy(r->host + off, buf, len);
+        HV_DBG("phys_write: stored at, checks", pa, code, 0);
         if (code) /* was a block made from these bytes meanwhile? */
             for (uint64_t pg = first; pg <= last; pg++) {
                 uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;

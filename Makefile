@@ -318,7 +318,7 @@ test-gesture-engine: $(B)/test_gesture_engine
 LXCC ?= aarch64-linux-gnu-gcc
 LXB = $(B)/linux
 LX_SAN ?=
-LXFLAGS = -std=gnu11 -O2 -g -Wall -Wno-unused-parameter -Ihost/linux -include host/linux/compat.h -Icore -Ihost -Idevices
+LXFLAGS = -std=gnu11 -O2 -g -Wall -Wno-unused-parameter -Ihost/linux -include host/linux/compat.h -Icore -Ihost -Idevices $(LX_DBG)
 LX_SRC = $(filter-out core/window.c,$(wildcard core/*.c)) host/linux/window_stub.c host/jit_region.c host/disk.c host/linux/ulock.c devices/gicv3.c devices/timer.c \
          devices/pl011.c devices/pl031.c devices/pcie.c devices/virtio.c devices/virtio_blk.c devices/virtio_net.c \
          devices/virtio_input.c devices/virtio_snd.c devices/xhci.c devices/fdt.c devices/linuxvirt.c devices/virtio_gpu.c devices/vgpu_virgl.c tools/hengelinux.c

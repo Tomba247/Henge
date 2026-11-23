@@ -475,6 +475,17 @@ int hv_ic_ivau_drops(void);
    from the environment variable named in hv_knob_names. */
 enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_REVIVE, HV_K_COUNT };
 extern int hv_knob[HV_K_COUNT];
+
+/* -DHV_DBG_RING (tests only): the last events around a page's code, for a test to print when a result is wrong. */
+#ifdef HV_DBG_RING
+typedef struct { uint64_t t; const char *what; uint64_t a, b, c; int cpu; } HvDbgEvent;
+extern HvDbgEvent hv_dbg_ring[4096];
+extern _Atomic uint32_t hv_dbg_at;
+void hv_dbg(const char *what, uint64_t a, uint64_t b, uint64_t c);
+#define HV_DBG(what, a, b, c) hv_dbg(what, (uint64_t)(a), (uint64_t)(b), (uint64_t)(c))
+#else
+#define HV_DBG(what, a, b, c) ((void)0)
+#endif
 int hv_knob_set(HvMachine *m, const char *name, int value);
 /* Debugging (HV_WATCH): which pages keep losing their translations. */
 extern uint32_t *hv_smc_counts;
