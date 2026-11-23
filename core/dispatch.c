@@ -883,9 +883,14 @@ static void print_stats(HvCpu *cpu, int force) {
         if (s->flush_checked)
             fprintf(stderr, "  switch-flush checks/s: %.0f, entries walked %.0f, found out of date %.0f (flushed), access flag only %.0f\n",
                     RATE(flush_checked), RATE(flush_check_entries), RATE(flush_check_bad), RATE(flush_check_af));
+        fprintf(stderr, "  TTBR0 writes/s that changed nothing: %.0f\n", RATE(ttbr0_same));
         fprintf(stderr, "  cache drops/s: full %.0f, ASID %.0f, user VA %.0f, kernel VA %.0f, code %.0f (whole user half %.0f, filter full %.0f, big user range %.0f)\n", RATE(reset_why[0]),
                 RATE(reset_why[1]), RATE(reset_why[2]), RATE(reset_why[3]), RATE(reset_why[4]), RATE(reset_why[5]), RATE(reset_why[6]), RATE(reset_why[7]));
-        { /* block hash health: chain lengths and how much of it is stale */
+        /* block hash health: chain lengths and how much of it is stale. It walks every block held (millions), on a
+           CPU's thread, so only with HV_STATS_HASH. */
+        static int hash_walk = -1;
+        if (hash_walk < 0) hash_walk = getenv("HV_STATS_HASH") != NULL;
+        if (hash_walk) {
             uint64_t used = 0, stale = 0, maxlen = 0, sumsq = 0;
             uint32_t worst = 0;
             for (uint32_t h = 0; h < HV_BLOCK_HASH; h++) {

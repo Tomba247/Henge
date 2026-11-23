@@ -205,6 +205,7 @@ static int write_reg(HvCpu *cpu, uint32_t reg, uint64_t v) {
         uint64_t old = cpu->ttbr0_el1;
         cpu->ttbr0_el1 = v;
         if (old != v) cpu->ttbr0_changed_at = mach_absolute_time();
+        else cpu->m->stats.ttbr0_same++;
         hv_tlb_switch_user(cpu, old, v);
         hv_ijc_switch(cpu);
         return 0;

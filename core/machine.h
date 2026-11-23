@@ -126,6 +126,7 @@ typedef struct HvStats {
     uint64_t fill_kind[4];    /* ijc fills into an empty slot, over another live salt, over the same salt, over a dead salt */
     uint64_t wfe_polls, wfe_poll_ticks; /* WFEs that waited for an interrupt in place (after an ISR_EL1 read), and for how long */
     uint64_t flush_why[8];
+    uint64_t ttbr0_same; /* TTBR0_EL1 writes of the value it already held */
     uint64_t smc_kept, smc_quiet, smc_atomic; /* HV_SMC_FINE: writes to a code page that kept its blocks; pages dropped for too many such writes, and by atomics */
     uint64_t spawns, spawns_fixed; /* HV_FIXED_ADDR: posix_spawn calls seen, and those asked to load at the program's own address */
     uint64_t ttbr1_asid_switches; /* TTBR1 writes that only changed the ASID (TCR.A1): the user half went, not all */
@@ -271,11 +272,15 @@ typedef struct HvMachine {
     int log;             /* 1: unknown sysregs, undefined instructions, unmapped accesses; 2: also every exception */
     int slow_mem;        /* tests: send every load and store through hv_mem_emulate */
     uint64_t switch_flush_pc[4]; /* HV_SWITCH_FLUSH=3: PCs of the TLBI VMALLE1s seen within 20 us of a TTBR0 change (xnu's pmap switch) */
-    uint64_t stat_slow_mem; /* hv_mem_emulate calls */
-    uint64_t access_pc;  /* guest PC of the load/store being emulated, for logs */
     uint64_t watch_va;   /* debugging: log every write that touches this guest VA (0: off) */
     uint64_t watch_pa;   /* debugging: the same by physical address */
+    /* What every CPU writes (the counters) on cache lines of its own, 128 bytes on Apple's cores: the fields around
+       them are read on every block entry and exception, and would otherwise be invalidated with each count. */
+    char pad_before_stats[128];
+    uint64_t stat_slow_mem; /* hv_mem_emulate calls */
+    uint64_t access_pc;  /* guest PC of the load/store being emulated, for logs */
     HvStats stats;
+    char pad_after_stats[128]; /* as pad_before_stats */
     int chain;               /* block chaining and the indirect-branch cache are enabled */
     uint64_t *slots;         /* chainable exits, two words each (HV_SLOT): the block chained to (0: not chained), then the exit's guest target */
     uint32_t *slot_site;     /* JIT word offset + 1 (0: NULL) of the B chaining rewrites */
