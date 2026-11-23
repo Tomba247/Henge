@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.101",
+          "date": "2026-11-23T08:07:05Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Stats: the code cache's segment count and size, and each interval's evictions with their mean and longest time\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 6961988\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-101/Henge.ipa",
+          "size": 14199042,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.100",
           "date": "2026-11-23T07:18:22Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -406,16 +416,6 @@
           "size": 9750201,
           "minOSVersion": "17.0",
           "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.50",
-          "date": "2026-11-14T22:48:33Z",
-          "localizedDescription": "What changed: Shared folder: henge.log and henge-prev.log linked into it when a Mac starts\nBranch: henge-perf\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-perf-50/Henge.ipa",
-          "size": 9749760,
-          "minOSVersion": "17.0",
-          "branch": "henge-perf"
         }
       ],
       "appPermissions": {
