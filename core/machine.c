@@ -182,17 +182,47 @@ static int init_rest(HvMachine *m) {
 
 __thread HvCpu *hv_self;
 
-void hv_dev_lock(HvMachine *m) {
-    if (pthread_mutex_trylock(&m->dev_mu) == 0) return;
-    uint64_t t0 = m->stats_interval ? mach_absolute_time() : 0;
-    pthread_mutex_lock(&m->dev_mu);
-    if (m->stats_interval) {
-        m->stats.dev_waits++;
-        m->stats.dev_wait_ticks += mach_absolute_time() - t0;
+static void dev_taken(HvMachine *m, const char *who) { /* under dev_mu */
+    if (m->dev_depth++ == 0) {
+        m->dev_hold_t0 = m->stats_interval ? mach_absolute_time() : 0;
+        m->dev_hold_by = who;
+        if (hv_self && hv_self->pc_state) __atomic_store_n(&hv_self->pc_state->dev_state, 2, __ATOMIC_RELAXED);
     }
 }
 
+void hv_dev_lock_by(HvMachine *m, const char *who) {
+    if (pthread_mutex_trylock(&m->dev_mu) == 0) {
+        dev_taken(m, who);
+        return;
+    }
+    uint64_t t0 = m->stats_interval ? mach_absolute_time() : 0;
+    const char *held_by = m->dev_hold_by; /* read without the lock: a name for the log, a string that stays */
+    if (hv_self && hv_self->pc_state) __atomic_store_n(&hv_self->pc_state->dev_state, 1, __ATOMIC_RELAXED);
+    pthread_mutex_lock(&m->dev_mu);
+    if (hv_self && hv_self->pc_state && m->dev_depth) __atomic_store_n(&hv_self->pc_state->dev_state, 2, __ATOMIC_RELAXED);
+    if (m->stats_interval) {
+        uint64_t dt = mach_absolute_time() - t0;
+        m->stats.dev_waits++;
+        m->stats.dev_wait_ticks += dt;
+        if (dt >= 24000) m->stats.dev_wait_1ms++;
+        if (dt >= 240000) m->stats.dev_wait_10ms++;
+        if (dt > m->stats.dev_wait_longest) m->stats.dev_wait_longest = dt, m->stats.dev_wait_longest_by = who, m->stats.dev_wait_longest_for = held_by;
+    }
+    dev_taken(m, who);
+}
+
 void hv_dev_unlock(HvMachine *m) {
+    if (--m->dev_depth == 0) {
+        if (m->dev_hold_t0) {
+            uint64_t dt = mach_absolute_time() - m->dev_hold_t0;
+            if (dt >= 24000) m->stats.dev_hold_1ms++;
+            if (dt >= 240000) m->stats.dev_hold_10ms++;
+            if (dt > m->stats.dev_hold_longest) m->stats.dev_hold_longest = dt, m->stats.dev_hold_longest_by = m->dev_hold_by;
+        }
+        m->dev_hold_t0 = 0;
+        m->dev_hold_by = NULL;
+        if (hv_self && hv_self->pc_state) __atomic_store_n(&hv_self->pc_state->dev_state, 0, __ATOMIC_RELAXED);
+    }
     pthread_mutex_unlock(&m->dev_mu);
 }
 
@@ -313,6 +343,7 @@ void hv_cpu_sync(HvCpu *self, HvCpu *target, uint64_t seq) {
             mach_msg_type_number_t cnt = THREAD_BASIC_INFO_COUNT;
             int on = !t->thread || (thread_info(t->thread, THREAD_BASIC_INFO, (thread_info_t)&ti, &cnt) == KERN_SUCCESS && ti.run_state == TH_STATE_RUNNING);
             mm->stats.sync_phase[on ? __atomic_load_n(&t->phase, __ATOMIC_RELAXED) % 5 : 5]++;
+            mm->stats.sync_dev[__atomic_load_n(&t->dev_state, __ATOMIC_RELAXED) % 3]++;
         }
         if (!__atomic_load_n(&t->tlb_live, __ATOMIC_SEQ_CST)) break; /* parked: it does the work before it runs again */
         if (self) hv_cpu_process_requests(self);
@@ -338,6 +369,9 @@ void hv_cpu_sync(HvCpu *self, HvCpu *target, uint64_t seq) {
         mm->stats.sync_ticks += dt;
         mm->stats.sync_len[b]++;
         mm->stats.sync_len_ticks[b] += dt;
+        if (dt > mm->stats.sync_longest)
+            mm->stats.sync_longest = dt, mm->stats.sync_longest_phase = __atomic_load_n(&t->phase, __ATOMIC_RELAXED) % 5,
+            mm->stats.sync_longest_dev = __atomic_load_n(&t->dev_state, __ATOMIC_RELAXED) % 3;
     }
 }
 
@@ -696,7 +730,7 @@ int hv_phys_read(HvMachine *m, uint64_t pa, void *buf, unsigned len) {
     }
     HvMmio *d = hv_mmio_lookup(m, pa);
     if (!d || len > 8) return -1;
-    if (!d->self_locked) hv_dev_lock(m);
+    if (!d->self_locked) hv_dev_lock_by(m, d->name);
     uint64_t v = d->read ? d->read(d->opaque, pa - d->pa, len) : 0;
     if (!d->self_locked) hv_dev_unlock(m);
     memcpy(buf, &v, len);
@@ -740,7 +774,7 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
     if (m->log >= 3)
         fprintf(stderr, "mmio write %s+%llx size %u = %llx pc %llx\n", d->name, (unsigned long long)(pa - d->pa), len,
                 (unsigned long long)v, (unsigned long long)m->access_pc);
-    if (!d->self_locked) hv_dev_lock(m);
+    if (!d->self_locked) hv_dev_lock_by(m, d->name);
     if (d->write) d->write(d->opaque, pa - d->pa, v, len);
     if (!d->self_locked) hv_dev_unlock(m);
     return 0;

@@ -932,6 +932,18 @@ static void print_stats(HvCpu *cpu, int force) {
             fprintf(stderr, "  switch-flush checks/s: %.0f, entries walked %.0f, found out of date %.0f (flushed), access flag only %.0f\n",
                     RATE(flush_checked), RATE(flush_check_entries), RATE(flush_check_bad), RATE(flush_check_af));
         fprintf(stderr, "  TTBR0 writes/s that changed nothing: %.0f\n", RATE(ttbr0_same));
+        { /* the device lock: a CPU kept on it keeps every CPU that wants a TLBI answered waiting too */
+            static const char *const ph[5] = {"running", "translating", "in a helper", "waiting for acks", "at the flush barrier"};
+            static const char *const dv[3] = {"not at the device lock", "waiting for the device lock", "holding the device lock"};
+            fprintf(stderr, "  device lock: holds/s of 1 ms+ %.1f, of 10 ms+ %.1f, longest %.1f ms by %s; waits/s of 1 ms+ %.1f, of 10 ms+ %.1f, longest %.1f ms by %s for %s\n",
+                    RATE(dev_hold_1ms), RATE(dev_hold_10ms), (double)s->dev_hold_longest / 24e3, s->dev_hold_longest_by ? s->dev_hold_longest_by : "-", RATE(dev_wait_1ms),
+                    RATE(dev_wait_10ms), (double)s->dev_wait_longest / 24e3, s->dev_wait_longest_by ? s->dev_wait_longest_by : "-",
+                    s->dev_wait_longest_for ? s->dev_wait_longest_for : "-");
+            fprintf(stderr, "  tlbi ack waits of 1 ms+, the CPU waited for was/s: %s %.1f, %s %.1f, %s %.1f; longest wait %.1f ms, for a CPU %s, %s\n", dv[0], RATE(sync_dev[0]), dv[1],
+                    RATE(sync_dev[1]), dv[2], RATE(sync_dev[2]), (double)s->sync_longest / 24e3, ph[s->sync_longest_phase % 5], dv[s->sync_longest_dev % 3]);
+            s->dev_hold_longest = s->dev_wait_longest = s->sync_longest = 0;
+            s->dev_hold_longest_by = s->dev_wait_longest_by = s->dev_wait_longest_for = NULL;
+        }
         { /* who holds the translation lock, and for how long (a holder the host takes off its core keeps the rest waiting) */
             static const char *const kn[5] = {"publish", "chain", "invalidate", "evict", "other"};
             fprintf(stderr, "  translation lock held, per s (%% of one CPU; holds over 100 us, over 1 ms; longest ever ms):");

@@ -96,6 +96,15 @@ typedef struct HvStats {
     uint64_t sync_phase[6];            /* a wait 1 ms long: the other CPU running (guest code or dispatcher), translating, in a helper,
                                           waiting for acks itself, at the flush barrier; or its thread off a core */
     uint64_t dev_waits, dev_wait_ticks; /* device lock taken while another CPU held it */
+    /* The device lock since the stats block last printed (which clears these): holds and waits of 1 ms and of
+       10 ms and more, the longest hold with who held it (a device's name, or the function that took the lock),
+       the longest wait with who was waiting and who held it then. */
+    uint64_t dev_hold_1ms, dev_hold_10ms, dev_hold_longest, dev_wait_1ms, dev_wait_10ms, dev_wait_longest;
+    const char *dev_hold_longest_by, *dev_wait_longest_by, *dev_wait_longest_for;
+    /* TLBI ack waits of 1 ms and more: what the CPU waited for had to do with the device lock (nothing, waiting
+       for it, holding it), and the longest wait since the stats block last printed with that CPU's phase then. */
+    uint64_t sync_dev[3], sync_longest;
+    uint32_t sync_longest_phase, sync_longest_dev;
     uint64_t tr_waits, tr_wait_ticks;   /* translation lock likewise */
     uint64_t words_inline, words_ool, words_pool; /* translated code size by part */
     uint64_t refills;
@@ -235,6 +244,7 @@ typedef struct HvPerCpu {
     uint8_t isr_polled;          /* the guest read ISR_EL1 since its last WFE: that WFE waits for an interrupt (wfe) */
     uint32_t thread;             /* its host thread (mach_port_t), for --stats: is a CPU waited for running at all */
     uint8_t phase;               /* for --stats, what a CPU others wait on is doing: HV_PHASE_* */
+    uint8_t dev_state;           /* for --stats: 1 this CPU is waiting for the device lock, 2 it holds it */
     HvTlbStash stash[HV_STASHES];
     struct HvWindow *win;    /* HV_EL0_WINDOW (window.c): kept when the CPU is reset */
     uint64_t stash_clock;
@@ -330,6 +340,9 @@ typedef struct HvMachine {
     int big_lock_on;
     /* Devices, the GIC and the ICC registers: one CPU at a time (recursive). */
     pthread_mutex_t dev_mu;
+    int dev_depth;               /* under dev_mu (it is recursive): how many times its holder has it */
+    uint64_t dev_hold_t0;        /* under dev_mu, with stats on: when the holder first took it */
+    const char *dev_hold_by;     /* under dev_mu: who holds it, for the stats block */
     /* Translating and inserting blocks, the JIT region and the slots. */
     pthread_mutex_t tr_mu;
     /* Stopping every CPU to flush all translations. */
@@ -511,7 +524,8 @@ static inline void hv_tr_unlock(HvMachine *m) {
 }
 #define HV_JIT_SEGS_DEFAULT 128
 static inline uint32_t hv_jit_segments(void) { return hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : HV_JIT_SEGS_DEFAULT; }
-void hv_dev_lock(HvMachine *m);
+void hv_dev_lock_by(HvMachine *m, const char *who);
+#define hv_dev_lock(m) hv_dev_lock_by(m, __func__) /* who: the function, until an MMIO access names its device */
 void hv_dev_unlock(HvMachine *m);
 /* Ask another CPU to apply a TLBI (or HV_REQ_* work); returns the sequence to wait for. */
 uint64_t hv_cpu_post_tlbi(HvCpu *target, uint32_t op1, uint32_t crn, uint32_t crm, uint32_t op2, uint64_t xt);
