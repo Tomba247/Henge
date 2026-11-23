@@ -81,6 +81,9 @@ typedef struct HvStats {
     uint64_t evict_phase[3];  /* of those ticks: caches, blocks and hash; the slots; the instruction-cache lines */
     /* The translation lock (tr_mu), by what held it (HV_TR_*): times, ticks, the longest, and holds over 100 us and 1 ms. */
     uint64_t tr_hold_n[5], tr_hold_ticks[5], tr_hold_longest[5], tr_hold_100us[5], tr_hold_1ms[5];
+    uint64_t tr_wait_phase[3], tr_wait_phase_longest[3]; /* of a wait: ticks spinning, in sched_yield, blocked in the mutex; the longest of each since the stats block last printed */
+    uint64_t slow_ticks[6];   /* host ticks in hv_mem_emulate by slow_why (the C part only: not the way in and out of translated code) */
+    uint64_t retrans_same;    /* translations of a block whose VA, PA and guest instructions were all seen before */
     uint64_t tr_wait_100us, tr_wait_1ms, tr_wait_longest; /* waits for it that long, and the longest since the stats block last printed */
     uint64_t evict_longest, evict_longest_now; /* the longest one, in ticks: ever, and since the stats block last printed (it clears that one) */
     uint64_t flush_smc, flush_ic, flush_full;  /* why translations were dropped */
@@ -483,6 +486,7 @@ void hv_cpu_reset(HvCpu *cpu, HvMachine *m); /* CPU 0 */
 void hv_cpu_reset_index(HvCpu *cpu, HvMachine *m, uint32_t index);
 /* The CPU this thread runs (NULL outside the dispatcher: tests, devices). */
 extern __thread HvCpu *hv_self;
+extern __thread int hv_slow_last_why; /* stats: why this thread's last hv_mem_emulate was on the slow path (slow_why's index), -1 none */
 /* Segments of the code cache's ring, wherever it is set up (hv_machine_init, hv_flush_blocks): HV_JIT_SEGMENTS, or
    this. Every CPU stops while a segment's blocks go, and each eviction empties the branch caches as a flush does:
    on a phone (macOS 27.2, 1.5 GB) an eviction took about 200 ms with 8 segments and 30-50 ms with 32. */

@@ -24,8 +24,8 @@ static int poison_on(void) {
 }
 /* Was this code translated before? (hashed, approximate). Cleared on a full flush so the diagnostic
    counts retranslations in the current cache window rather than saturating. */
-static uint64_t seen_va[1 << 18], seen_vapa[1 << 18];
-static void reset_retrans(void) { memset(seen_va, 0, sizeof seen_va); memset(seen_vapa, 0, sizeof seen_vapa); }
+static uint64_t seen_va[1 << 18], seen_vapa[1 << 18], seen_same[1 << 18];
+static void reset_retrans(void) { memset(seen_va, 0, sizeof seen_va); memset(seen_vapa, 0, sizeof seen_vapa); memset(seen_same, 0, sizeof seen_same); }
 
 void hv_flush_blocks(HvMachine *m) {
     /* Every other CPU is parked (stop_the_world): the one moment the TLB layout can change. */
@@ -286,24 +286,47 @@ static void block_dump(const HvBlock *b, const uint32_t *code) {
     pthread_mutex_unlock(&mu);
 }
 
+/* HV_TR_SPIN=n (off unless set): a CPU that finds the translation lock taken tries it n times in place and then
+   blocks, without sched_yield. The lock is held for well under a microsecond at a time (a phone's log,
+   2026-11-23), yet waits of one whole 10 ms time slice were common: on a phone with more threads than cores a
+   yield can cost the slice. Without the knob: 16 tries, up to 8 yields, then block, as before. */
+static int tr_spin = -1;
 static inline void tr_lock(HvMachine *m) {
     if (pthread_mutex_trylock(&m->tr_mu) == 0) return;
-    uint64_t w0 = m->stats_interval ? mach_absolute_time() : 0;
+    if (tr_spin < 0) tr_spin = getenv("HV_TR_SPIN") ? atoi(getenv("HV_TR_SPIN")) : 0;
+    uint64_t w0 = m->stats_interval ? mach_absolute_time() : 0, w1 = w0, w2 = w0;
     int got = 0;
-    /* Brief user-space spin before falling back to syscalls when another CPU is mid-publish. */
-    for (int spin = 1; spin <= 128 && !got; spin++) {
+    if (tr_spin > 0) {
+        for (int spin = 0; spin < tr_spin && !got; spin++) {
 #if defined(__aarch64__)
-        __asm__ volatile("yield");
+            __asm__ volatile("yield");
 #endif
-        if ((spin & 7) == 0) got = pthread_mutex_trylock(&m->tr_mu) == 0;
-    }
-    for (int y = 0; y < 8 && !got; y++) {
-        sched_yield();
-        got = pthread_mutex_trylock(&m->tr_mu) == 0;
+            got = pthread_mutex_trylock(&m->tr_mu) == 0;
+        }
+        if (w0) w1 = w2 = mach_absolute_time();
+    } else {
+        /* Brief user-space spin before falling back to syscalls when another CPU is mid-publish. */
+        for (int spin = 1; spin <= 128 && !got; spin++) {
+#if defined(__aarch64__)
+            __asm__ volatile("yield");
+#endif
+            if ((spin & 7) == 0) got = pthread_mutex_trylock(&m->tr_mu) == 0;
+        }
+        if (w0) w1 = mach_absolute_time();
+        for (int y = 0; y < 8 && !got; y++) {
+            sched_yield();
+            got = pthread_mutex_trylock(&m->tr_mu) == 0;
+        }
+        if (w0) w2 = mach_absolute_time();
     }
     if (!got) pthread_mutex_lock(&m->tr_mu);
     if (m->stats_interval) { /* under the lock now */
-        uint64_t dt = mach_absolute_time() - w0;
+        uint64_t end = mach_absolute_time(), ph[3] = {w1 - w0, w2 - w1, end - w2};
+        for (int k = 0; k < 3; k++) {
+            m->stats.tr_wait_phase[k] += ph[k];
+            if (ph[k] > m->stats.tr_wait_phase_longest[k]) m->stats.tr_wait_phase_longest[k] = ph[k];
+        }
+        uint64_t dt = end - w0;
         m->stats.tr_waits++;
         m->stats.tr_wait_ticks += dt;
         if (dt >= 2400) m->stats.tr_wait_100us++;
@@ -422,6 +445,12 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
         if (seen_vapa[hp >> 6] >> (hp & 63) & 1) m->stats.retrans_vapa++;
         seen_va[hv >> 6] |= 1ull << (hv & 63);
         seen_vapa[hp >> 6] |= 1ull << (hp & 63);
+        /* ...and with the same guest instructions: a block that could have been kept, had it not been dropped */
+        uint64_t hc = ((va >> 2) ^ flags) * 0x9e3779b97f4a7c15ull ^ pa * 0xc2b2ae3d27d4eb4full;
+        for (uint32_t i = 0; i < nb.ninsns; i++) hc = (hc ^ code[i]) * 0x100000001b3ull;
+        uint32_t hs = (uint32_t)((hc ^ hc >> 29) * 0x9e3779b97f4a7c15ull >> 40);
+        if (seen_same[hs >> 6] >> (hs & 63) & 1) m->stats.retrans_same++;
+        seen_same[hs >> 6] |= 1ull << (hs & 63);
     }
     m->nblocks++;
     b->next = m->hash[h];
@@ -634,6 +663,13 @@ static uint32_t helper(HvCpu *cpu, const HvHelperInfo *info_in) {
         if (cpu->m->stats_interval) { /* --stats: which kinds of access take the slow path */
             HvMemOp op;
             if (hv_mem_decode(info->insn, &op) == 0 && op.kind < 12) cpu->m->stats.slow_kind[op.kind]++;
+        }
+        if (cpu->m->stats_interval) { /* what the slow path costs, by its cause */
+            uint64_t t0 = mach_absolute_time();
+            hv_slow_last_why = -1;
+            uint32_t r = hv_mem_emulate(cpu, info->insn, info->pc);
+            if (hv_slow_last_why >= 0) cpu->m->stats.slow_ticks[hv_slow_last_why] += mach_absolute_time() - t0;
+            return r;
         }
         return hv_mem_emulate(cpu, info->insn, info->pc);
     case HV_OP_MRS:
@@ -904,6 +940,19 @@ static void print_stats(HvCpu *cpu, int force) {
                         RATE(tr_hold_100us[k]), RATE(tr_hold_1ms[k]), (double)s->tr_hold_longest[k] / 24e3);
             fprintf(stderr, "\n  translation lock waits/s over 100 us %.0f, over 1 ms %.0f, longest this interval %.2f ms\n", RATE(tr_wait_100us), RATE(tr_wait_1ms),
                     (double)s->tr_wait_longest / 24e3);
+            fprintf(stderr, "  translation lock waits, %% of one CPU (longest ms): spinning %.1f%% (%.2f), in sched_yield %.1f%% (%.2f), blocked %.1f%% (%.2f)%s\n",
+                    100.0 * (double)(s->tr_wait_phase[0] - last.tr_wait_phase[0]) / (double)(now - last_t), (double)s->tr_wait_phase_longest[0] / 24e3,
+                    100.0 * (double)(s->tr_wait_phase[1] - last.tr_wait_phase[1]) / (double)(now - last_t), (double)s->tr_wait_phase_longest[1] / 24e3,
+                    100.0 * (double)(s->tr_wait_phase[2] - last.tr_wait_phase[2]) / (double)(now - last_t), (double)s->tr_wait_phase_longest[2] / 24e3,
+                    tr_spin > 0 ? "; HV_TR_SPIN: no sched_yield" : "");
+            for (int k = 0; k < 3; k++) s->tr_wait_phase_longest[k] = 0;
+            fprintf(stderr, "  translations of blocks seen before with the same guest instructions: %.0f/s (%.0f%% of translations)\n", RATE(retrans_same),
+                    100.0 * RATE(retrans_same) / (RATE(translations) + 1e-9));
+            fprintf(stderr, "  slow mem time, %% of one CPU (us each): mmio %.1f%% (%.1f) code-page write %.1f%% (%.1f) page end %.1f%% (%.1f) tlb miss %.1f%% (%.1f) other %.1f%% (%.1f) entry-but-tag %.1f%% (%.1f)\n",
+#define SW(k) 100.0 * (double)(s->slow_ticks[k] - last.slow_ticks[k]) / (double)(now - last_t), \
+              (s->slow_why[k] - last.slow_why[k] ? (double)(s->slow_ticks[k] - last.slow_ticks[k]) / 24.0 / (double)(s->slow_why[k] - last.slow_why[k]) : 0.0)
+                    SW(0), SW(1), SW(2), SW(3), SW(4), SW(5));
+#undef SW
             s->tr_wait_longest = 0;
             /* The host's page faults in this process: memory the host had compressed or not yet given comes back
                through one, and a fault while the lock is held is a long hold. */
