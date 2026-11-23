@@ -325,6 +325,9 @@ static void test_remote_tlbi(uint64_t root) {
         }
     }
     pthread_join(t, NULL);
+    /* CPU B does not run again: parked, as a CPU waiting for an interrupt is, so that a later TLBI for every CPU
+       does not wait for it to answer (its thread is gone; a wait for it never ended, now and then, on a Mac). */
+    __atomic_store_n(&cpu_b.pc_state->tlb_live, 0, __ATOMIC_SEQ_CST);
     counts(c1, &held);
     CHECK(!bad, "%d wrong reads in %d runs", bad, runs);
     CHECK(settled > 0, "some runs fell between changes (%d of %d)", settled, runs);
@@ -537,7 +540,7 @@ int main(void) {
     if (k_around < 2) k_around = 1;
     if (k_around > 16) k_around = 16;
     while (k_around & (k_around - 1)) k_around &= k_around - 1;
-    alarm(600); /* a hang is a failure */
+    alarm(180); /* a hang is a failure */
 
     if (hv_machine_init(&m, 16 << 20) != 0) return 1;
 #ifdef __APPLE__
