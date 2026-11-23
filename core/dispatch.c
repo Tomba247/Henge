@@ -443,11 +443,20 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
     uint64_t t0 = m->stats_interval ? mach_absolute_time() : 0;
     uint8_t phase0 = cpu->pc_state ? cpu->pc_state->phase : 0;
     if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, HV_PHASE_TRANSLATE, __ATOMIC_RELAXED);
-    failed = hv_translate_emit(m, &nb, code, avail) != 0;
+    /* HV_REVIVE: translated from a copy of the instructions, and summed from the same copy, so the sum is of the
+       very words the block was made from (a write can land between two reads of guest memory, and between this
+       CPU's publishing and the writer's second check: the sum of the new words on a block of the old ones was
+       revived when the page next held the new words, and the old code ran). */
+    uint32_t snap[HV_MAX_BLOCK_INSNS];
+    const uint32_t *src = code;
+    if (hv_knob[HV_K_REVIVE]) {
+        uint32_t n = avail < HV_MAX_BLOCK_INSNS ? avail : HV_MAX_BLOCK_INSNS;
+        memcpy(snap, code, 4ull * n);
+        src = snap;
+    }
+    failed = hv_translate_emit(m, &nb, src, avail) != 0;
     if (cpu->pc_state) __atomic_store_n(&cpu->pc_state->phase, phase0, __ATOMIC_RELAXED);
-    /* HV_REVIVE: the sum while this translation is still counted (xlating), as its code was read: a write since
-       the instructions were read has raised the generation or will, and the block is then published without it. */
-    uint64_t nb_sum = !failed && hv_knob[HV_K_REVIVE] ? code_sum(code, nb.ninsns) : 0;
+    uint64_t nb_sum = !failed && hv_knob[HV_K_REVIVE] ? code_sum(snap, nb.ninsns) : 0;
     if (!failed) __atomic_or_fetch(&ram->code_mask[pg], hv_code_bits((pa - ram->pa) & ((1ull << HV_TLB_PAGE_BITS) - 1), 4ull * (nb.ninsns ? nb.ninsns : 1)), __ATOMIC_SEQ_CST);
     __atomic_sub_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
     if (failed) goto flush_unlocked;
