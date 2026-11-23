@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.102",
+          "date": "2026-11-23T08:27:56Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Stats: who holds the translation lock and for how long, long waits for it, and the host's page faults and context switches\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 135e239\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-102/Henge.ipa",
+          "size": 14199619,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.101",
           "date": "2026-11-23T08:07:05Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -350,11 +360,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.101",
-      "versionDate": "2026-11-23T08:07:05Z",
-      "versionDescription": "What changed: Stats: the code cache's segment count and size, and each interval's evictions with their mean and longest time\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 6961988\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-101/Henge.ipa",
-      "size": 14199042,
+      "buildVersion": "101.102",
+      "versionDate": "2026-11-23T08:27:56Z",
+      "versionDescription": "What changed: Stats: who holds the translation lock and for how long, long waits for it, and the host's page faults and context switches\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 135e239\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-102/Henge.ipa",
+      "size": 14199619,
       "minOSVersion": "17.0"
     }
   ],

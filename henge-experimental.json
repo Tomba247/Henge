@@ -86,16 +86,6 @@
           "size": 9749856,
           "minOSVersion": "17.0",
           "branch": "league-el0"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.51",
-          "date": "2026-11-15T01:45:09Z",
-          "localizedDescription": "What changed: Experiment: an 8192-entry software TLB (HV_TLB_BITS=13), half the cache footprint\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-51/Henge.ipa",
-          "size": 9750201,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
         }
       ],
       "appPermissions": {
