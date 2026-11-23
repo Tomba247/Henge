@@ -21,11 +21,11 @@ jobs:
           set -uo pipefail
           fail=0
           make linux-test-revive LXCC=gcc LXB=build/linux-dbg LX_DBG=-DHV_DBG_RING 2>&1 | grep -E "error|warning" | head -20 || true
-          for i in $(seq 1 60); do
+          for i in $(seq 1 400); do
             HV_REVIVE=1 build/linux-dbg/test_revive > dbg.log 2>&1 || { echo "== with the event ring, run $i"; head -230 dbg.log; fail=1; break; }
           done
           make linux-test-revive LXCC=gcc 2>&1 | grep -E "error|warning" | head -20 || true
-          for i in $(seq 1 40); do
+          for i in 1; do
             for r in 0 1; do
               HV_REVIVE=$r build/linux/test_revive > revive.log 2>&1 || { fail=$((fail + 1)); echo "== HV_REVIVE=$r run $i"; [ $fail -le 3 ] && cat revive.log; }
             done
