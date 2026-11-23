@@ -2430,7 +2430,8 @@ void hv_translate_discard_slots(HvMachine *m) {
     e->nsite = 0;
 }
 
-int hv_translate_commit_slots(HvMachine *m) {
+/* ram: HV_REVIVE, the block's page; its exits chained as placed go on that page's list (they are all within it). */
+int hv_translate_commit_slots(HvMachine *m, HvRam *ram, uint64_t pg) {
     Emit *e = &E;
     if (!e->nsite) return 0;
     uint32_t seg = e->place_seg;
@@ -2448,6 +2449,10 @@ int hv_translate_commit_slots(HvMachine *m) {
         if (*HV_SLOT(m, idx)) {
             uint32_t tseg = hv_jit_seg_of(m, (const uint32_t *)(uintptr_t)*HV_SLOT(m, idx));
             hv_slot_tlist_insert(m, tseg, idx);
+            if (ram && !m->slot_xa[idx]) {
+                m->slot_xpa[idx] = (ram->pa + (pg << HV_TLB_PAGE_BITS)) | 1;
+                hv_slot_xlist_insert(m, ram, pg, idx);
+            }
         }
     }
     e->nsite = 0;

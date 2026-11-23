@@ -351,6 +351,40 @@ static HvBlock *alloc_block_in_seg(HvMachine *m, uint32_t seg) {
     return &m->blocks[(size_t)c * m->block_chunk + m->chunk_len[c]++];
 }
 
+/* HV_REVIVE. A write to a page that holds code drops every block of the page (hv_invalidate_code), and a JIT in the
+   guest writes new functions next to running ones all the time: on the phone (2026-11-23, macOS 27.2 with Claude
+   Desktop open) 215 pages a second, and two thirds or more of all translations were of blocks made before from the
+   same instructions. A dropped block stays in the hash, stale, until its segment of the code cache is taken back.
+   So before translating, look for a stale block of this VA, PA and flags whose instructions still sum to what it
+   was made from, and give it the page's present generation: it is the translation we were about to make.
+
+   What makes that safe:
+   - The sum is over the guest instructions the block covers, read under the same count (xlating) and with the
+     same generation, read before them, that a translation uses, and the block's part of the page is noted the
+     same way: a write that races this is caught as it would be for a new block.
+   - A block published stale (its page was written while it was made) has no sum: its code and its sum may be of
+     different bytes.
+   - Exits chained within the page were never undone ("stale blocks are only reachable from each other"). With
+     the knob they go on the page's list with the exits from other pages, so dropping a page's blocks sends every
+     exit into the page back to its stub, and a revived block's exits lead only where chain() has checked since. */
+static inline uint64_t code_sum(const uint32_t *code, uint32_t n) {
+    uint64_t h = 0x9e3779b97f4a7c15ull ^ n;
+    for (uint32_t i = 0; i < n; i++) h = (h ^ code[i]) * 0xff51afd7ed558ccdull, h ^= h >> 29;
+    h *= 0xc4ceb9fe1a85ec53ull;
+    h ^= h >> 32;
+    return h ? h : 1;
+}
+
+static HvBlock *find_stale(HvMachine *m, uint32_t h, uint64_t va, uint64_t pa, uint32_t flags, uint32_t gen, const uint32_t *code, uint32_t avail, int *changed) {
+    for (HvBlock *b = __atomic_load_n(&m->hash[h], __ATOMIC_ACQUIRE); b; b = b->next) {
+        if (b->va != va || b->pa != pa || b->flags != flags || b->gen == gen || !(b->sum_lo | b->sum_hi) || !b->ninsns || b->ninsns > avail) continue;
+        uint64_t sum = code_sum(code, b->ninsns);
+        if ((uint32_t)sum == b->sum_lo && (uint32_t)(sum >> 32) == b->sum_hi) return b;
+        *changed = 1;
+    }
+    return NULL;
+}
+
 static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, const uint32_t *code, uint32_t avail) {
     HvMachine *m = cpu->m;
     int failed = 0;
@@ -382,6 +416,27 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
         for (int i = 0; i < m->ncpus; i++) /* in every CPU's TLB, or a write from another CPU goes unnoticed */
             if (m->cpus[i]) hv_tlb_protect_code_page(m->cpus[i], ram, pg);
         gen = __atomic_load_n(&ram->page_gen[pg], __ATOMIC_ACQUIRE);
+    }
+    if (hv_knob[HV_K_REVIVE]) {
+        int changed = 0;
+        HvBlock *s = find_stale(m, h, va, pa, flags, gen, code, avail, &changed);
+        if (s) {
+            __atomic_or_fetch(&ram->code_mask[pg], hv_code_bits((pa - ram->pa) & ((1ull << HV_TLB_PAGE_BITS) - 1), 4ull * s->ninsns), __ATOMIC_SEQ_CST);
+            __atomic_sub_fetch(&ram->xlating[pg], 1, __ATOMIC_SEQ_CST);
+            tr_lock(m);
+            hv_tr_held(m, HV_TR_PUBLISH);
+            b = find(m, h, va, pa, flags, gen); /* another CPU may have just made or revived it */
+            if (!b) {
+                if (m->flush_pending) goto flush;
+                __atomic_store_n(&s->gen, gen, __ATOMIC_RELEASE); /* the generation read before its instructions were summed */
+                m->stats.revived++;
+                b = s;
+            }
+            hv_tr_unlock(m);
+            jc[j].va = va, jc[j].b = b;
+            return b;
+        }
+        if (changed) m->stats.revive_changed++;
     }
     /* Translate without the lock, into this thread's buffer... */
     HvBlock nb = {.va = va, .pa = pa, .flags = flags, .gen = gen, .ram = ram, .pg = pg, .maker = cpu->index + 1, .jit_gen = __atomic_load_n(&m->jit_gen, __ATOMIC_SEQ_CST)};
@@ -430,10 +485,17 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
         hv_translate_discard_slots(m);
         goto evict;
     }
-    if (hv_translate_commit_slots(m) != 0) {
+    /* HV_REVIVE: a block made while its page was written is stale as published and never revived; any other has
+       its exits chained as placed put on the page's list, under this lock, before a later drop walks it. */
+    int fresh = hv_knob[HV_K_REVIVE] && __atomic_load_n(&ram->page_gen[pg], __ATOMIC_SEQ_CST) == gen;
+    if (hv_translate_commit_slots(m, fresh ? ram : NULL, pg) != 0) {
         hv_translate_discard_slots(m);
         goto evict;
     }
+    if (fresh) {
+        uint64_t sum = code_sum(code, nb.ninsns);
+        nb.sum_lo = (uint32_t)sum, nb.sum_hi = (uint32_t)(sum >> 32);
+    } else if (hv_knob[HV_K_REVIVE]) m->stats.revive_born_stale++;
     b = alloc_block_in_seg(m, seg);
     *b = nb;
     m->stats.translations++;
@@ -1082,6 +1144,9 @@ static void print_stats(HvCpu *cpu, int force) {
                 RATE(fr_fail[1]), RATE(fr_fail[2]), RATE(fr_fail[3]), RATE(fr_fail[4]));
         fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s; WFE waits for an interrupt %.0f/s (%.1f%% of one CPU asleep in them)\n", RATE(wfe_waits),
                 RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes), RATE(wfe_polls), RATE(wfe_poll_ticks) / 240000.0);
+        if (hv_knob[HV_K_REVIVE])
+            fprintf(stderr, "  HV_REVIVE: stale blocks put back %.0f/s (%.0f%% of translations and these), code had changed %.0f/s, stale as published %.0f/s, in-page exits sent back to stubs %.0f/s\n",
+                    RATE(revived), 100.0 * RATE(revived) / (RATE(revived) + RATE(translations) + 1e-9), RATE(revive_changed), RATE(revive_born_stale), RATE(revive_unchained));
         if (hv_knob[HV_K_SMCFINE])
             fprintf(stderr, "  writes to code pages/s: %.0f kept the page's blocks (HV_SMC_FINE), %.0f dropped them (%.0f for too many kept, %.0f by atomics)\n", RATE(smc_kept), RATE(flush_smc), RATE(smc_quiet), RATE(smc_atomic));
         if (hv_knob[HV_K_FIXEDADDR])
@@ -1172,7 +1237,7 @@ static void chain(HvMachine *m, uint64_t *slot, HvBlock *b) {
     }
     uint32_t tseg = hv_jit_seg_of(m, b->code);
     hv_slot_tlist_insert(m, tseg, idx);
-    if (xa) {
+    if (xa || hv_knob[HV_K_REVIVE]) { /* HV_REVIVE: exits within the page as well (see find_stale) */
         m->slot_xpa[idx] = page_pa | 1;
         hv_slot_xlist_insert(m, b->ram, b->pg, idx); /* on the target page's list (hv_invalidate_code) */
     }

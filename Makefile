@@ -91,6 +91,8 @@ $(B)/test_operands: tests/test_operands.c tests/operand_cases.s $(B)/operands.o
 	$(CC) $(CFLAGS) $^ -o $@
 $(B)/test_mmu: tests/test_mmu.c $(ENGINE)
 	$(CC) $(CFLAGS) tests/test_mmu.c $(ENGINE) -o $@
+$(B)/test_revive: tests/test_revive.c $(ENGINE)
+	$(CC) $(CFLAGS) tests/test_revive.c $(ENGINE) -o $@
 
 # Translated-code density on real arm64 binaries (nothing runs): build/density <mach-o>...
 $(B)/density: tests/density.c $(ENGINE)
@@ -351,6 +353,11 @@ $(LXB)/test_window: tests/test_window.c tests/window_programs.S $(LXT_OBJ)
 	$(LXCC) $(LXFLAGS) -Itests tests/test_window.c $(LXB)/window_programs.o $(LXT_OBJ) -static -lpthread -latomic -o $@
 linux-test-window: $(LXB)/test_window
 .PHONY: linux-test-window
+# tests/test_revive.c (HV_REVIVE) the same way: qemu-aarch64 build/linux/test_revive, with HV_REVIVE=1 and without.
+$(LXB)/test_revive: tests/test_revive.c $(LXT_OBJ)
+	$(LXCC) $(LXFLAGS) -Itests tests/test_revive.c $(LXT_OBJ) -static -lpthread -latomic -o $@
+linux-test-revive: $(LXB)/test_revive
+.PHONY: linux-test-revive
 
 # The same tool on a Mac host (Apple silicon), where Mach's headers are the real ones: a Linux machine on Darwin,
 # with the system's allocator and tools. No 3D yet: there are no GPU libraries built for a Mac host.

@@ -49,6 +49,7 @@ typedef struct HvMmio {
 
 typedef struct HvBlock {
     uint32_t jit_gen; /* full flushes when it was made */
+    uint32_t sum_lo;  /* HV_REVIVE: a 64-bit sum of the guest instructions it was made from (with sum_hi; 0: not to be revived) */
     uint64_t va, pa;
     uint32_t flags;      /* HV_BLOCK_* state the translation depends on */
     uint32_t ninsns;
@@ -58,7 +59,9 @@ typedef struct HvBlock {
     uint32_t *code;
     struct HvBlock *next;
     uint32_t maker;      /* the CPU that translated it (index + 1; 0: not a CPU, as in tests) */
+    uint32_t sum_hi;
 } HvBlock;
+_Static_assert(sizeof(HvBlock) == 80, "HvBlock: the sums sit in what was padding");
 
 #define HV_BLOCK_EL1   1u        /* translated for EL1 (selects tlb[1]) */
 #define HV_BLOCK_FPOFF 2u        /* CPACR_EL1.FPEN traps FP/SIMD at this EL */
@@ -83,6 +86,7 @@ typedef struct HvStats {
     uint64_t tr_hold_n[5], tr_hold_ticks[5], tr_hold_longest[5], tr_hold_100us[5], tr_hold_1ms[5];
     uint64_t tr_wait_phase[3], tr_wait_phase_longest[3]; /* of a wait: ticks spinning, in sched_yield, blocked in the mutex; the longest of each since the stats block last printed */
     uint64_t slow_ticks[6];   /* host ticks in hv_mem_emulate by slow_why (the C part only: not the way in and out of translated code) */
+    uint64_t revived, revive_changed, revive_born_stale, revive_unchained; /* HV_REVIVE: stale blocks put back for unchanged code; stale twins whose code had changed; blocks stale as published; in-page exits sent back to their stubs when a page's blocks were dropped */
     uint64_t retrans_same;    /* translations of a block whose VA, PA and guest instructions were all seen before */
     uint64_t tr_wait_100us, tr_wait_1ms, tr_wait_longest; /* waits for it that long, and the longest since the stats block last printed */
     uint64_t evict_longest, evict_longest_now; /* the longest one, in ticks: ever, and since the stats block last printed (it clears that one) */
@@ -469,7 +473,7 @@ int hv_ic_ivau_drops(void);
 /* Settings that say how to translate or wait, to compare ways of doing it in one running guest
    ("knob NAME VALUE" in HV_INPUT_FILE; a new way starts from an empty code cache). Each starts
    from the environment variable named in hv_knob_names. */
-enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_COUNT };
+enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_REVIVE, HV_K_COUNT };
 extern int hv_knob[HV_K_COUNT];
 int hv_knob_set(HvMachine *m, const char *name, int value);
 /* Debugging (HV_WATCH): which pages keep losing their translations. */

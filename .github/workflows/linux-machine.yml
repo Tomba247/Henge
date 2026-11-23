@@ -49,6 +49,10 @@ on:
         description: "With Vulkan: the app's virglrenderer built with AddressSanitizer (a misuse of memory says where)"
         type: boolean
         default: false
+      engine_env:
+        description: "Engine knobs for the boots, as NAME=VALUE separated by spaces (HV_REVIVE=1)"
+        type: string
+        default: ""
   push:
     branches: ["claude/linux-runner-crash-flumcd"]
     paths:
@@ -90,6 +94,28 @@ jobs:
           make linux-test LXCC=gcc
           # And with 3D for virtio-gpu through virglrenderer (the runner's Mesa, surfaceless EGL).
           make linux-test LXCC=gcc LX_VIRGL=1 LXB=build/linux-virgl
+
+      # HV_REVIVE (core/dispatch.c) on real arm64 cores: two CPUs on one page of code that is rewritten under them.
+      - name: The engine's own tests that run here
+        run: |
+          set -uo pipefail
+          make linux-test-revive linux-test-window LXCC=gcc 2>&1 | grep -E "error|warning" | head -20 || true
+          fail=0
+          for i in 1 2 3 4 5; do
+            for r in 0 1; do HV_REVIVE=$r build/linux/test_revive > revive.log 2>&1 || { fail=1; echo "== HV_REVIVE=$r run $i"; cat revive.log; }; done
+          done
+          tail -8 revive.log
+          for r in 0 1; do HV_REVIVE=$r build/linux/test_window | tail -1 || fail=1; done
+          exit $fail
+
+      - name: Engine knobs for the boots
+        if: ${{ inputs.engine_env != '' }}
+        env:
+          ENGINE_ENV: ${{ inputs.engine_env }}
+        run: |
+          for kv in $ENGINE_ENV; do
+            case "$kv" in HV_[A-Z0-9_]*=[A-Za-z0-9_.-]*) echo "$kv" >> "$GITHUB_ENV"; echo "set $kv" ;; *) echo "::warning::ignored: not NAME=VALUE"; ;; esac
+          done
 
       - name: Kernel cache
         if: ${{ (inputs.kernel || 'henge') == 'henge' }}

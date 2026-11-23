@@ -11,6 +11,7 @@
 
 #include "mmu.h"
 #include "sysreg.h"
+#include "translate.h"
 
 extern void hv_exit(void);
 extern void hv_helper_entry(void);
@@ -22,7 +23,7 @@ extern void hv_xjump_thunk(void);
 static int init_rest(HvMachine *m);
 
 int hv_knob[HV_K_COUNT];
-static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL", "HV_FIXED_ADDR", "HV_SMC_FINE"};
+static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL", "HV_FIXED_ADDR", "HV_SMC_FINE", "HV_REVIVE"};
 
 static void knobs_init(void) {
     for (int i = 0; i < HV_K_COUNT; i++)
@@ -613,6 +614,8 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
        as chaining them is: one that saw the old generation is done by now. */
     pthread_mutex_lock(&m->tr_mu);
     hv_tr_held(m, HV_TR_INVALIDATE);
+    uint32_t *words[256];
+    size_t nwords = 0;
     for (uint32_t k = r->xhead[pg]; k;) {
         uint32_t idx = k - 1;
         k = m->slot_xnext[idx];
@@ -625,10 +628,26 @@ void hv_invalidate_code(HvMachine *m, uint64_t pa) {
         if (site) {
             uint32_t insn = 0x14000000u | (uint32_t)((hv_slot_dec(m, m->slot_stub[idx]) - site) & 0x3ffffff); /* back to its stub */
             hv_jit_write(&m->jit, site, &insn, 4);
-            hv_jit_finish(&m->jit, site, 1);
+            if (!hv_knob[HV_K_REVIVE]) hv_jit_finish(&m->jit, site, 1);
+            else {
+                /* HV_REVIVE lists the page's own exits here too (hundreds a page): one instruction-cache pass for
+                   them all, and the conditional branch chain() pointed at the block goes back to the exit's B. */
+                if (nwords + 2 > sizeof words / sizeof *words) hv_jit_finish_words(&m->jit, words, nwords), nwords = 0;
+                words[nwords++] = site;
+                uint32_t *cond = m->slot_xa[idx] ? NULL : hv_slot_dec(m, m->slot_cond[idx]);
+                if (cond) {
+                    insn = *cond;
+                    if (hv_branch_retarget(&insn, site - cond)) {
+                        hv_jit_write(&m->jit, cond, &insn, 4);
+                        words[nwords++] = cond;
+                    }
+                }
+                if (!m->slot_xa[idx]) m->stats.revive_unchained++;
+            }
         }
         m->nxchained--;
     }
+    if (nwords) hv_jit_finish_words(&m->jit, words, nwords);
     r->xhead[pg] = 0;
     hv_tr_unlock(m);
     /* The indirect-branch cache may lead into the stale blocks: drop those entries (or, without HV_IJC_PAGES, the
@@ -750,7 +769,11 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
         for (uint64_t pg = first; pg <= last; pg++)
             if (r->code_pages[pg]) {
                 uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;
-                if (!hv_code_written(m, r, r->pa + lo, hi - lo, 0)) code = 1;
+                /* Checked again after the write whether the blocks were kept or dropped: once dropped, another CPU
+                   may translate the page's old bytes under the new generation before this write is made (seen in
+                   tests/test_revive.c: the writing CPU then ran the code it had just replaced). */
+                hv_code_written(m, r, r->pa + lo, hi - lo, 0);
+                code = 1;
             }
         if (m->watch_pa && m->watch_pa - pa < len) {
             uint64_t v = 0;
@@ -760,7 +783,7 @@ int hv_phys_write(HvMachine *m, uint64_t pa, const void *buf, unsigned len) {
                     (unsigned long long)m->access_pc);
         }
         memcpy(r->host + off, buf, len);
-        if (code) /* the blocks were kept: was one made from these bytes meanwhile? */
+        if (code) /* was a block made from these bytes meanwhile? */
             for (uint64_t pg = first; pg <= last; pg++) {
                 uint64_t lo = pg == first ? off : pg << HV_TLB_PAGE_BITS, hi = pg == last ? off + len : (pg + 1) << HV_TLB_PAGE_BITS;
                 hv_code_written(m, r, r->pa + lo, hi - lo, 1);

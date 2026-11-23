@@ -12,6 +12,9 @@ on:
       - core/window.h
       - tests/test_window.c
       - tests/window_programs.S
+      - tests/test_revive.c
+      - core/dispatch.c
+      - core/machine.c
       - .github/workflows/window-test.yml
 
 jobs:
@@ -41,6 +44,24 @@ jobs:
             else
               wait $pid; echo "== run $i: exit $?"; tail -2 big-$i.log
             fi
+          done
+          exit $fail
+      # HV_REVIVE (core/dispatch.c): stale blocks put back for unchanged code. Its own test with the knob on and off,
+      # and the engine's tests with it on.
+      - name: HV_REVIVE
+        if: always()
+        run: |
+          set +e
+          ulimit -s 65520
+          fail=0
+          make build/test_revive > make-revive.log 2>&1 || { tail -20 make-revive.log; exit 1; }
+          for i in 1 2 3; do
+            for r in 0 1; do HV_REVIVE=$r build/test_revive > revive.log 2>&1 || { fail=1; echo "== HV_REVIVE=$r run $i"; cat revive.log; }; done
+          done
+          tail -8 revive.log
+          for t in test_jit test_mem test_mmu test_exc test_shutdown; do
+            make build/$t > make-$t.log 2>&1 || { echo "$t: does not build"; tail -20 make-$t.log; fail=1; continue; }
+            echo "== $t with HV_REVIVE=1"; HV_REVIVE=1 build/$t | tail -3 || fail=1
           done
           exit $fail
       - name: The engine's tests
