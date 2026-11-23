@@ -476,6 +476,11 @@ void hv_cpu_reset(HvCpu *cpu, HvMachine *m); /* CPU 0 */
 void hv_cpu_reset_index(HvCpu *cpu, HvMachine *m, uint32_t index);
 /* The CPU this thread runs (NULL outside the dispatcher: tests, devices). */
 extern __thread HvCpu *hv_self;
+/* Segments of the code cache's ring, wherever it is set up (hv_machine_init, hv_flush_blocks): HV_JIT_SEGMENTS, or
+   this. Every CPU stops while a segment's blocks go, and each eviction empties the branch caches as a flush does:
+   on a phone (macOS 27.2, 1.5 GB) an eviction took about 200 ms with 8 segments and 30-50 ms with 32. */
+#define HV_JIT_SEGS_DEFAULT 128
+static inline uint32_t hv_jit_segments(void) { return hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : HV_JIT_SEGS_DEFAULT; }
 void hv_dev_lock(HvMachine *m);
 void hv_dev_unlock(HvMachine *m);
 /* Ask another CPU to apply a TLBI (or HV_REQ_* work); returns the sequence to wait for. */

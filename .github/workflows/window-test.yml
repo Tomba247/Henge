@@ -1,0 +1,38 @@
+name: Direct app memory test (Mac)
+
+# core/window.c (HV_EL0_WINDOW, off unless asked for) on a real Darwin host, where its second mappings are
+# vm_remap's as on the phone: tests/test_window.c once per setting of the knobs, and the engine's own tests.
+# By hand, or by a push that changes the window, its test or this file.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/blissful-cori-6o3jo3"]
+    paths:
+      - core/window.c
+      - core/window.h
+      - tests/test_window.c
+      - tests/window_programs.S
+      - .github/workflows/window-test.yml
+
+jobs:
+  mac:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: The window's test, once per setting
+        run: |
+          mkdir -p build
+          make build/test_window 2>&1 | grep -E "error|warning" | head -40 || true
+          make test-window
+      - name: The engine's tests
+        if: always()
+        run: |
+          set +e
+          ulimit -s 65520
+          fail=0
+          for t in test_classify test_jit_region test_operands test_jit test_mem test_mmu test_exc test_shutdown; do
+            make build/$t > make-$t.log 2>&1 || { echo "$t: does not build"; tail -20 make-$t.log; fail=1; continue; }
+            echo "== $t"; build/$t | tail -3 || fail=1
+          done
+          exit $fail

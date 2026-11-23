@@ -154,10 +154,12 @@ static int init_rest(HvMachine *m) {
     m->slot_tnext = calloc(m->max_slots, sizeof *m->slot_tnext);
     m->slot_free = calloc(m->max_slots, sizeof *m->slot_free);
     if (!m->slot_free) return -1;
-    /* HV_JIT_SEGMENTS: the code cache is a ring of this many segments (default 8; 1: no ring, a full region drops
-       everything). The boot of macOS 27 on a phone fills 1.5 GB in about three minutes and kept doing so: dropping
-       it all meant translating the whole working set again each time. */
-    hv_jit_ring(&m->jit, hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : 8);
+    /* HV_JIT_SEGMENTS: the code cache is a ring of this many segments (hv_jit_segments: HV_JIT_SEGS_DEFAULT unless
+       set; 1: no ring, a full region drops everything). The boot of macOS 27 on a phone fills 1.5 GB in about three
+       minutes and kept doing so: dropping it all meant translating the whole working set again each time.
+       The same number as hv_flush_blocks sets: this said 8 until 2026-11-23 while that said 128, and a machine
+       that never flushed everything (a phone's log: 0 full flushes, 26 evictions of about 197 ms) kept 8. */
+    hv_jit_ring(&m->jit, hv_jit_segments());
     if (!m->slots || !m->slot_site || !m->slot_stub || !m->slot_cond || !m->slot_xa || !m->slot_xpa ||
         !m->slot_xnext || !m->slot_xprev || !m->slot_tseg || !m->slot_tprev || !m->slot_tnext) return -1;
     for (int i = 0; i < HV_MAX_CPUS; i++) { /* untouched pages cost nothing, so every CPU gets its tables now */

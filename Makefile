@@ -122,6 +122,12 @@ $(B)/test_devices: tests/test_devices.c tests/devices_programs.S tests/harness.S
 $(B)/test_%: tests/test_%.c tests/%_programs.S tests/harness.S tests/harness.h $(ENGINE)
 	$(CC) $(CFLAGS) -Itests tests/test_$*.c tests/$*_programs.S tests/harness.S $(ENGINE) -o $@
 
+# HV_EL0_WINDOW (core/window.c), once per setting of its knobs. Not part of `make test`: the feature is off unless asked for.
+test-window: $(B)/test_window
+	@for e in "" "HV_WINDOW_PAGES=64" "HV_WINDOW_PAGES=64 HV_WINDOW_EVICT=0" "HV_WINDOW_AROUND=0" "HV_WINDOW_AROUND=4 HV_WINDOW_PAGES=256" "HV_WINDOW_PAGES=65536"; do \
+	    echo "== test_window $$e"; env $$e $(B)/test_window || exit 1; done
+.PHONY: test-window
+
 test: all
 	@ulimit -s 65520; for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done # a test keeps a whole HvCpu (2 MB of TLB and more) on its stack
 
@@ -335,6 +341,16 @@ $(LXB)/hengelinux: $(LX_OBJ)
 	$(LXCC) $(LX_SAN) $(if $(LX_SAN),,$(filter -static,$(LX_LINK))) -o $@ $(LX_OBJ) -lpthread -latomic $(filter-out -static,$(LX_LINK))
 linux-test: $(LXB)/hengelinux
 .PHONY: linux-test
+
+# tests/test_window.c on a Linux host: the engine with core/window.c itself (its second mappings are mremap's
+# there), not the stub hengelinux has. Natively on arm64, or: qemu-aarch64 build/linux/test_window
+LXT_SRC = $(wildcard core/*.c) host/jit_region.c host/linux/ulock.c
+LXT_OBJ = $(patsubst %.c,$(LXB)/%.o,$(LXT_SRC)) $(LXB)/enter.o
+$(LXB)/test_window: tests/test_window.c tests/window_programs.S $(LXT_OBJ)
+	$(LXCC) -c tests/window_programs.S -o $(LXB)/window_programs.o
+	$(LXCC) $(LXFLAGS) -Itests tests/test_window.c $(LXB)/window_programs.o $(LXT_OBJ) -static -lpthread -latomic -o $@
+linux-test-window: $(LXB)/test_window
+.PHONY: linux-test-window
 
 # The same tool on a Mac host (Apple silicon), where Mach's headers are the real ones: a Linux machine on Darwin,
 # with the system's allocator and tools. No 3D yet: there are no GPU libraries built for a Mac host.

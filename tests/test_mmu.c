@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dispatch.h"
 #include "machine.h"
 #include "mmu.h"
 #include "sysreg.h"
@@ -67,6 +68,17 @@ int main(void) {
     static HvMachine m;
     static HvCpu cpu;
     hv_machine_init(&m, 1 << 20);
+    /* The code cache's ring starts with the segments a flush gives it (it started with 8 and got 128 only after a
+       full flush, which a machine may never have). 1 MB is 128 segments of the smallest size a ring takes. */
+    if (!getenv("HV_JIT_SEGMENTS")) {
+        checks++;
+        uint32_t at_start = m.jit.nseg;
+        hv_flush_blocks(&m);
+        if (at_start != HV_JIT_SEGS_DEFAULT || m.jit.nseg != at_start) {
+            printf("  FAIL the code cache's ring starts with %u segments and has %u after a flush, expected %u both times\n", at_start, m.jit.nseg, (unsigned)HV_JIT_SEGS_DEFAULT);
+            failures++;
+        }
+    }
     pt = aligned_alloc(65536, PT_SIZE);
     hv_machine_add_ram(&m, PT_PA, PT_SIZE, pt, 0);
     hv_cpu_reset(&cpu, &m);

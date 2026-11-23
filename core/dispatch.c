@@ -14,6 +14,7 @@
 #include "mmu.h"
 #include "sysreg.h"
 #include "translate.h"
+#include "window.h"
 
 static int poison_on(void) {
     static int poison = -1;
@@ -60,7 +61,7 @@ void hv_flush_blocks(HvMachine *m) {
     /* 128 segments unless HV_JIT_SEGMENTS says otherwise: every CPU stops while a segment's blocks go, and on the
        phone (macOS 27.2, 1.5 GB) an eviction took about 200 ms with 8 segments and 30-50 ms with 32 for the same
        total, 60-75 ms with 32 on a hot phone with apps open: several frames of the guest's screen each time. */
-    hv_jit_ring(&m->jit, hv_knob[HV_K_JITSEGS] ? (uint32_t)hv_knob[HV_K_JITSEGS] : 128); /* after the limit: segments of what is used */
+    hv_jit_ring(&m->jit, hv_jit_segments()); /* after the limit: segments of what is used; the number hv_machine_init starts with */
     /* HV_JIT_POISON: nothing old is left to run, so a stale pointer faults where it is used. */
     m->gen_checks = poison_on();
     if (m->gen_checks) hv_jit_poison(&m->jit, m->jit.base, m->jit.capacity);
@@ -884,6 +885,25 @@ static void print_stats(HvCpu *cpu, int force) {
             fprintf(stderr, "  switch-flush checks/s: %.0f, entries walked %.0f, found out of date %.0f (flushed), access flag only %.0f\n",
                     RATE(flush_checked), RATE(flush_check_entries), RATE(flush_check_bad), RATE(flush_check_af));
         fprintf(stderr, "  TTBR0 writes/s that changed nothing: %.0f\n", RATE(ttbr0_same));
+        if (hv_window_enabled()) { /* HV_EL0_WINDOW: what the windows cost (window.c) */
+            static uint64_t wl[HV_WC_N];
+            uint64_t wc[HV_WC_N];
+            uint32_t held;
+            hv_window_counts(m, wc, &held);
+#define WR(k) ((double)(wc[k] - wl[k]) / dt)
+#define WEACH(n, k) (wc[k] - wl[k] ? (double)(wc[n] - wl[n]) / (double)(wc[k] - wl[k]) : 0.0)
+            fprintf(stderr, "  window: %u pages held; faults %.0f/s (%.0f/s to the TLB path); calls/s: vm_remap %.0f (%.1f pages each), mprotect %.0f (%.0f write upgrades), mmap %.0f (%.1f pages each)\n",
+                    held, WR(HV_WC_FAULTS), WR(HV_WC_MISSES), WR(HV_WC_REMAPS), WEACH(HV_WC_REMAP_PAGES, HV_WC_REMAPS), WR(HV_WC_MPROTECTS), WR(HV_WC_UPGRADES),
+                    WR(HV_WC_UNMAPS), WEACH(HV_WC_UNMAP_PAGES, HV_WC_UNMAPS));
+            fprintf(stderr, "  window drops/s (pages each): full window, part %.0f (%.0f), all %.0f (%.0f); process switch %.0f (%.1f); TLBI %.0f (%.1f); whole-TLB flush %.0f (%.1f); user flush %.0f (%.1f); pages turned code %.0f/s after %.0f looks/s\n",
+                    WR(HV_WC_EVICTIONS), WEACH(HV_WC_EVICT_PAGES, HV_WC_EVICTIONS), WR(HV_WC_RESETS), WEACH(HV_WC_RESET_PAGES, HV_WC_RESETS),
+                    WR(HV_WC_SWITCH_DROPS), WEACH(HV_WC_SWITCH_PAGES, HV_WC_SWITCH_DROPS), WR(HV_WC_TLBI_DROPS), WEACH(HV_WC_TLBI_PAGES, HV_WC_TLBI_DROPS),
+                    WR(HV_WC_FULL_DROPS), WEACH(HV_WC_FULL_PAGES, HV_WC_FULL_DROPS), WR(HV_WC_USER_DROPS), WEACH(HV_WC_USER_PAGES, HV_WC_USER_DROPS),
+                    WR(HV_WC_CODE_PAGES), WR(HV_WC_CODE_SCANS));
+#undef WR
+#undef WEACH
+            memcpy(wl, wc, sizeof wl);
+        }
         fprintf(stderr, "  cache drops/s: full %.0f, ASID %.0f, user VA %.0f, kernel VA %.0f, code %.0f (whole user half %.0f, filter full %.0f, big user range %.0f)\n", RATE(reset_why[0]),
                 RATE(reset_why[1]), RATE(reset_why[2]), RATE(reset_why[3]), RATE(reset_why[4]), RATE(reset_why[5]), RATE(reset_why[6]), RATE(reset_why[7]));
         /* block hash health: chain lengths and how much of it is stale. It walks every block held (millions), on a

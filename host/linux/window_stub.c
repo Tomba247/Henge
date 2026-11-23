@@ -7,7 +7,12 @@ int hv_window_enabled(void) { return 0; }
 int hv_window_reserve(struct HvMachine *m, int ncpus) { (void)m, (void)ncpus; return 0; }
 int hv_window_attach(HvCpu *cpu) { (void)cpu; return 0; }
 void hv_window_detach(HvCpu *cpu) { (void)cpu; }
-void hv_window_drop_all(HvCpu *cpu) { (void)cpu; }
+void hv_window_drop_all(HvCpu *cpu, int why) { (void)cpu, (void)why; }
+void hv_window_counts(struct HvMachine *m, uint64_t out[HV_WC_N], uint32_t *held) {
+    (void)m;
+    for (int k = 0; k < HV_WC_N; k++) out[k] = 0;
+    *held = 0;
+}
 void hv_window_drop_except(HvCpu *cpu, uint64_t lo, const uint64_t *keep, uint32_t nchunks) {
     (void)cpu, (void)lo, (void)keep, (void)nchunks;
 }

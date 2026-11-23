@@ -142,7 +142,7 @@ int hv_tlb_tmajor;
 
 void hv_tlb_flush(HvCpu *cpu) {
     if (cpu->m) cpu->m->stats.tlb_flushes++;
-    hv_window_drop_all(cpu);
+    hv_window_drop_all(cpu, HV_WC_FULL_DROPS);
     if (cpu->m) cpu->m->stats.reset_why[0]++;
     hv_ijc_reset(cpu, 0); /* mappings changed: branch targets cached by VA are no longer trusted */
     hv_ijc_reset(cpu, 1);
@@ -311,7 +311,7 @@ void hv_ijc_reset(HvCpu *cpu, int kernel) {
    the kernel's TTBR1 entries stay. */
 void hv_tlb_flush_user(HvCpu *cpu) {
     if (cpu->m) cpu->m->stats.tlb_flushes++;
-    hv_window_drop_all(cpu);
+    hv_window_drop_all(cpu, HV_WC_USER_DROPS);
     uint32_t n = cpu->nuser_fills;
     cpu->nuser_fills = 0;
     if (n <= HV_USER_FILLS) {
@@ -1322,7 +1322,7 @@ void hv_tlb_switch_user(HvCpu *cpu, uint64_t old, uint64_t now) {
     if (s) s->n = k;
     cpu->nuser_fills = nkept;
     if (keeping) hv_window_drop_except(cpu, SHARED_LO, keep, SHARED_CHUNKS);
-    else hv_window_drop_all(cpu);
+    else hv_window_drop_all(cpu, HV_WC_SWITCH_DROPS);
     if (keeping && m->stats_interval) m->stats.shared_keeps++, m->stats.shared_kept += nkept;
 
     for (int i = 0; i < HV_STASHES; i++) {
