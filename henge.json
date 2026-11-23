@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.110",
+          "date": "2026-11-23T12:02:59Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: tests: the Mac run leaves test_jit out of the HV_REVIVE pass (its ring test needs the same code translated again)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 069f1ee\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-110/Henge.ipa",
+          "size": 14204100,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.109",
           "date": "2026-11-23T11:18:27Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -410,11 +420,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.109",
-      "versionDate": "2026-11-23T11:18:27Z",
-      "versionDescription": "What changed: HV_REVIVE (off by default): a stale block whose instructions did not change is put back, not translated again; and a write to code is checked again after it is made even when it dropped the page's blocks\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit fdc2314\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-109/Henge.ipa",
-      "size": 14202566,
+      "buildVersion": "101.110",
+      "versionDate": "2026-11-23T12:02:59Z",
+      "versionDescription": "What changed: tests: the Mac run leaves test_jit out of the HV_REVIVE pass (its ring test needs the same code translated again)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 069f1ee\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-110/Henge.ipa",
+      "size": 14204100,
       "minOSVersion": "17.0"
     }
   ],
