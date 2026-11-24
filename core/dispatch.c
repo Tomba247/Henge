@@ -25,6 +25,12 @@ static int poison_on(void) {
 /* Was this code translated before? (hashed, approximate). Cleared on a full flush so the diagnostic
    counts retranslations in the current cache window rather than saturating. */
 static uint64_t seen_va[1 << 18], seen_vapa[1 << 18], seen_same[1 << 18];
+/* Why is this block being translated? One word a key (VA, PA, flags), 64 MB, made at the first translation with
+   stats on: 14 bits of the key, 10 of its instructions, and when it was last translated (4 s units, wraps at 17
+   minutes). A slot is taken over by the next key that lands on it, so "not known" is counted apart. Diagnostic
+   only: nothing reads it but the stats line. */
+#define WHY_BITS 24
+static uint32_t *why_tab;
 static void reset_retrans(void) { memset(seen_va, 0, sizeof seen_va); memset(seen_vapa, 0, sizeof seen_vapa); memset(seen_same, 0, sizeof seen_same); }
 
 void hv_flush_blocks(HvMachine *m) {
@@ -534,6 +540,22 @@ static HvBlock *lookup(HvCpu *cpu, uint64_t va, uint64_t pa, uint32_t flags, con
         uint32_t hs = (uint32_t)((hc ^ hc >> 29) * 0x9e3779b97f4a7c15ull >> 40);
         if (seen_same[hs >> 6] >> (hs & 63) & 1) m->stats.retrans_same++;
         seen_same[hs >> 6] |= 1ull << (hs & 63);
+        if (!why_tab) why_tab = calloc(1u << WHY_BITS, sizeof *why_tab);
+        if (why_tab) {
+            uint64_t hk = (((va >> 2) ^ flags) * 0x9e3779b97f4a7c15ull ^ pa * 0xc2b2ae3d27d4eb4full) * 0xff51afd7ed558ccdull;
+            uint32_t *w = &why_tab[hk >> (64 - WHY_BITS)];
+            uint32_t tag = (uint32_t)((hk >> 8) % 16383) + 1, cs = (uint32_t)(hc >> 37) & 1023, now4 = (uint32_t)(mach_absolute_time() / 96000000) & 255;
+            int twin = 0; /* an older translation of it still in the table: its page was dropped, not its code */
+            for (HvBlock *o = m->hash[h]; o && !twin; o = o->next) twin = o->va == va && o->pa == pa && o->flags == flags;
+            int known = *w >> 18 == tag, same = known && (*w >> 8 & 1023) == cs;
+            if (twin) m->stats.why_page[known ? same ? 1 : 2 : 0]++;
+            else if (known) {
+                uint32_t age = (now4 - (*w & 255)) & 255; /* 4 s units */
+                m->stats.why_gone[same ? 0 : 1]++;
+                m->stats.why_age[age < 8 ? 0 : age < 30 ? 1 : age < 75 ? 2 : 3]++;
+            } else m->stats.why_new[*w ? 1 : 0]++;
+            *w = tag << 18 | cs << 8 | now4;
+        }
     }
     m->nblocks++;
     b->next = m->hash[h];
@@ -1165,6 +1187,11 @@ static void print_stats(HvCpu *cpu, int force) {
                 RATE(fr_fail[1]), RATE(fr_fail[2]), RATE(fr_fail[3]), RATE(fr_fail[4]));
         fprintf(stderr, "  WFE waits in place %.0f/s (%.0f/s ran the whole 50 us, %.1f%% of one CPU in all); exits chained as placed %.0f/s; SVC/ERET resumed in place %.0f/s; WFE waits for an interrupt %.0f/s (%.1f%% of one CPU asleep in them)\n", RATE(wfe_waits),
                 RATE(wfe_timeouts), RATE(wfe_ticks) / 240000.0, RATE(chained_early), RATE(fast_resumes), RATE(wfe_polls), RATE(wfe_poll_ticks) / 240000.0);
+        {
+            double pg = RATE(why_page[0]) + RATE(why_page[1]) + RATE(why_page[2]), gone = RATE(why_gone[0]) + RATE(why_gone[1]) + 1e-9;
+            fprintf(stderr, "  why translated, per s: never before %.0f; not known (its note was overwritten) %.0f; its page's blocks were dropped %.0f (same instructions %.0f, changed %.0f); its code was pushed out of the code cache %.0f (same instructions %.0f%%; last translated under 30 s ago %.0f%%, 30-120 s %.0f%%, 2-5 min %.0f%%, longer %.0f%%)\n",
+                    RATE(why_new[0]), RATE(why_new[1]), pg, RATE(why_page[1]), RATE(why_page[2]), gone, 100.0 * RATE(why_gone[0]) / gone, 100.0 * RATE(why_age[0]) / gone, 100.0 * RATE(why_age[1]) / gone, 100.0 * RATE(why_age[2]) / gone, 100.0 * RATE(why_age[3]) / gone);
+        }
         if (hv_knob[HV_K_REVIVE])
             fprintf(stderr, "  HV_REVIVE: stale blocks put back %.0f/s (%.0f%% of translations and these), code had changed %.0f/s, stale as published %.0f/s, in-page exits sent back to stubs %.0f/s\n",
                     RATE(revived), 100.0 * RATE(revived) / (RATE(revived) + RATE(translations) + 1e-9), RATE(revive_changed), RATE(revive_born_stale), RATE(revive_unchained));

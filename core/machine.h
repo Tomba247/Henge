@@ -87,6 +87,7 @@ typedef struct HvStats {
     uint64_t tr_wait_phase[3], tr_wait_phase_longest[3]; /* of a wait: ticks spinning, in sched_yield, blocked in the mutex; the longest of each since the stats block last printed */
     uint64_t slow_ticks[6];   /* host ticks in hv_mem_emulate by slow_why (the C part only: not the way in and out of translated code) */
     uint64_t revived, revive_changed, revive_born_stale, revive_unchained; /* HV_REVIVE: stale blocks put back for unchanged code; stale twins whose code had changed; blocks stale as published; in-page exits sent back to their stubs when a page's blocks were dropped */
+    uint64_t why_new[2], why_page[3], why_gone[2], why_age[4]; /* why a block was translated (stats on): see why_tab in dispatch.c */
     uint64_t retrans_same;    /* translations of a block whose VA, PA and guest instructions were all seen before */
     uint64_t tr_wait_100us, tr_wait_1ms, tr_wait_longest; /* waits for it that long, and the longest since the stats block last printed */
     uint64_t evict_longest, evict_longest_now; /* the longest one, in ticks: ever, and since the stats block last printed (it clears that one) */
