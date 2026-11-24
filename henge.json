@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.113",
+          "date": "2026-11-24T22:31:44Z",
+          "branch": "mac-speed",
+          "localizedDescription": "What changed: HV_HASH_BITS (off): a bigger block table, for a full code cache\nBranch: mac-speed \u00b7 commit c3e864d\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-113/Henge.ipa",
+          "size": 9844639,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.112",
           "date": "2026-11-24T18:38:37Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -406,16 +416,6 @@
           "size": 9790168,
           "minOSVersion": "17.0",
           "branch": "claude/linux-runner-crash-flumcd"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.64",
-          "date": "2026-11-18T23:35:59Z",
-          "localizedDescription": "What changed: Linux machine: input through virtio, USB off for now, desktop image on push\nBranch: claude/linux-runner-crash-flumcd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-64/Henge.ipa",
-          "size": 9789817,
-          "minOSVersion": "17.0",
-          "branch": "claude/linux-runner-crash-flumcd"
         }
       ],
       "appPermissions": {
@@ -430,11 +430,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.112",
-      "versionDate": "2026-11-24T18:38:37Z",
-      "versionDescription": "What changed: HV_SWITCH_KEEP_KERNEL (off): the TLBI VMALLE1 right after a process switch keeps the kernel half\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 591fa33\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-112/Henge.ipa",
-      "size": 14205137,
+      "buildVersion": "101.113",
+      "versionDate": "2026-11-24T22:31:44Z",
+      "versionDescription": "What changed: HV_HASH_BITS (off): a bigger block table, for a full code cache\nBranch: mac-speed \u00b7 commit c3e864d\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-113/Henge.ipa",
+      "size": 9844639,
       "minOSVersion": "17.0"
     }
   ],
