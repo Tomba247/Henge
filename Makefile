@@ -358,6 +358,11 @@ $(LXB)/test_revive: tests/test_revive.c $(LXT_OBJ)
 	$(LXCC) $(LXFLAGS) -Itests tests/test_revive.c $(LXT_OBJ) -static -lpthread -latomic -o $@
 linux-test-revive: $(LXB)/test_revive
 .PHONY: linux-test-revive
+# tests/test_mmu.c the same way: qemu-aarch64 -s 268435456 build/linux/test_mmu
+$(LXB)/test_mmu: tests/test_mmu.c $(LXT_OBJ)
+	$(LXCC) $(LXFLAGS) -Itests tests/test_mmu.c $(LXT_OBJ) -static -lpthread -latomic -o $@
+linux-test-mmu: $(LXB)/test_mmu
+.PHONY: linux-test-mmu
 
 # The same tool on a Mac host (Apple silicon), where Mach's headers are the real ones: a Linux machine on Darwin,
 # with the system's allocator and tools. No 3D yet: there are no GPU libraries built for a Mac host.
