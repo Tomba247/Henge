@@ -159,32 +159,6 @@ void hv_tlb_flush(HvCpu *cpu) {
     hv_tlb_stash_drop(cpu, -1);
 }
 
-/* HV_SWITCH_KEEP_KERNEL: the local TLBI VMALLE1 xnu issues right after a process switch (to drop the old shared
-   region's global entries) done for the user half only: every user entry, every process's stashed entries and the
-   user half of the branch caches go, as in hv_tlb_flush; the kernel's TLB entries, its cached branch targets and its
-   returns stay. xnu changes kernel mappings with TLBIs by VA or range, which drop them as ever. check: the kernel
-   entries kept are walked again first (hv_tlb_check_all, with the user ones gone) and, if any no longer matches the
-   page tables, the flush is done whole. Returns 1 if it was done whole. */
-int hv_tlb_flush_switch(HvCpu *cpu, int check) {
-    HvMachine *m = cpu->m;
-    hv_window_drop_all(cpu, HV_WC_FULL_DROPS);
-    hv_ijc_reset(cpu, 0);
-    hv_tlb_flush_user(cpu); /* counts a TLB flush */
-    hv_tlb_stash_drop(cpu, -1);
-    if (m && m->stats_interval) m->stats.keepk++;
-    if (check) {
-        if (m && m->stats_interval) m->stats.keepk_checked++;
-        if (hv_tlb_check_all(cpu)) {
-            if (m && m->stats_interval) m->stats.keepk_bad++;
-            static int told;
-            if (told++ < 8) fprintf(stderr, "hengevm: HV_SWITCH_KEEP_KERNEL: a kept kernel entry was out of date; flushed whole\n");
-            hv_tlb_flush(cpu);
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* Clear the tables of one half (user tables are the even flags values, kernel ones odd). */
 static uint32_t hint_slot(uint64_t key) {
     return (uint32_t)((key * 0x9e3779b97f4a7c15ull) >> 52);

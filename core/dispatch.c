@@ -1036,9 +1036,6 @@ static void print_stats(HvCpu *cpu, int force) {
         if (s->flush_checked)
             fprintf(stderr, "  switch-flush checks/s: %.0f, entries walked %.0f, found out of date %.0f (flushed), access flag only %.0f\n",
                     RATE(flush_checked), RATE(flush_check_entries), RATE(flush_check_bad), RATE(flush_check_af));
-        if (hv_knob[HV_K_KEEPK])
-            fprintf(stderr, "  HV_SWITCH_KEEP_KERNEL: switch flushes that kept the kernel half %.0f/s, checked %.0f/s, found out of date %.0f/s (so far %llu)\n",
-                    RATE(keepk), RATE(keepk_checked), RATE(keepk_bad), (unsigned long long)s->keepk_bad);
         fprintf(stderr, "  TTBR0 writes/s that changed nothing: %.0f\n", RATE(ttbr0_same));
         { /* the device lock: a CPU kept on it keeps every CPU that wants a TLBI answered waiting too */
             static const char *const ph[5] = {"running", "translating", "in a helper", "waiting for acks", "at the flush barrier"};

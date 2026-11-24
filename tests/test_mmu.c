@@ -1,6 +1,5 @@
 // Stage 1 walker: granules, block sizes, TTBR0/TTBR1, TBI, permissions and
 // fault codes, checked directly against hv_mmu_walk.
-#include <mach/mach_time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -531,40 +530,6 @@ int main(void) {
             for (int i = 0; i < HV_STASHES; i++) c4.pc_state->stash[i].ttbr0 = 0;
         }
         hv_knob[HV_K_SHAREDKEEP] = 0;
-    }
-
-    /* HV_SWITCH_KEEP_KERNEL: a local TLBI VMALLE1 right after a TTBR0 change drops the user entries and the user
-       half of the branch cache, and (with the knob) keeps the kernel's; later than 20 us, or without it, it drops all. */
-    {
-        hv_cpu_reset(&cpu, &m);
-        cpu.tcr_el1 = 0;
-        cpu.ttbr0_el1 = 7ull << 48;
-        hv_ijc_switch(&cpu);
-        const uint64_t kva = 0xfffffe0012344000ull, uva = 0x100010000ull;
-        for (int c = -1; c < 3; c++) { /* knob on, right after (twice: the first warms up; the 20 us count from the TTBR0 change to the TLBI only); knob on, late; knob off */
-            int cc = c < 0 ? 0 : c;
-            hv_knob[HV_K_KEEPK] = c < 2;
-            hv_tlb_flush(&cpu);
-            HvTlbEntry *k = hv_tlb_ent(&cpu, (kva >> 14) & (HV_TLB_SIZE - 1), 1), *u = hv_tlb_ent(&cpu, (uva >> 14) & (HV_TLB_SIZE - 1), 0);
-            k->read_tag = kva - HV_TLB_ADJ, k->addend = 0;
-            u->read_tag = uva - HV_TLB_ADJ, u->addend = 0;
-            cpu.nuser_fills = HV_USER_FILLS + 1, cpu.nkernel_fills = HV_KERNEL_FILLS + 1; /* not on the lists: scan */
-            uint64_t ksalt = cpu.ijc_salt[1], usalt = cpu.ijc_salt[0];
-            cpu.el = 1;
-            uint64_t t0 = mach_absolute_time();
-            cpu.ttbr0_changed_at = t0 - (cc == 1 ? 24000 : 0); /* 1 ms ago for the late one */
-            hv_sysreg_sys(&cpu, 0xd508871fu, 0); /* tlbi vmalle1 */
-            if (c < 0) continue;
-            int keep = cc == 0;
-            int klive = hv_tlb_ent(&cpu, (kva >> 14) & (HV_TLB_SIZE - 1), 1)->read_tag == kva - HV_TLB_ADJ;
-            int ulive = hv_tlb_ent(&cpu, (uva >> 14) & (HV_TLB_SIZE - 1), 0)->read_tag == uva - HV_TLB_ADJ;
-            checks += 4;
-            if (klive != keep) printf("  FAIL switch flush case %d: kernel entry %s\n", cc, klive ? "kept" : "dropped"), failures++;
-            if (ulive) printf("  FAIL switch flush case %d: user entry kept\n", cc), failures++;
-            if ((cpu.ijc_salt[1] == ksalt) != keep) printf("  FAIL switch flush case %d: kernel branch cache %s\n", cc, keep ? "dropped" : "kept"), failures++;
-            if (cpu.ijc_salt[0] == usalt && usalt) printf("  FAIL switch flush case %d: user branch cache kept\n", cc), failures++;
-        }
-        hv_knob[HV_K_KEEPK] = 0;
     }
 
     printf("%d checks, %d failures\n", checks, failures);

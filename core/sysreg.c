@@ -453,13 +453,6 @@ void hv_tlbi_apply(HvCpu *cpu, uint32_t op1, uint32_t crn, uint32_t crm, uint32_
                 }
             }
         }
-        /* HV_SWITCH_KEEP_KERNEL=1: such a flush (within 20 us of a TTBR0 change) keeps the kernel half; =2 checks one
-           in 64 first. Off: as before. */
-        if (crm == 7 && hv_knob[HV_K_KEEPK] && since_switch < 480) {
-            static _Thread_local uint32_t kth;
-            hv_tlb_flush_switch(cpu, hv_knob[HV_K_KEEPK] >= 2 && !(kth++ & 63));
-            return;
-        }
         hv_tlb_flush(cpu);
     }
 }

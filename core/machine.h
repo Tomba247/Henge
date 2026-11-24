@@ -154,7 +154,6 @@ typedef struct HvStats {
     uint64_t ttbr1_asid_switches; /* TTBR1 writes that only changed the ASID (TCR.A1): the user half went, not all */
     uint64_t flush_after_switch[4];
     uint64_t flush_checked, flush_check_entries, flush_check_bad, flush_check_af; /* HV_SWITCH_FLUSH=2: flushes checked, entries walked, out of date (the flush was done), only the access flag */
-    uint64_t keepk, keepk_checked, keepk_bad; /* HV_SWITCH_KEEP_KERNEL: switch flushes that kept the kernel half; checked; found out of date (flushed whole) */
     uint64_t flush_skipped;   /* TLBI all here right after a process switch, left out (HV_SWITCH_FLUSH=1) */
     uint64_t flush_skipped_late; /* of them, 20-200 us after the switch at a PC seen within 20 us of one (HV_SWITCH_FLUSH=3) */ /* TLBI all here, by time since this CPU's last TTBR0 change: <2 us, <20 us, <200 us, later */
     struct { uint64_t pc, n; } flush_pc[8]; /* where TLBI all here comes from (first 8 PCs seen) */    /* whole-TLB flushes: TLBI all (local), TLBI all (shared), SCTLR, TTBR1, TCR, MAIR, range of everything, requests overflowed */
@@ -475,7 +474,7 @@ int hv_ic_ivau_drops(void);
 /* Settings that say how to translate or wait, to compare ways of doing it in one running guest
    ("knob NAME VALUE" in HV_INPUT_FILE; a new way starts from an empty code cache). Each starts
    from the environment variable named in hv_knob_names. */
-enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_REVIVE, HV_K_KEEPK, HV_K_COUNT };
+enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_REVIVE, HV_K_COUNT };
 extern int hv_knob[HV_K_COUNT];
 
 /* -DHV_DBG_RING (tests only): the last events around a page's code, for a test to print when a result is wrong. */
