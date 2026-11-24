@@ -16,18 +16,7 @@
       "iconURL": "https://raw.githubusercontent.com/Tomba247/Henge/source/icon.png",
       "tintColor": "#5B6CFF",
       "category": "utilities",
-      "versions": [
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.61",
-          "date": "2026-11-18T01:17:05Z",
-          "localizedDescription": "What changed: iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
-          "size": 9775631,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
-        }
-      ],
+      "versions": [],
       "appPermissions": {
         "entitlements": [
           "get-task-allow",
@@ -38,14 +27,7 @@
         "privacy": {
           "NSLocalNetworkUsageDescription": "Henge uses the local network to pair with this iPhone for JIT, without a computer."
         }
-      },
-      "version": "0.3.0",
-      "buildVersion": "101.61",
-      "versionDate": "2026-11-18T01:17:05Z",
-      "versionDescription": "What changed: iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
-      "size": 9775631,
-      "minOSVersion": "17.0"
+      }
     }
   ],
   "news": []

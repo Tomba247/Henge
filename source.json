@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.111",
+          "date": "2026-11-24T18:04:12Z",
+          "branch": "claude/blissful-cori-6o3jo3",
+          "localizedDescription": "What changed: Stats: why each block is translated (never before, page dropped, pushed out of the code cache, and how long ago)\nBranch: claude/blissful-cori-6o3jo3 \u00b7 commit 69d555a\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-111/Henge.ipa",
+          "size": 14204778,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.110",
           "date": "2026-11-23T12:02:59Z",
           "branch": "claude/blissful-cori-6o3jo3",
@@ -406,16 +416,6 @@
           "size": 9787988,
           "minOSVersion": "17.0",
           "branch": "claude/linux-runner-crash-flumcd"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.61",
-          "date": "2026-11-18T01:17:05Z",
-          "localizedDescription": "What changed: iPhone mouse as Madeira does it: the Mac's arrow is drawn by Henge where iOS says the pointer is, at once (as Madeira draws its own cursor), instead of where the slow guest has it\nBranch: league-el0\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/league-el0-61/Henge.ipa",
-          "size": 9775631,
-          "minOSVersion": "17.0",
-          "branch": "league-el0"
         }
       ],
       "appPermissions": {
