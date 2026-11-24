@@ -23,7 +23,8 @@ extern void hv_xjump_thunk(void);
 static int init_rest(HvMachine *m);
 
 int hv_knob[HV_K_COUNT];
-static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL", "HV_FIXED_ADDR", "HV_SMC_FINE", "HV_REVIVE", "HV_SWITCH_KEEP_KERNEL"};
+static const char *const hv_knob_names[HV_K_COUNT] = {"HV_NO_RAS", "HV_SUPERBLOCKS", "HV_GROUPS", "HV_WFI_SPIN", "HV_FLUSH", "HV_K1", "HV_K2", "HV_K3", "HV_TLBT", "HV_JIT_CAP", "HV_RECHECK", "HV_SYNC_WAIT", "HV_SWITCH_FLUSH", "HV_RANGE_DROP", "HV_MOVIMM", "HV_PREDSTAT", "HV_WALK_LOG", "HV_HOIST_CHECK", "HV_IJC_PAGES", "HV_DNS_PROXY", "HV_JIT_SEGMENTS", "HV_SHARED_KEEP", "HV_EL0_WINDOW", "HV_TLB_FLUSH_ALL", "HV_FIXED_ADDR", "HV_SMC_FINE", "HV_REVIVE", "HV_SWITCH_KEEP_KERNEL", "HV_HASH_BITS"};
+uint32_t hv_hash_mask = (1u << HV_HASH_BITS_MIN) - 1;
 
 static void knobs_init(void) {
     for (int i = 0; i < HV_K_COUNT; i++)
@@ -136,6 +137,14 @@ static int init_rest(HvMachine *m) {
     m->chunk_len = calloc(m->nblock_chunks ? m->nblock_chunks : 1, sizeof *m->chunk_len);
     m->chunk_seg = calloc(m->nblock_chunks ? m->nblock_chunks : 1, sizeof *m->chunk_seg);
     m->chunk_next = calloc(m->nblock_chunks ? m->nblock_chunks : 1, sizeof *m->chunk_next);
+    /* HV_HASH_BITS: more buckets than 2^21 (machine.h). Off (0): as before. */
+    if (getenv("HV_HASH_BITS")) hv_knob[HV_K_HASHBITS] = atoi(getenv("HV_HASH_BITS"));
+    int hash_bits = hv_knob[HV_K_HASHBITS];
+    if (hash_bits < HV_HASH_BITS_MIN) hash_bits = HV_HASH_BITS_MIN;
+    if (hash_bits > HV_HASH_BITS_MAX) hash_bits = HV_HASH_BITS_MAX;
+    hv_hash_mask = (1u << hash_bits) - 1;
+    m->hash = calloc(HV_BLOCK_HASH, sizeof *m->hash);
+    if (!m->hash) return -1;
     m->hash_seen = calloc(HV_BLOCK_HASH / 32, sizeof *m->hash_seen);
     if (!m->chunk_len || !m->chunk_seg || !m->chunk_next || !m->hash_seen) return -1;
     hv_reset_block_chunks(m);
@@ -470,6 +479,7 @@ void hv_machine_free(HvMachine *m) {
     free(m->chunk_len);
     free(m->chunk_seg);
     free(m->chunk_next);
+    free(m->hash);
     free(m->hash_seen);
     for (int i = 0; i < HV_JIT_MAX_SEGS; i++) free(m->seg_slots[i]);
     for (int i = 0; i < HV_MAX_CPUS; i++) {

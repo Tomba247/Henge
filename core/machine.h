@@ -70,7 +70,13 @@ _Static_assert(sizeof(HvBlock) == 80, "HvBlock: the sums sit in what was padding
 
 #define HV_MAX_RAM 8
 #define HV_MAX_MMIO 48
-#define HV_BLOCK_HASH (1 << 21) /* one bucket per block: chains are walked on every front-cache miss */
+/* The block table: 2^21 buckets unless HV_HASH_BITS (21 to 24) asks for more. A 1.5 GB code cache holds 5 to 6 million
+   blocks, 2.8 to a bucket at 2^21, and each block passed on the way is a cache miss in every front-cache miss, every
+   translation and every block an eviction takes out. One size for the process, fixed when a machine is made. */
+#define HV_HASH_BITS_MIN 21
+#define HV_HASH_BITS_MAX 24
+extern uint32_t hv_hash_mask; /* buckets - 1 (machine.c) */
+#define HV_BLOCK_HASH (hv_hash_mask + 1u)
 #define HV_JC_BITS 16
 #define HV_MAX_BLOCKS (3 << 20) /* a macOS boot runs well over a million distinct blocks; a full flush retranslates them all */
 #define HV_PROF_RING (1 << 16)
@@ -269,7 +275,7 @@ typedef struct HvMachine {
     int nmmio;
 
     HvJitRegion jit;
-    HvBlock *hash[HV_BLOCK_HASH];
+    HvBlock **hash;      /* HV_BLOCK_HASH buckets */
     HvBlock *blocks;
     int nblocks;
     uint32_t max_blocks, max_slots; /* sized from the JIT region (machine.c) */
@@ -371,7 +377,7 @@ typedef struct HvMachine {
 
 static inline uint32_t hv_block_hash(uint64_t va, uint64_t pa, uint32_t flags) {
     uint64_t h = (va >> 2) ^ (pa >> 2) * 0x9e3779b97f4a7c15ull ^ flags;
-    return (uint32_t)(h ^ (h >> 29)) & (HV_BLOCK_HASH - 1);
+    return (uint32_t)(h ^ (h >> 29)) & hv_hash_mask;
 }
 
 /* Lock-free: blocks are only added (release store) until a flush or an eviction, which stop every CPU. */
@@ -475,7 +481,7 @@ int hv_ic_ivau_drops(void);
 /* Settings that say how to translate or wait, to compare ways of doing it in one running guest
    ("knob NAME VALUE" in HV_INPUT_FILE; a new way starts from an empty code cache). Each starts
    from the environment variable named in hv_knob_names. */
-enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_REVIVE, HV_K_KEEPK, HV_K_COUNT };
+enum { HV_K_NO_RAS, HV_K_SUPERBLOCKS, HV_K_GROUPS, HV_K_WFI_SPIN, HV_K_FLUSH, HV_K_TEST1, HV_K_TEST2, HV_K_TEST3, HV_K_TLBT, HV_K_JITCAP, HV_K_RECHECK, HV_K_SYNCWAIT, HV_K_SWITCHFLUSH, HV_K_RANGEDROP, HV_K_MOVIMM, HV_K_PREDSTAT, HV_K_WALKLOG, HV_K_HOIST, HV_K_IJCPAGES, HV_K_DNSPROXY, HV_K_JITSEGS, HV_K_SHAREDKEEP, HV_K_EL0WINDOW, HV_K_FLUSHALL, HV_K_FIXEDADDR, HV_K_SMCFINE, HV_K_REVIVE, HV_K_KEEPK, HV_K_HASHBITS, HV_K_COUNT };
 extern int hv_knob[HV_K_COUNT];
 
 /* -DHV_DBG_RING (tests only): the last events around a page's code, for a test to print when a result is wrong. */

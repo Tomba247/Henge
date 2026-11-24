@@ -68,6 +68,35 @@ static void expect(const char *what, HvCpu *cpu, uint64_t va, HvAccess acc, int 
 int main(void) {
     static HvMachine m;
     static HvCpu cpu;
+    {   /* HV_HASH_BITS: the block table's size, 2^21 buckets unless asked, kept between 2^21 and 2^24; and a block put in
+           any bucket of it is found there. */
+        static const struct { const char *set; int bits; } sizes[] = {{NULL, 21}, {"0", 21}, {"12", 21}, {"22", 22}, {"23", 23}, {"24", 24}, {"40", 24}};
+        char *asked = getenv("HV_HASH_BITS"), *kept = asked ? strdup(asked) : NULL;
+        for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
+            if (sizes[i].set) setenv("HV_HASH_BITS", sizes[i].set, 1);
+            else unsetenv("HV_HASH_BITS");
+            checks++;
+            if (hv_machine_init(&m, 1 << 20) != 0 || HV_BLOCK_HASH != 1u << sizes[i].bits) {
+                printf("  FAIL HV_HASH_BITS=%s: %u buckets, expected 2^%d\n", sizes[i].set ? sizes[i].set : "(none)", HV_BLOCK_HASH, sizes[i].bits);
+                failures++;
+            }
+            uint32_t top = 0;
+            for (uint64_t k = 0; k < 4096; k++) {
+                HvBlock b = {.va = 0x180000000ull + k * 0x40, .pa = 0x80000000ull + k * 0x3fc0, .flags = (uint32_t)k & 15, .gen = 7};
+                uint32_t h = hv_block_hash(b.va, b.pa, b.flags);
+                if (h > top) top = h;
+                if (h >= HV_BLOCK_HASH) { printf("  FAIL block hash %x is past the table\n", h); failures++; break; }
+                m.hash[h] = &b;
+                if (hv_block_find(&m, h, b.va, b.pa, b.flags, 7) != &b || hv_block_find(&m, h, b.va, b.pa, b.flags, 8)) { printf("  FAIL block not found in bucket %x\n", h); failures++; break; }
+                m.hash[h] = NULL;
+            }
+            checks += 2;
+            if (top < HV_BLOCK_HASH / 2) { printf("  FAIL HV_HASH_BITS=%s: the upper half of the table is not used\n", sizes[i].set ? sizes[i].set : "(none)"); failures++; }
+            hv_machine_free(&m);
+        }
+        if (kept) setenv("HV_HASH_BITS", kept, 1), free(kept);
+        else unsetenv("HV_HASH_BITS");
+    }
     hv_machine_init(&m, 1 << 20);
     /* The code cache's ring starts with the segments a flush gives it (it started with 8 and got 128 only after a
        full flush, which a machine may never have). 1 MB is 128 segments of the smallest size a ring takes. */

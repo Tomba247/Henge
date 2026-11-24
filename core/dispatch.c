@@ -53,7 +53,7 @@ void hv_flush_blocks(HvMachine *m) {
             hv_ret_clear(m->cpus[i]); /* they point at code that is going */
             memset(m->percpu[i].jc, 0, sizeof m->percpu[i].jc);
         }
-    memset(m->hash, 0, sizeof m->hash);
+    memset(m->hash, 0, (size_t)HV_BLOCK_HASH * sizeof *m->hash);
     m->nblocks = 0;
     hv_reset_block_chunks(m);
     m->nslots = 0;
