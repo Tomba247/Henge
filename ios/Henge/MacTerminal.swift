@@ -159,6 +159,8 @@ final class TerminalSession: ObservableObject {
         env.append("HENGE_SHARED=" + Sharing.folder.path)
         if (app.executable as NSString).lastPathComponent.lowercased().hasPrefix("claude") {
             args += ["--add-dir", Sharing.folder.path]
+            let chats = ProjectMaker.moveChats(home: Self.home, here: Self.projects.path)
+            if chats > 0 { HengeLog.log("macapps", "terminal: \(chats) chat(s) of an earlier install are in /resume again") }
             let s = ToolServer(tools: ProjectTools.make(folder: Self.projects, home: Self.home, token: { GitHubToken.read() }, run: Self.runTool, program: Self.runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }, shared: Sharing.folder) {
                 HengeLog.log("macapps", "terminal: \($0)")
             })

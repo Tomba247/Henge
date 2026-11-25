@@ -42,6 +42,39 @@ enum ProjectMaker {
         } catch { return "the Toolchain's tools could not be updated: \(error.localizedDescription)" }
     }
 
+    /// Claude Code keeps a project's chats (and notes) in a folder named after the project's path, which each update of Henge
+    /// changes: those of earlier installs go to the name of now. Nothing is overwritten. Returns how many were moved.
+    static func moveChats(home: URL, here: String) -> Int {
+        let fm = FileManager.default, all = home.appendingPathComponent(".claude/projects")
+        let id = "[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}"
+        guard let now = here.range(of: "(?<=/var/mobile/Containers/Data/Application/)\(id)(?=/)", options: .regularExpression).map({ String(here[$0]) }) else { return 0 }
+        var moved = 0
+        for n in (try? fm.contentsOfDirectory(atPath: all.path)) ?? [] {
+            guard let r = n.range(of: "(?<=-var-mobile-Containers-Data-Application-)\(id)(?=-)", options: .regularExpression), n[r] != now else { continue }
+            let from = all.appendingPathComponent(n), to = all.appendingPathComponent(n.replacingCharacters(in: r, with: now))
+            try? fm.createDirectory(at: to, withIntermediateDirectories: true)
+            for c in (try? fm.contentsOfDirectory(atPath: from.path)) ?? [] {
+                let old = from.appendingPathComponent(c), new = to.appendingPathComponent(c)
+                if !fm.fileExists(atPath: new.path) {
+                    guard (try? fm.moveItem(at: old, to: new)) != nil else { continue }
+                    if c.hasSuffix(".jsonl") { moved += 1; retell(new, now) }
+                } else if let sub = try? fm.contentsOfDirectory(atPath: old.path) { // both have it, as with the notes' folder
+                    for x in sub where !fm.fileExists(atPath: new.appendingPathComponent(x).path) { try? fm.moveItem(at: old.appendingPathComponent(x), to: new.appendingPathComponent(x)) }
+                }
+            }
+            rmdir(from.path) // only when nothing is left in it
+        }
+        return moved
+    }
+    /// The folder each line of a chat says it was in; the rest of it stays as it is, and so does the chat's date.
+    private static func retell(_ chat: URL, _ now: String) {
+        let fm = FileManager.default, date = (try? fm.attributesOfItem(atPath: chat.path))?[.modificationDate]
+        guard let text = try? String(contentsOf: chat, encoding: .utf8) else { return }
+        let new = text.replacingOccurrences(of: "(\"cwd\":\"(?:/private)?/var/mobile/Containers/Data/Application/)[0-9A-Fa-f-]{36}(?=/)", with: "$1" + now, options: .regularExpression)
+        guard new != text, (try? new.write(to: chat, atomically: true, encoding: .utf8)) != nil else { return }
+        if let date { try? fm.setAttributes([.modificationDate: date], ofItemAtPath: chat.path) }
+    }
+
     /// The files a pattern names: ** for any folders, * within a name.
     static func glob(_ pattern: String, in root: URL) -> [String] {
         func exists(_ p: String) -> Bool { var d: ObjCBool = false; return FileManager.default.fileExists(atPath: root.appendingPathComponent(p).path, isDirectory: &d) && !d.boolValue }
