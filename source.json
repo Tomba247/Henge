@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.115",
+          "date": "2026-11-25T03:32:13Z",
+          "branch": "mac-speed",
+          "localizedDescription": "What changed: Lighter macOS: also stop automatic downloads of macOS updates\nBranch: mac-speed \u00b7 commit e7ee36a\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-115/Henge.ipa",
+          "size": 14204137,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.114",
           "date": "2026-11-24T22:52:06Z",
           "branch": "mac-speed",
@@ -404,16 +414,6 @@
           "localizedDescription": "What changed: App build: attach the Linux machine to its release\nBranch: claude/linux-runner-crash-flumcd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
           "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-67/Henge.ipa",
           "size": 9796691,
-          "minOSVersion": "17.0",
-          "branch": "claude/linux-runner-crash-flumcd"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.66",
-          "date": "2026-11-19T03:20:41Z",
-          "localizedDescription": "What changed: Linux machine: virgl 3D for virtio-gpu through virglrenderer\nBranch: claude/linux-runner-crash-flumcd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-66/Henge.ipa",
-          "size": 9796604,
           "minOSVersion": "17.0",
           "branch": "claude/linux-runner-crash-flumcd"
         }
