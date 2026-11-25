@@ -281,8 +281,12 @@ extension ProjectTools {
     $CMAKE_TOOLCHAIN_FILE), ar, libtool, python3 with its standard library. Everything runs inside Henge on the phone: programs built for iOS run here directly \
     (code generators, converters, tests) with run_command. Their memory is limited to about 1 GB in all, and a program that crashes closes Henge: check inputs, build with asserts.
 
-    NOT HERE: git, make, autoconf/configure scripts, sed/awk/grep (write it in python3), Xcode projects, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
-    pip packages with C parts, fork(). Python's subprocess works (multiprocessing pools become threads). A Makefile: read it and write henge-project.json or a build.ninja instead.
+    SHELL: sh (also as bash and zsh) is a small shell: functions, case, [[ ]], $(( )), here-documents, pipes (one after the other, not at once). If $HENGE_TOOLS/bin/devtools.names \
+    exists, the names in it work too (grep, sed, awk, find, diff, patch, make, tar, curl, sqlite3, jq…): Python versions with the common options, slower than the real ones.
+
+    NOT HERE: git (github_download, github_save), autoconf/configure scripts, Xcode projects, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
+    pip packages with C parts, fork(), arrays and job control in the shell. Python's subprocess works (multiprocessing pools become threads). \
+    For a large Makefile write henge-project.json or a build.ninja instead.
 
     PORTING A DECOMP. 1 github_download it. 2 Read its README, build files and asset steps; say what the user must supply (their own copy of the game; never look for one online). \
     3 Find what it needs from its platform (graphics, sound, input, files, 32-bit assumptions) and whether someone's PC port exists to start from. 4 Build the portable part as a "tool" first, \

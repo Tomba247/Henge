@@ -1,7 +1,7 @@
 /* A command-line Mac program in a terminal, without macOS: its standard input and output are a socket that answers
    as a terminal does (isatty, the window size, raw mode), since an iOS app gets no pseudo-terminal of its own. The
-   program runs on a thread of this process, one per launch (henge-tl.c). Other processes it tries to start are
-   refused, as iOS does; a web page it opens (/usr/bin/open URL: signing in) is handed to the app. */
+   program runs on a thread of this process, one per launch (henge-tl.c). Of other processes it tries to start, a shell
+   and the toolchain's tools run on threads here (tl_tool.h); the rest are refused, as iOS does; a web page it opens (/usr/bin/open URL: signing in) is handed to the app. */
 #include <dispatch/dispatch.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -123,7 +123,122 @@ static int security_tool(pid_t *pid, const char *path, char *const argv[]) {
     fprintf(stderr, "henge: term: security %.24s: answered %d (%u)\n", verb ? verb : "", lookup ? NOT_FOUND : 1, i); /* not its arguments: a secret is one */
     return 1;
 }
+
+/* The compiler, linker and other tools beside it (tl_tool_command): loaded at their first use and kept. Told before the
+   program starts. */
+static char *tool_folders[9], **tool_env;
+static int tool_copies;
+void henge_tl_tool_setup(const char *const *folders, int copies, const char *const *env) {
+    int n = 0, e = 0;
+    for (; folders && folders[n] && n < 8; n++) tool_folders[n] = strdup(folders[n]);
+    tool_folders[n] = NULL;
+    tool_copies = copies;
+    while (env && env[e]) e++;
+    tool_env = calloc((size_t)e + 1, sizeof *tool_env);
+    for (int i = 0; i < e; i++) tool_env[i] = strdup(env[i]);
+}
+/* base with the tools' own values in place of its. The array is the caller's, the strings are not. */
+static char **env_for_tool(char *const *base) {
+    int n = 0, m = 0, k = 0;
+    while (base && base[n]) n++;
+    while (tool_env && tool_env[m]) m++;
+    char **v = calloc((size_t)(n + m) + 1, sizeof *v);
+    for (int i = 0; i < n; i++) {
+        size_t l = strcspn(base[i], "=") + 1;
+        int own = 0;
+        for (int j = 0; j < m && !own; j++) own = !strncmp(tool_env[j], base[i], l);
+        if (!own) v[k++] = base[i];
+    }
+    for (int j = 0; j < m; j++) v[k++] = tool_env[j];
+    return v;
+}
+
+/* The toolchain's tools, when the program starts them (Claude Code's Bash tool starts a shell). */
+enum { PROC_PID = SECURITY_PID + SECURITY_PIDS, PROCS = 256, WATCHES = 4 };
+typedef struct Watch { int kq, is64; struct kevent e; struct kevent64_s e64; } Watch;
+static struct Proc { int used, done, status; unsigned serial; pid_t tool; int nwatch; Watch watch[WATCHES]; } procs[PROCS];
+static pthread_mutex_t procs_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t procs_cond = PTHREAD_COND_INITIALIZER;
+static pthread_once_t room_once = PTHREAD_ONCE_INIT;
+static void give_room(void);
+static int is_proc(uint64_t pid) { return pid >= PROC_PID && pid < PROC_PID + PROCS; }
+static void proc_ended(void *ctx, int status) {
+    struct Proc *p = ctx;
+    pthread_mutex_lock(&procs_lock);
+    p->done = 1, p->status = status;
+    for (int i = 0; i < p->nwatch; i++) {
+        Watch *w = &p->watch[i];
+        const struct timespec now = {0, 0};
+        w->e.flags = w->e64.flags = 0, w->e.fflags = w->e64.fflags = NOTE_TRIGGER;
+        if (w->is64) kevent64(w->kq, &w->e64, 1, NULL, 0, 0, &now);
+        else kevent(w->kq, &w->e, 1, NULL, 0, &now);
+    }
+    p->nwatch = 0;
+    pthread_cond_broadcast(&procs_cond);
+    pthread_mutex_unlock(&procs_lock);
+}
+static int proc_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *fa, char *const argv[], char *const envp[]) {
+    static unsigned next;
+    const char *base = path ? strrchr(path, '/') : NULL;
+    base = base ? base + 1 : path;
+    if (!path || !argv || !strncmp(base, "claude", 6) || (g_argv && !strcmp(path, g_argv[0])) || !tl_tool_exists(path)) return -1;
+    pthread_once(&room_once, give_room);
+    struct Proc *p = NULL;
+    pthread_mutex_lock(&procs_lock);
+    for (int i = 0; i < PROCS && !p; i++, next++)
+        if (!procs[next % PROCS].used) p = &procs[next % PROCS];
+    if (p) memset(p, 0, sizeof *p), p->used = 1;
+    pthread_mutex_unlock(&procs_lock);
+    if (!p) return EAGAIN;
+    pid_t mine = PROC_PID + (pid_t)(p - procs), tool = 0;
+    extern char **environ;
+    char **env = env_for_tool(envp ? envp : environ);
+    int rc = tl_tool_spawn(&tool, path, (void *const *)fa, argv, env, proc_ended, p);
+    free(env);
+    pthread_mutex_lock(&procs_lock);
+    if (rc) p->used = 0;
+    else p->tool = tool;
+    pthread_mutex_unlock(&procs_lock);
+    if (!rc && pid) *pid = mine;
+    if (!rc) fprintf(stderr, "henge: term: started %s (%d)\n", base, (int)(p - procs)); /* not its arguments */
+    return rc;
+}
+static pid_t proc_wait(pid_t pid, int *status, int options) {
+    struct Proc *p = &procs[pid - PROC_PID];
+    pthread_mutex_lock(&procs_lock);
+    while (p->used && !p->done && !(options & WNOHANG)) pthread_cond_wait(&procs_cond, &procs_lock);
+    pid_t rc = 0;
+    if (!p->used) errno = ECHILD, rc = -1;
+    else if (p->done) {
+        if (status) *status = p->status;
+        p->used = 0;
+        rc = pid;
+    }
+    pthread_mutex_unlock(&procs_lock);
+    return rc;
+}
+static int term_kill(pid_t pid, int sig) {
+    pid_t one = pid < 0 ? -pid : pid;
+    if (is_proc((uint64_t)one)) {
+        struct Proc *p = &procs[one - PROC_PID];
+        pthread_mutex_lock(&procs_lock);
+        int alive = p->used && !p->done;
+        pid_t tool = p->tool;
+        pthread_mutex_unlock(&procs_lock);
+        if (!alive) return errno = ESRCH, -1;
+        if (sig) tl_tool_kill(tool);
+        return 0;
+    }
+    if (one >= SECURITY_PID && one < SECURITY_PID + SECURITY_PIDS) return errno = ESRCH, -1;
+    int (*next)(pid_t, int) = tl_runtime_lookup("_kill");
+    return (next ? next : kill)(pid, sig);
+}
+
 static pid_t term_wait4(pid_t pid, int *status, int options, struct rusage *ru) {
+    if (pid > 0 && is_proc((uint64_t)pid)) {
+        if (ru) memset(ru, 0, sizeof *ru);
+        return proc_wait(pid, status, options);
+    }
     if (pid >= SECURITY_PID && pid < SECURITY_PID + SECURITY_PIDS) {
         int code = atomic_exchange(&security_code[pid - SECURITY_PID], 0);
         if (!code) return errno = ECHILD, -1;
@@ -144,7 +259,7 @@ static pid_t term_wait4(pid_t pid, int *status, int options, struct rusage *ru) 
     return next ? next(pid, status, options, ru) : wait4(pid, status, options, ru);
 }
 static pid_t term_waitpid(pid_t pid, int *status, int options) {
-    if (pid >= SECURITY_PID && pid < SECURITY_PID + SECURITY_PIDS) return term_wait4(pid, status, options, NULL);
+    if (pid >= SECURITY_PID && pid < PROC_PID + PROCS) return term_wait4(pid, status, options, NULL);
     pid_t (*next)(pid_t, int *, int) = tl_runtime_lookup("_waitpid");
     return next ? next(pid, status, options) : waitpid(pid, status, options);
 }
@@ -158,6 +273,8 @@ static int term_spawn(pid_t *pid, const char *path, const posix_spawn_file_actio
                 return EPERM; /* there is no such process to wait for: the program shows the address as well */
             }
     if (security_tool(pid, path, argv)) return 0;
+    int rc = proc_spawn(pid, path, fa, argv, envp);
+    if (rc >= 0) return rc;
     int (*refuse)(pid_t *, const char *, const void *, const void *, char *const[], char *const[]) = tl_runtime_lookup("_posix_spawn");
     return refuse ? refuse(pid, path, fa, attr, argv, envp) : EPERM;
 }
@@ -165,9 +282,10 @@ static int term_spawn(pid_t *pid, const char *path, const posix_spawn_file_actio
 /* A program looks for the tool on its PATH (/henge/bin is first there) before it starts it, and iOS has no such file:
    it sees a file that is there, Henge's own. */
 #define SECURITY_PATH "/henge/bin/security"
+#define SHELL_PATH "/henge/bin/bash" /* the toolchain's sh */
 static const char *seen(const char *path) {
     static char own[PATH_MAX];
-    if (!path || strcmp(path, SECURITY_PATH)) return path;
+    if (!path || (strcmp(path, SECURITY_PATH) && (strcmp(path, SHELL_PATH) || !tl_tool_exists("sh")))) return path;
     uint32_t n = sizeof own;
     if (!own[0] && _NSGetExecutablePath(own, &n)) own[0] = 0;
     return own[0] ? own : path;
@@ -199,30 +317,74 @@ static int term_stat(const char *path, struct stat *st) {
 static int is_security(uint64_t ident, int16_t filter) {
     return filter == EVFILT_PROC && ident >= SECURITY_PID && ident < SECURITY_PID + SECURITY_PIDS;
 }
+/* A watch on a tool becomes an event of the program's own, set off when the tool ends (proc_ended); it is told it as the
+   end of a process. */
+static int watch_kevent(int kq, const struct kevent *e, const struct kevent64_s *e64, struct kevent *u, struct kevent64_s *u64) {
+    uint64_t ident = e ? e->ident : e64->ident;
+    unsigned flags = e ? e->flags : e64->flags;
+    struct Proc *p = &procs[ident - PROC_PID];
+    if (flags & EV_DELETE) {
+        for (int i = 0; i < p->nwatch; i++)
+            if (p->watch[i].kq == kq) p->watch[i--] = p->watch[--p->nwatch];
+    } else {
+        if (!p->used || p->done || p->nwatch == WATCHES) return 0; /* it asks wait4 */
+        flags |= EV_ONESHOT;
+    }
+    if (e) *u = *e, u->filter = EVFILT_USER, u->fflags = 0, u->flags = (unsigned short)flags;
+    else *u64 = *e64, u64->filter = EVFILT_USER, u64->fflags = 0, u64->flags = (unsigned short)flags;
+    if (!(flags & EV_DELETE)) {
+        Watch *w = &p->watch[p->nwatch++];
+        w->kq = kq, w->is64 = e == NULL;
+        if (e) w->e = *u; else w->e64 = *u64;
+    }
+    return 1;
+}
+static int is_tool_proc(uint64_t ident, int16_t filter) { return filter == EVFILT_PROC && is_proc(ident); }
 #define FLAGS_COMMA ,
-#define KEVENT(name, type, extra_decl, extra)                                                                              \
+#define KEVENT(name, type, extra_decl, extra, A, B, C, D)                                                                  \
+    static int told_##name(type *ev, int n) {                                                                              \
+        for (int i = 0; i < n; i++)                                                                                        \
+            if (ev[i].filter == EVFILT_USER && is_proc(ev[i].ident)) {                                                     \
+                ev[i].filter = EVFILT_PROC;                                                                                \
+                ev[i].data = ev[i].flags & EV_ERROR ? ev[i].data : 0;                                                      \
+                ev[i].fflags = NOTE_EXIT;                                                                                  \
+            }                                                                                                              \
+        return n;                                                                                                          \
+    }                                                                                                                      \
     static int term_##name(int kq, const type *ch, int nch, type *ev, int nev, extra_decl const struct timespec *t) {      \
-        int mine = 0;                                                                                                      \
-        for (int i = 0; i < nch; i++) mine += is_security(ch[i].ident, ch[i].filter);                                      \
-        if (!mine) return name(kq, ch, nch, ev, nev, extra t);                                                             \
-        fprintf(stderr, "henge: term: security: watched\n");                                                              \
+        int gone = 0, live = 0;                                                                                            \
+        for (int i = 0; i < nch; i++) gone += is_security(ch[i].ident, ch[i].filter), live += is_tool_proc(ch[i].ident, ch[i].filter); \
+        if (!gone && !live) return told_##name(ev, name(kq, ch, nch, ev, nev, extra t));                                   \
+        if (gone) fprintf(stderr, "henge: term: security: watched\n");                                                     \
         type *rest = calloc((size_t)nch, sizeof *rest);                                                                    \
-        int n = 0, out = 0;                                                                                                \
-        for (int i = 0; i < nch; i++)                                                                                      \
-            if (!is_security(ch[i].ident, ch[i].filter)) rest[n++] = ch[i];                                                \
+        int n = 0, out = 0, rc = 0;                                                                                        \
+        if (live) pthread_mutex_lock(&procs_lock);                                                                         \
+        for (int i = 0; i < nch; i++) {                                                                                    \
+            int tool = is_tool_proc(ch[i].ident, ch[i].filter);                                                            \
+            if (tool && watch_kevent(kq, A, B, C, D)) { n++; continue; }                                                   \
+            if (!tool && !is_security(ch[i].ident, ch[i].filter)) rest[n++] = ch[i];                                       \
             else if (out < nev) ev[out] = ch[i], ev[out].flags = EV_ERROR, ev[out++].data = ESRCH;                         \
-        struct timespec now = {0, 0};                                                                                      \
-        int rc = n || (out && out < nev) ? name(kq, rest, n, ev + out, nev - out, extra &now) : 0;                         \
+            else out = -1;                                                                                                 \
+            if (out < 0) break;                                                                                            \
+        }                                                                                                                  \
+        const struct timespec now = {0, 0};                                                                                \
+        /* What it changes is told to the kernel before a tool may end. */                                                 \
+        if (n && (live || out)) rc = name(kq, rest, n, out < 0 ? NULL : ev + out, out < 0 ? 0 : nev - out, extra &now);    \
+        if (live) pthread_mutex_unlock(&procs_lock);                                                                       \
         free(rest);                                                                                                        \
         if (rc < 0) return rc;                                                                                             \
-        if (!out) return errno = ESRCH, -1;                                                                                \
-        return out + rc;                                                                                                   \
+        if (out < 0) return errno = ESRCH, -1;                                                                             \
+        if (out + rc || !nev) return told_##name(ev, out + rc);                                                            \
+        return told_##name(ev, name(kq, NULL, 0, ev, nev, extra t));                                                       \
     }
-KEVENT(kevent, struct kevent, , )
-KEVENT(kevent64, struct kevent64_s, unsigned flags FLAGS_COMMA, flags FLAGS_COMMA)
+KEVENT(kevent, struct kevent, , , &ch[i], NULL, &rest[n], NULL)
+KEVENT(kevent64, struct kevent64_s, unsigned flags FLAGS_COMMA, flags FLAGS_COMMA, NULL, &ch[i], NULL, &rest[n])
 
 /* The loader answers these itself: asked first. */
 static void *first_lookup(const char *symbol) {
+    void *action = tl_tool_file_action(symbol);
+    if (action) return action;
+    if (!strcmp(symbol, "_kill")) return (void *)term_kill;
     if (!strcmp(symbol, "_posix_spawn") || !strcmp(symbol, "_posix_spawnp")) return (void *)term_spawn;
     if (!strcmp(symbol, "_wait4")) return (void *)term_wait4;
     if (!strcmp(symbol, "_waitpid")) return (void *)term_waitpid;
@@ -303,6 +465,7 @@ int henge_tl_term_start(const char *path, const char *const *args, const char *c
     host.soft_missing = 1;
     host.no_processes = 1;
     host.ios_kernel_rules = 1;
+    host.tool_folders = tool_folders, host.tool_copies = tool_copies;
     atomic_store(&henge_tl_ran, 1); /* from here the JIT region is the program's: no Mac in this launch */
     henge_tl_mark_ran();
     fprintf(stderr, "henge: term: loading %s\n", path);
@@ -373,15 +536,6 @@ void henge_tl_term_resize(int cols, int rows) {
     if (changed && host_fd >= 0 && !atomic_load(&ended)) kill(getpid(), SIGWINCH);
 }
 
-/* The compiler, linker and other tools beside it (tl_tool_command): loaded at their first use and kept. */
-static char *tool_folders[9];
-void henge_tl_tool_setup(const char *const *folders, int copies) {
-    int n = 0;
-    for (; folders && folders[n] && n < 8; n++) tool_folders[n] = strdup(folders[n]);
-    tool_folders[n] = NULL;
-    host.tool_folders = tool_folders, host.tool_copies = copies;
-}
-
 /* The address space held at launch for a Mac app's allocators (60 of iOS's 64 GB): a tool's file and its threads' stacks
    find no room beside it. Given back at the first tool, when the terminal's program has long made its reservations. */
 static void give_room(void) {
@@ -394,7 +548,6 @@ static void give_room(void) {
     if (after) munmap(try, (size_t)512 << 20);
     fprintf(stderr, "henge: term: room for 512 MB: %s before the holds were released, %s after\n", before ? "yes" : "no", after ? "yes" : "no");
 }
-static pthread_once_t room_once = PTHREAD_ONCE_INIT;
 
 int henge_tl_tool_run(const char *path, int argc, const char *const *argv, const char *const *env, const char *cwd,
                       HengeTlToolOutput output, void *context) {

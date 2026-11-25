@@ -52,7 +52,7 @@ typedef void (*HengeTlToolOutput)(void *context, const char *bytes, size_t len);
 int henge_tl_tool_run(const char *path, int argc, const char *const *argv, const char *const *env, const char *cwd,
                       HengeTlToolOutput output, void *context);
 /* Where tools are found by name (ended by NULL), and how many compilers may run at once. After henge_tl_term_start. */
-void henge_tl_tool_setup(const char *const *folders, int copies);
+void henge_tl_tool_setup(const char *const *folders, int copies, const char *const *env);
 /* Runs the program at path from its function entry until it ends (a game without its window); a later call loads a
    newer build in its place. argv0: where it believes to be. env: variables over the app's. While it runs no tool does. */
 int henge_tl_program_run(const char *path, const char *argv0, const char *entry, const char *const *env, HengeTlToolOutput output, void *context);

@@ -94,8 +94,13 @@ A compiler expects a new process each time: it registers its options once, frees
    process number. **CMake, Ninja and Python's `subprocess` therefore work**, with several tools at once.
 5. Several copies of one tool run side by side in separate **namespaces**, so three compilers can work together.
 
-`tools/phone-kit/sh.c` is a small POSIX-like shell made for this: pipes, `&&`, `||`, redirection, `if`, `for`, `while`,
-`$(…)`, and built-in `cp`, `mv`, `rm`, `mkdir`, `ls`, `cat`, `head`, `tail`, `wc`.
+`tools/phone-kit/sh.c` is a small shell made for this: pipes, `&&`, `||`, redirection, here-documents, `if`, `for`,
+`while`, `case`, functions, `[[ ]]`, `$(( ))`, `${x%y}`, `$(…)`, and built-in `cp`, `mv`, `rm`, `mkdir`, `ls`, `cat` and
+others. The parts of a pipe run one after the other. `tools/phone-kit/devtools.py` answers for the usual developer tools
+(`grep`, `sed`, `awk`, `find`, `diff`, `patch`, `make`, `tar`, `curl`, `jq`…): Python versions with the common options.
+
+The program in the terminal may start these too: a shell it starts gets a made-up process number, and its ends, waits,
+kills and `kqueue` watches are answered. **Claude Code's own Bash tool works this way.** Any other program is refused.
 
 ### Address space
 
@@ -165,7 +170,7 @@ repository or its releases.
 | `build` | Compile what changed, link, pack the unsigned IPA, or return the errors |
 | `run_command` | A shell line with the toolchain, and programs built here |
 | `run_program` · `program_command` · `stop_program` | Run the build without its window, send it JSON commands, stop it |
-| `search` · `find_files` | Regular-expression search, as `grep` and `find` are not there |
+| `search` · `find_files` | Regular-expression search |
 | `project_help` | The project format and what works, for the program to read first |
 | `download` · `github_download` | Bring in source (zip, tar.gz, tar.xz, tar.bz2; submodules too) |
 | `github_save` | Commit chosen files to a branch, never forced. Needs a token you add |
@@ -183,6 +188,8 @@ sandboxed from Henge**: run only source you trust, and look before allowing a co
 | clang 21, the shell, Python 3.15 | Reported working on that iPhone by the coding program in it |
 | A sample app built to an IPA | Reported on that iPhone: first build 28.7 s |
 | `run_program` | It ran and ended with 0 on that iPhone; the output file was empty (not explained yet) |
+| Claude Code's Bash tool, the developer tools, `python3 -I` | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |
+| The tool server after iOS closed it in the background | Checked on a Mac by closing its port; not checked on an iPhone |
 | Swift, CMake, Ninja | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |
 | `download`, `github_download`, `github_save` | **Not tried against GitHub yet** |
 | Mac apps that ran before (the rest of Mac Apps) | Still work, as used on that iPhone |
@@ -190,9 +197,8 @@ sandboxed from Henge**: run only source you trust, and look before allowing a co
 
 Known gaps:
 
-- Claude Code's own Bash tool does not work on the phone ("No suitable shell found"). `run_command` does the job.
-- No `git`, `make`, `autoconf`, `sed`, `awk` or `grep`; no Xcode projects, storyboards, asset catalogs or CocoaPods; no
-  Python packages with C parts; no `fork`. Python's process pools become threads.
+- No `git`, `autoconf` or configure scripts; no Xcode projects, storyboards, asset catalogs or CocoaPods; no Python
+  packages with C parts; no `fork`. Python's process pools become threads. The shell has no arrays or job control.
 - Programs here share about 1 GB in all. One that crashes takes Henge with it.
 - `python3`, `clang` and the rest have no window: graphics are checked by having the program write a picture.
 

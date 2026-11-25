@@ -687,6 +687,8 @@ typedef struct TlToolChild {
     _Atomic int kill;
     char *path, *cwd, **argv, **env;
     int argc, std[3];
+    void (*ended)(void *, int); /* for the host's own program (tl_tool_spawn): told its status; nobody waits for it here */
+    void *context;
     int held[32], nheld; /* its parent's pipes that it would inherit: the other ends see when it has ended */
     struct TlToolChild *next;
 } TlToolChild;
@@ -710,9 +712,17 @@ static void *tool_child_thread(void *x) {
     void (*handler)(int) = NULL;
     for (int i = 0; i < TL_MAX_NS; i++)
         if (g_tool_runs[i] && g_tool_runs[i] == c->parent && !c->parent->ended && (uintptr_t)c->parent->sigchld.sa_handler > 1) handler = c->parent->sigchld.sa_handler, c->parent->chld++;
+    if (c->ended)
+        for (TlToolChild **at = &g_tool_children; *at; at = &(*at)->next)
+            if (*at == c) { *at = c->next; break; }
     pthread_cond_broadcast(&g_tool_cond);
     pthread_mutex_unlock(&g_tool_lock);
     if (handler) handler(SIGCHLD);
+    if (c->ended) {
+        c->ended(c->context, c->status);
+        free(c->path), free(c->cwd);
+        free(c);
+    }
     return NULL;
 }
 
@@ -737,26 +747,38 @@ static int tool_find(const char *name, const char *cwd, char *out, size_t len) {
     if (!strncmp(base, "python3.", 8)) base = "python3";
     static const char *const in_shell[] = {"uname", "echo", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ls", "ln", "touch", "pwd", "true", "false", "env",
                                            "sleep", "test", "head", "tail", "wc", "chmod", "printf", "basename", "dirname", "which"};
+    char names[PATH_MAX];
     for (size_t i = 0; i < sizeof in_shell / sizeof *in_shell; i++)
         if (!strcmp(base, in_shell[i])) { base = "sh"; break; }
     for (char *const *d = g_host->tool_folders; d && *d; d++) {
         snprintf(out, len, "%s/%s", *d, base);
         if (file_exists(out)) return 1;
     }
+    /* Those devtools.py answers (grep, sed, make): the shell starts it for such a name. */
+    for (char *const *d = g_host->tool_folders; d && *d; d++) {
+        snprintf(names, sizeof names, "%s/devtools.names", *d);
+        FILE *f = fopen(names, "r");
+        char line[64];
+        int is = 0;
+        while (f && !is && fgets(line, sizeof line, f)) { line[strcspn(line, "\r\n")] = 0; is = !strcmp(line, base); }
+        if (f) fclose(f);
+        snprintf(out, len, "%s/sh", *d);
+        if (is && file_exists(out)) return 1;
+    }
     return 0;
 }
 
-static int tool_posix_spawn(pid_t *pid, const char *path, void *const *fa, const void *attr, char *const argv[], char *const envp[]) {
-    (void)attr;
-    TlToolRun *r = &g_tool;
+static int tool_spawn_for(TlToolRun *r, pid_t *pid, const char *path, void *const *fa, char *const argv[], char *const envp[],
+                          void (*ended)(void *, int), void *context) {
     TlToolChild *c = calloc(1, sizeof *c);
     if (!c) return ENOMEM;
+    c->ended = ended, c->context = context;
     char found[PATH_MAX], here[PATH_MAX];
     c->parent = r;
     c->cwd = getcwd(here, sizeof here) ? strdup(here) : NULL;
     c->env = copy_strings(envp && envp != environ ? envp : r->env, NULL); /* a tool that names environ itself has the app's */
     c->argv = copy_strings(argv, &c->argc);
-    for (int i = 0; i < 3; i++) c->std[i] = r->std[i] >= 0 ? dup(r->std[i]) : -1;
+    for (int i = 0; i < 3; i++) c->std[i] = ended ? dup(i) : r->std[i] >= 0 ? dup(r->std[i]) : -1;
     for (TlToolAction *x = fa ? *fa : NULL; x; x = x->next) {
         if (x->kind == TOOL_CHDIR) { free(c->cwd); c->cwd = strdup(x->path); continue; }
         if (x->fd < 0 || x->fd > 2 || x->kind == TOOL_CLOSE) continue;
@@ -793,9 +815,43 @@ static int tool_posix_spawn(pid_t *pid, const char *path, void *const *fa, const
     pthread_mutex_unlock(&g_tool_lock);
     if (pid) *pid = c->pid;
     pthread_t t;
-    if (pthread_create(&t, NULL, tool_child_thread, c)) { c->done = 1, c->status = W_EXITCODE(127, 0); return 0; }
+    if (pthread_create(&t, NULL, tool_child_thread, c)) {
+        c->done = 1, c->status = W_EXITCODE(127, 0);
+        if (ended) ended(context, c->status);
+        return 0;
+    }
     pthread_detach(t);
     return 0;
+}
+static int tool_posix_spawn(pid_t *pid, const char *path, void *const *fa, const void *attr, char *const argv[], char *const envp[]) {
+    (void)attr;
+    return tool_spawn_for(&g_tool, pid, path, fa, argv, envp, NULL, NULL);
+}
+int tl_tool_spawn(pid_t *pid, const char *path, void *const *fa, char *const argv[], char *const envp[], void (*ended)(void *, int), void *context) {
+    pthread_once(&g_tool_once, tool_init);
+    g_tool_none.std[0] = 0, g_tool_none.std[1] = 1, g_tool_none.std[2] = 2;
+    return tool_spawn_for(&g_tool_none, pid, path, fa, argv, envp, ended, context);
+}
+int tl_tool_exists(const char *name) {
+    char found[PATH_MAX];
+    return g_host && tool_find(name, NULL, found, sizeof found);
+}
+/* What the file actions of a program that starts tools are kept in: its posix_spawn_file_actions_t is a pointer. */
+static int tool_fa_fchdir(void **fa, int fd) {
+    char path[PATH_MAX];
+    return fcntl(fd, F_GETPATH, path) ? errno : tool_fa_chdir(fa, path);
+}
+void *tl_tool_file_action(const char *symbol) {
+    static const struct { const char *name; void *fn; } table[] = {
+        {"init", (void *)tool_fa_init}, {"destroy", (void *)tool_fa_destroy}, {"adddup2", (void *)tool_fa_dup2}, {"addopen", (void *)tool_fa_open},
+        {"addclose", (void *)tool_fa_close}, {"addinherit_np", (void *)tool_fa_inherit}, {"addchdir_np", (void *)tool_fa_chdir},
+        {"addchdir", (void *)tool_fa_chdir}, {"addfchdir", (void *)tool_fa_fchdir}, {"addfchdir_np", (void *)tool_fa_fchdir},
+    };
+    static const char prefix[] = "_posix_spawn_file_actions_";
+    if (strncmp(symbol, prefix, sizeof prefix - 1)) return NULL;
+    for (size_t i = 0; i < sizeof table / sizeof *table; i++)
+        if (!strcmp(symbol + sizeof prefix - 1, table[i].name)) return table[i].fn;
+    return NULL;
 }
 
 static pid_t tool_waitpid(pid_t pid, int *status, int options) {
@@ -846,6 +902,24 @@ static int tool_kill(pid_t pid, int sig) {
     pthread_mutex_unlock(&g_tool_lock);
     if (rc) errno = ESRCH;
     return rc;
+}
+
+/* It and what it started: a signal to its group. */
+static void tool_kill_tree(TlToolChild *c, int depth) {
+    c->kill = 1;
+    TlToolRun *r = c->run;
+    if (!r) return;
+    r->kill = 1;
+    for (TlToolChild *x = g_tool_children; x && depth < 16; x = x->next)
+        if (x->parent == r && !x->done) tool_kill_tree(x, depth + 1);
+}
+int tl_tool_kill(pid_t pid) {
+    int found = 0;
+    pthread_mutex_lock(&g_tool_lock);
+    for (TlToolChild *c = g_tool_children; c; c = c->next)
+        if (c->pid == pid) tool_kill_tree(c, 0), found = 1;
+    pthread_mutex_unlock(&g_tool_lock);
+    return found;
 }
 
 /* A child's end interrupts it, as SIGCHLD would. */
@@ -1288,6 +1362,29 @@ static int tool_is_clang(const char *path) {
 }
 /* Apple's clang starts itself anew to compile one file; it can do without. (For several files it still does.) */
 static const char **tool_args(const char *path, int *argc, const char **argv) {
+    const char *b = strrchr(path, '/');
+    if (!strcmp(b ? b + 1 : path, "python3")) {
+        /* -I and -E leave out PYTHONHOME, without which Python does not find its library here: the rest of what they mean. */
+        const char **v = calloc((size_t)*argc + 1, sizeof *v);
+        int i = 1, n = 1;
+        v[0] = argv[0];
+        for (; i < *argc && argv[i][0] == '-' && argv[i][1] && argv[i][1] != '-'; i++) {
+            const char *o = argv[i];
+            size_t k = strcspn(o, "cmWX");
+            char *w = malloc(strlen(o) * 2 + 1), *to = w;
+            for (size_t j = 0; j < k; j++) {
+                if (o[j] == 'I') *to++ = 's', *to++ = 'P';
+                else if (o[j] != 'E') *to++ = o[j];
+            }
+            strcpy(to, o + k);
+            if (strcmp(w, "-")) v[n++] = w;
+            if (o[k] == 'c' || o[k] == 'm') { i++; break; }
+            if (o[k] && !o[k + 1] && i + 1 < *argc) v[n++] = argv[++i]; /* -W and -X take the next */
+        }
+        for (; i < *argc; i++) v[n++] = argv[i];
+        *argc = n;
+        return v;
+    }
     if (!tool_is_clang(path) || (*argc > 1 && !strncmp(argv[1], "-cc1", 4))) return argv;
     const char **v = calloc((size_t)*argc + 2, sizeof *v); /* stays: the tool may hold it */
     v[0] = argv[0], v[1] = "-fintegrated-cc1";

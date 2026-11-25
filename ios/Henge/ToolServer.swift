@@ -16,21 +16,63 @@ final class ToolServer {
 
     init(tools: [Tool]) { self.tools = tools }
 
-    func start() -> Bool {
-        listener = socket(AF_INET, SOCK_STREAM, 0)
+    /// Opens the port: any the first time, the same one again later.
+    private func open() -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, 4)
         var a = sockaddr_in()
         a.sin_family = sa_family_t(AF_INET)
         a.sin_addr.s_addr = inet_addr("127.0.0.1")
+        a.sin_port = port.bigEndian
         var n = socklen_t(MemoryLayout<sockaddr_in>.size)
         let ok = withUnsafeMutablePointer(to: &a) { p in
-            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, n) == 0 && listen(listener, 8) == 0 && getsockname(listener, $0, &n) == 0 }
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, n) == 0 && listen(fd, 8) == 0 && getsockname(fd, $0, &n) == 0 }
         }
-        guard ok else { return false }
+        guard ok else { close(fd); return false }
         port = UInt16(bigEndian: a.sin_port)
+        listener = fd
+        return true
+    }
+    /// iOS takes a suspended app's listening sockets away, and may say nothing to one that waits in accept.
+    /// Whether the port answers; false: it does not, and it was opened again if it could be.
+    @discardableResult func check() -> Bool {
+        let c = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(c) }
+        var a = sockaddr_in()
+        a.sin_family = sa_family_t(AF_INET)
+        a.sin_addr.s_addr = inet_addr("127.0.0.1")
+        a.sin_port = port.bigEndian
+        let there = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(c, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 } }
+        if there { return true }
+        lost = true
+        for _ in 0..<30 where lost { usleep(100_000) }
+        return false
+    }
+    var isOpen: Bool { !lost }
+    private var lost = false // the listening thread opens it again
+
+    func start() -> Bool {
+        guard open() else { return false }
+        accept()
+        return true
+    }
+    private func accept() {
         Thread.detachNewThread { [self] in
+            var failed = 0
             while true {
-                let c = accept(listener, nil, nil)
-                if c < 0 { if errno == EINTR || errno == ECONNABORTED { continue }; return }
+                if lost || failed >= 3 {
+                    lost = true
+                    if listener >= 0 { close(listener); listener = -1 }
+                    if open() { lost = false; failed = 0 } else { usleep(300_000); continue }
+                }
+                // Not in accept: a thread that waits there would keep a lost port taken.
+                var p = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+                if poll(&p, 1, 500) == 0 { continue }
+                let c = Darwin.accept(listener, nil, nil)
+                if c < 0 { if errno != EINTR { failed += 1; usleep(50_000) }; continue }
+                failed = 0
                 var on: Int32 = 1
                 setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &on, 4)
                 let t = Thread { self.serve(c); close(c) }
@@ -38,7 +80,6 @@ final class ToolServer {
                 t.start()
             }
         }
-        return true
     }
 
     /// The file that tells Claude Code about this server.

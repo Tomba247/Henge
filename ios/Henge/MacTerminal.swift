@@ -130,7 +130,7 @@ final class TerminalSession: ObservableObject {
         let pre = fm.temporaryDirectory.appendingPathComponent("terminal-preload.js")
         try? "globalThis.SharedArrayBuffer ??= ArrayBuffer;\n".write(to: pre, atomically: true, encoding: .utf8)
         var env = ["HOME=\(Self.home.path)", "TMPDIR=\(tmp)", "TERM=xterm-256color", "COLORTERM=truecolor",
-                   "LANG=en_US.UTF-8", "SHELL=/bin/sh", "PATH=/henge/bin:/usr/bin:/bin", "USER=mobile"]
+                   "LANG=en_US.UTF-8", "SHELL=/henge/bin/bash", "PATH=/henge/bin:/usr/bin:/bin", "USER=mobile"]
         env += ["BUN_JSC_useJIT=0", "BUN_OPTIONS=--preload=\(pre.path)", "CLAUDE_CODE_TMPDIR=\(tmp)", "DISABLE_AUTOUPDATER=1"]
         var args = arguments.split(separator: " ").map(String.init)
         let projects = ProjectTools.projects(in: Self.projects)
@@ -144,6 +144,12 @@ final class TerminalSession: ObservableObject {
                 args += ["--mcp-config", config.path]
                 env += ["MCP_TOOL_TIMEOUT=1800000", "MCP_TIMEOUT=60000"]
                 server = s
+                // In the background iOS takes the port away; it is opened again before the program asks.
+                NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { _ in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        if !s.check() { HengeLog.log("macapps", "terminal: build tools were closed in the background: \(s.isOpen ? "open again" : "could not open again")") }
+                    }
+                }
                 HengeLog.log("macapps", "terminal: build tools on port \(s.port), \(projects.count) project(s)")
             }
         }
@@ -155,6 +161,10 @@ final class TerminalSession: ObservableObject {
             var err = [CChar](repeating: 0, count: 512)
             var a: [UnsafePointer<CChar>?] = args.map { UnsafePointer(strdup($0)) } + [nil]
             var e: [UnsafePointer<CChar>?] = env.map { UnsafePointer(strdup($0)) } + [nil]
+            let tools = Self.projects.appendingPathComponent("Toolchain")
+            var folders: [UnsafePointer<CChar>?] = [UnsafePointer(strdup(tools.appendingPathComponent("bin").path)), nil]
+            var toolEnv: [UnsafePointer<CChar>?] = ProjectMaker.environment(tools: tools, home: Self.home.path).map { UnsafePointer(strdup($0)) } + [nil]
+            henge_tl_tool_setup(&folders, 3, &toolEnv)
             let rc = henge_tl_term_start(path, &a, &e, dir, Int32(cols), Int32(rows), { bytes, n in
                 guard let bytes else { return }
                 TerminalSession.shared.output(Array(UnsafeRawBufferPointer(start: bytes, count: n)))
@@ -166,10 +176,6 @@ final class TerminalSession: ObservableObject {
                 DispatchQueue.main.async { TerminalSession.shared.status = "Ended (\(code)). Quit Henge to run it again." }
             }, &err, err.count)
             let why = String(cString: err)
-            if rc == 0 {
-                var folders: [UnsafePointer<CChar>?] = [UnsafePointer(strdup(Self.projects.appendingPathComponent("Toolchain/bin").path)), nil]
-                henge_tl_tool_setup(&folders, 3)
-            }
             if rc != 0 { HengeLog.log("macapps", "terminal: could not start \(name): \(why)") }
             await MainActor.run {
                 self.status = rc == 0 ? "" : "Could not start it: \(why)"

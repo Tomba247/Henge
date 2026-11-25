@@ -2,6 +2,7 @@
 #define HENGE_TL_LOADER_H
 
 #include <stddef.h>
+#include <sys/types.h>
 #include <stdint.h>
 
 /* Henge's Mach-O loader for the Mac-app translation layer: loads an arm64
@@ -117,6 +118,13 @@ int tl_tool_run_at(TlImage *tool, const char *entry, int argc, const char **argv
 int tl_tool_command(const char *path, int argc, const char **argv, const char **env, const char *cwd,
                     void (*output)(void *context, const char *bytes, size_t len), void *context);
 /* The running tool ends at its next look at the clock or wait; NULL: all of them. */
+/* For a program that starts tools itself: a tool by path or name, with its argv, environment and file actions (from
+   tl_tool_file_action's functions: what the program's own posix_spawn_file_actions_* are to be). ended: its wait status,
+   on another thread. 0 or an error number. tl_tool_kill ends it and what it started. */
+int tl_tool_spawn(pid_t *pid, const char *path, void *const *fa, char *const argv[], char *const envp[], void (*ended)(void *, int), void *context);
+int tl_tool_exists(const char *name);
+void *tl_tool_file_action(const char *symbol);
+int tl_tool_kill(pid_t pid);
 void tl_tool_stop(TlImage *tool);
 /* Those tl_tool_command started in this folder, and what they started. */
 void tl_tool_stop_in(const char *cwd);

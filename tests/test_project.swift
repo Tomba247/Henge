@@ -38,14 +38,15 @@ if a[2] != "build" { server.writeConfig(to: URL(fileURLWithPath: a[2])) }
 var err = [CChar](repeating: 0, count: 512)
 var args: [UnsafePointer<CChar>?] = a[5...].map { UnsafePointer(strdup($0)) } + [nil]
 var env: [UnsafePointer<CChar>?] = [UnsafePointer(strdup("TERM=xterm-256color")), nil]
+let folders = [folder.appendingPathComponent("Toolchain/bin").path]
+var names: [UnsafePointer<CChar>?] = folders.map { UnsafePointer(strdup($0)) } + [nil]
+var toolEnv: [UnsafePointer<CChar>?] = ProjectMaker.environment(tools: folder.appendingPathComponent("Toolchain"), home: FileManager.default.temporaryDirectory.path).map { UnsafePointer(strdup($0)) } + [nil]
+henge_tl_tool_setup(&names, 3, &toolEnv)
 let rc = henge_tl_term_start(a[4], &args, &env, nil, 80, 40, { p, n in out.write(Data(bytes: p!, count: n)) }, { _ in }, { code in
     FileHandle.standardError.write(Data("program ended with \(code)\n".utf8))
     if a[2] != "build" { exit(code) }
 }, &err, err.count)
 if rc != 0 { print(String(cString: err)); exit(1) }
-let folders = [folder.appendingPathComponent("Toolchain/bin").path]
-var names: [UnsafePointer<CChar>?] = folders.map { UnsafePointer(strdup($0)) } + [nil]
-henge_tl_tool_setup(&names, 3)
 if a[2] == "build" {
     // Calls from a file, one JSON object per line: {"tool": name, ...its arguments}.
     if let calls = ProcessInfo.processInfo.environment["CALLS"] {
