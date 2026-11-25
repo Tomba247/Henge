@@ -10356,6 +10356,1831 @@ def xcode_select(name, args):
     return 0
 
 
+# ---- git: Henge's own, with git's own formats: clone, submodules, and the everyday local commands ----
+
+GIT_HELP = '''usage: git [-C DIR] [-c NAME=VALUE] COMMAND ...     Henge's own, not the real git; its folders are git's own
+  clone [--depth N] [-b REF] [--recursive] URL [DIR]   submodule update --init [--recursive]   fetch
+  init  add  rm --cached  commit -m  status  log  show  diff  apply  checkout  switch  branch  tag  ls-files  ls-remote
+  rev-parse  describe  config  remote  cat-file
+Not here: push (use github_save), merge, pull, rebase, stash, reset, worktree, signing, LFS. Public https repositories only
+(github_download has the user's sign-in). A clone of a long history is slow: use --depth 1.'''
+
+
+class Git:
+    def __init__(self, d):
+        self.top = d
+        g = os.path.join(d, '.git')
+        if os.path.isfile(g):
+            g = os.path.normpath(os.path.join(d, text(g).split(':', 1)[1].strip()))
+        self.dir = g
+        self.packs = None
+        self.cache, self.held = {}, 0
+
+    @staticmethod
+    def find(need=True):
+        d = os.getcwd()
+        while True:
+            if os.path.exists(os.path.join(d, '.git')):
+                return Git(d)
+            if os.path.dirname(d) == d:
+                break
+            d = os.path.dirname(d)
+        if need:
+            raise Fail('fatal: not a git repository (or any of the parent directories): .git', 128)
+
+    def file(self, *p):
+        return os.path.join(self.dir, *p)
+
+    def put(self, name, s):
+        f = self.file(name)
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        with open(f, 'wb') as h:
+            h.write(s if isinstance(s, bytes) else s.encode())
+
+    def get(self, name):
+        try:
+            return text(self.file(name))
+        except (OSError, Fail):
+            return None
+
+    @staticmethod
+    def make(d):
+        g = Git(d)
+        os.makedirs(os.path.join(d, '.git', 'refs', 'heads'), exist_ok=True)
+        os.makedirs(os.path.join(d, '.git', 'objects', 'pack'), exist_ok=True)
+        g.dir = os.path.join(d, '.git')
+        g.put('HEAD', 'ref: refs/heads/main\n')
+        g.put('config', '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n')
+        return g
+
+    # -- settings --
+
+    @staticmethod
+    def parse(s):
+        out, sec = [], ''
+        for ln in (s or '').splitlines():
+            ln = ln.strip()
+            m = re.match(r'\[([^\s"\]]+)(?:\s+"((?:[^"\\]|\\.)*)")?\]', ln)
+            if m:
+                sec = m[1].lower() + ('.' + m[2].replace('\\"', '"').replace('\\\\', '\\') if m[2] is not None else '')
+            elif ln and ln[0] not in '#;':
+                k, e, v = ln.partition('=')
+                v = v.strip()
+                out.append((sec + '.' + k.strip().lower(), v[1:-1] if len(v) > 1 and v[0] == v[-1] == '"' else v if e else 'true'))
+        return out
+
+    OVER = []
+
+    def settings(self):
+        home = os.path.join(os.environ.get('HOME', ''), '.gitconfig')
+        return dict((self.parse(text(home)) if os.path.exists(home) else []) + self.parse(self.get('config')) + Git.OVER)
+
+    # -- objects --
+
+    def load_packs(self):
+        import struct
+        self.packs = []
+        d = self.file('objects', 'pack')
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if f.endswith('.idx'):
+                with open(os.path.join(d, f), 'rb') as h:
+                    b = h.read()
+                n = struct.unpack('>I', b[8 + 255 * 4:8 + 256 * 4])[0]
+                self.packs.append((b, n, os.path.join(d, f[:-4] + '.pack'), {}))
+
+    def lookup(self, sha):
+        import struct
+        if self.packs is None:
+            self.load_packs()
+        raw = bytes.fromhex(sha)
+        for b, n, pack, _ in self.packs:
+            lo = struct.unpack_from('>I', b, 8 + (raw[0] - 1) * 4)[0] if raw[0] else 0
+            hi = struct.unpack_from('>I', b, 8 + raw[0] * 4)[0]
+            base = 8 + 1024
+            while lo < hi:
+                mid = (lo + hi) // 2
+                x = b[base + mid * 20:base + mid * 20 + 20]
+                if x == raw:
+                    o = struct.unpack_from('>I', b, base + n * 24 + mid * 4)[0]
+                    if o >> 31:
+                        o = struct.unpack_from('>Q', b, base + n * 28 + (o & 0x7fffffff) * 8)[0]
+                    return pack, o
+                if x < raw:
+                    lo = mid + 1
+                else:
+                    hi = mid
+        return None
+
+    def has(self, sha):
+        return os.path.exists(self.file('objects', sha[:2], sha[2:])) or self.lookup(sha) is not None
+
+    def read(self, sha):
+        import zlib
+        f = self.file('objects', sha[:2], sha[2:])
+        if os.path.exists(f):
+            with open(f, 'rb') as h:
+                b = zlib.decompress(h.read())
+            head, _, body = b.partition(b'\0')
+            return head.split()[0].decode(), body
+        at = self.lookup(sha)
+        if not at:
+            raise Fail(f'fatal: object {sha} is not here', 128)
+        with open(at[0], 'rb') as h:
+            return self.unpack(h, at[1], at[0])
+
+    KINDS = {1: 'commit', 2: 'tree', 3: 'blob', 4: 'tag'}
+
+    def unpack(self, h, at, pack, find=None):
+        """An object of a pack, its deltas applied."""
+        import zlib
+        chain = []
+        while True:
+            if (pack, at) in self.cache:
+                kind, body = self.cache[(pack, at)]
+                break
+            kind, size, base, body, _ = git_entry(h, at)
+            if kind in self.KINDS.values():
+                break
+            chain.append((at, body))
+            if kind == 'ofs':
+                at = base
+                continue
+            o = find(base) if find else None
+            if o is not None:
+                at = o
+                continue
+            kind, body = self.read(base)
+            break
+        for a, d in reversed(chain):
+            body = git_delta(body, d)
+            self.keep((pack, a), kind, body)
+        if not chain:
+            self.keep((pack, at), kind, body)
+        return kind, body
+
+    def keep(self, k, kind, body):
+        if len(body) < 1 << 20:
+            if self.held > 48 << 20:
+                self.cache.clear()
+                self.held = 0
+            self.cache[k] = (kind, body)
+            self.held += len(body)
+
+    def write(self, kind, body):
+        import hashlib
+        import zlib
+        b = f'{kind} {len(body)}'.encode() + b'\0' + body
+        sha = hashlib.sha1(b).hexdigest()
+        if not self.has(sha):
+            self.put(f'objects/{sha[:2]}/{sha[2:]}', zlib.compress(b))
+        return sha
+
+    def add_pack(self, data):
+        """Stores a pack as git does, with its index; what it was sent as is checked."""
+        import binascii
+        import hashlib
+        import struct
+        if data[:4] != b'PACK' or hashlib.sha1(data[:-20]).digest() != data[-20:]:
+            raise Fail('fatal: the pack that came is damaged', 128)
+        n = struct.unpack('>I', data[8:12])[0]
+        if not n:
+            return
+        name = data[-20:].hex()
+        path = self.file('objects', 'pack', f'pack-{name}.pack')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        import io
+        h, at, entries = io.BytesIO(data), 12, []
+        for _ in range(n):
+            kind, size, base, body, end = git_entry(h, at)
+            entries.append((at, end))
+            at = end
+        known, todo = {}, entries
+        while todo:
+            later = []
+            for at, end in todo:
+                try:
+                    kind, body = self.unpack(h, at, path, lambda sha: known[sha][0] if sha in known else None)
+                except Fail:
+                    later.append((at, end))
+                    continue
+                known[hashlib.sha1(f'{kind} {len(body)}'.encode() + b'\0' + body).hexdigest()] = (at, binascii.crc32(data[at:end]))
+            if len(later) == len(todo):
+                raise Fail('fatal: the pack that came is not complete', 128)
+            todo = later
+        names = sorted(known)
+        fan, i = [], 0
+        for b in range(256):
+            while i < len(names) and int(names[i][:2], 16) <= b:
+                i += 1
+            fan.append(i)
+        big = []
+        out = [b'\xfftOc' + struct.pack('>I', 2), struct.pack('>256I', *fan), bytes.fromhex(''.join(names)), struct.pack(f'>{len(names)}I', *(known[x][1] for x in names))]
+        offs = bytearray()
+        for x in names:
+            o = known[x][0]
+            if o >= 1 << 31:
+                big.append(o)
+                o = 1 << 31 | len(big) - 1
+            offs += struct.pack('>I', o)
+        out += [bytes(offs), struct.pack(f'>{len(big)}Q', *big), data[-20:]]
+        idx = b''.join(out)
+        with open(path, 'wb') as f:
+            f.write(data)
+        with open(path[:-5] + '.idx', 'wb') as f:
+            f.write(idx + hashlib.sha1(idx).digest())
+        self.packs = None
+
+    # -- names --
+
+    def refs(self):
+        out = {}
+        for ln in (self.get('packed-refs') or '').splitlines():
+            if ln and ln[0] not in '#^':
+                sha, r = ln.split(' ', 1)
+                out[r] = sha
+        top = self.file('refs')
+        for r, ds, fs in os.walk(top):
+            for f in fs:
+                p = os.path.join(r, f)
+                s = text(p).strip()
+                if re.fullmatch('[0-9a-f]{40}', s):
+                    out[os.path.relpath(p, self.dir)] = s
+        return out
+
+    def branch(self):
+        s = (self.get('HEAD') or '').strip()
+        return s[16:] if s.startswith('ref: refs/heads/') else None
+
+    def head(self):
+        b = self.branch()
+        return self.refs().get('refs/heads/' + b) if b else (self.get('HEAD') or '').strip() or None
+
+    def resolve(self, name, kind=None):
+        sha = self.name(name)
+        while sha and kind:
+            k, body = self.read(sha)
+            if k == kind:
+                return sha
+            if k == 'tag':
+                sha = body.split(b'\n')[0].split()[1].decode()
+            elif k == 'commit' and kind == 'tree':
+                return body.split(b'\n')[0].split()[1].decode()
+            else:
+                break
+        if not sha or kind:
+            raise Fail(f"fatal: ambiguous argument '{name}': unknown revision or path not in the working tree.", 128)
+        return sha
+
+    def name(self, n):
+        m = re.fullmatch(r'(.+?)((?:[~^]\d*|\^\{\w*\})+)', n)
+        if m:
+            sha = self.name(m[1])
+            for op, arg in re.findall(r'([~^])(\{\w*\}|\d*)', m[2]):
+                if not sha:
+                    return None
+                if arg.startswith('{'):
+                    sha = self.resolve(sha, arg[1:-1] or 'commit')
+                    continue
+                sha = self.resolve(sha, 'commit')
+                if op == '~':
+                    for _ in range(int(arg or 1)):
+                        ps = self.commit(sha)['parents']
+                        sha = ps[0] if ps else None
+                        if not sha:
+                            return None
+                elif arg != '0':
+                    ps = self.commit(sha)['parents']
+                    sha = ps[int(arg or 1) - 1] if len(ps) >= int(arg or 1) else None
+            return sha
+        if ':' in n:
+            rev, p = n.split(':', 1)
+            t = self.tree(self.resolve(rev or 'HEAD', 'tree'))
+            return t[p][1] if p in t else None
+        if n in ('HEAD', '@'):
+            return self.head()
+        if n == 'FETCH_HEAD':
+            return ((self.get(n) or '').split() or [None])[0]
+        rs = self.refs()
+        for p in ('', 'refs/', 'refs/tags/', 'refs/heads/', 'refs/remotes/'):
+            if p + n in rs:
+                return rs[p + n]
+        if re.fullmatch('[0-9a-f]{40}', n):
+            return n if self.has(n) else None
+        if re.fullmatch('[0-9a-f]{4,39}', n):
+            got = set()
+            d = self.file('objects', n[:2])
+            for f in os.listdir(d) if os.path.isdir(d) else []:
+                if (n[:2] + f).startswith(n):
+                    got.add(n[:2] + f)
+            if self.packs is None:
+                self.load_packs()
+            for b, k, _, _ in self.packs:
+                for i in range(k):
+                    x = b[1032 + i * 20:1052 + i * 20].hex()
+                    if x.startswith(n):
+                        got.add(x)
+            if len(got) == 1:
+                return got.pop()
+        return None
+
+    def commit(self, sha):
+        k, body = self.read(sha)
+        head, _, msg = body.decode('utf-8', 'replace').partition('\n\n')
+        c = {'parents': [], 'msg': msg, 'sha': sha}
+        for ln in head.split('\n'):
+            a, _, b = ln.partition(' ')
+            if a == 'parent':
+                c['parents'].append(b)
+            elif a in ('tree', 'author', 'committer'):
+                c[a] = b
+        if sha in (self.get('shallow') or '').split():
+            c['parents'] = []
+        return c
+
+    def tree(self, sha, pre=''):
+        """{path: (mode, sha)} of a tree, all its folders gone through."""
+        out, (k, b), i = {}, self.read(sha), 0
+        while i < len(b):
+            sp = b.index(b' ', i)
+            z = b.index(b'\0', sp)
+            mode, n, s = b[i:sp].decode(), os.fsdecode(b[sp + 1:z]), b[z + 1:z + 21].hex()
+            i = z + 21
+            if n.lower() in ('.', '..', '.git') or '/' in n or not n:
+                raise Fail(f'fatal: a bad name in a tree: {n!r}', 128)
+            if mode == '40000':
+                out |= self.tree(s, pre + n + '/')
+            else:
+                out[pre + n] = (mode, s)
+        return out
+
+    def log(self, start):
+        """Commits from some on, newest first."""
+        import heapq
+        seen, q = set(), []
+
+        def add(s):
+            if s not in seen:
+                seen.add(s)
+                c = self.commit(s)
+                heapq.heappush(q, (-int(c['committer'].split()[-2]), len(seen), c))
+        for s in start:
+            add(s)
+        while q:
+            c = heapq.heappop(q)[2]
+            yield c
+            for p in c['parents']:
+                add(p)
+
+    # -- the index --
+
+    def index(self):
+        import struct
+        out = {}
+        try:
+            with open(self.file('index'), 'rb') as h:
+                b = h.read()
+        except OSError:
+            return out
+        ver, n = struct.unpack('>II', b[4:12])
+        if ver not in (2, 3):
+            raise Fail('fatal: this index version is not read here', 128)
+        i = 12
+        for _ in range(n):
+            f = struct.unpack('>10I', b[i:i + 40])
+            fl = struct.unpack('>H', b[i + 60:i + 62])[0]
+            j = i + 62 + (2 if fl & 0x4000 else 0)
+            z = b.index(b'\0', j)
+            out[os.fsdecode(b[j:z])] = {'mode': oct(f[6])[2:], 'sha': b[i + 40:i + 60].hex(), 'stat': f}
+            i += (z - i + 8) // 8 * 8
+        return out
+
+    def save_index(self, ix):
+        import hashlib
+        import struct
+        out = [b'DIRC' + struct.pack('>II', 2, len(ix))]
+        for p in sorted(ix, key=os.fsencode):
+            e, n = ix[p], os.fsencode(p)
+            f = list(e.get('stat') or [0] * 10)
+            f[6] = int(e['mode'], 8)
+            x = struct.pack('>10I', *(v & 0xffffffff for v in f)) + bytes.fromhex(e['sha']) + struct.pack('>H', min(len(n), 0xfff)) + n
+            out.append(x + b'\0' * (8 - len(x) % 8))
+        b = b''.join(out)
+        self.put('index', b + hashlib.sha1(b).digest())
+
+    @staticmethod
+    def stat(p):
+        st = os.lstat(p)
+        return [int(st.st_ctime), st.st_ctime_ns % 10**9, int(st.st_mtime), st.st_mtime_ns % 10**9, st.st_dev, st.st_ino, 0, st.st_uid, st.st_gid, st.st_size]
+
+    def mode(self, p):
+        import stat
+        st = os.lstat(p)
+        return '120000' if stat.S_ISLNK(st.st_mode) else '100755' if st.st_mode & 0o100 else '100644'
+
+    def body(self, p):
+        if os.path.islink(p):
+            return os.fsencode(os.readlink(p))
+        with open(p, 'rb') as h:
+            return h.read()
+
+    def hash(self, b):
+        import hashlib
+        return hashlib.sha1(b'blob %d\0' % len(b) + b).hexdigest()
+
+    def changed(self, rel, e):
+        """How a file differs from its entry: None, 'D' or 'M'."""
+        p = os.path.join(self.top, rel)
+        if e['mode'] == '160000':
+            if not os.path.exists(os.path.join(p, '.git')):
+                return None
+            return None if Git(p).head() in (None, e['sha']) else 'M'
+        if not os.path.lexists(p) or (os.path.isdir(p) and not os.path.islink(p)):
+            return 'D'
+        s, o = self.stat(p), e.get('stat')
+        if self.mode(p) != e['mode'] and not (os.environ.get('HENGE_TOOLS') and self.mode(p) != '120000' and e['mode'] != '120000' and s[9] == (o or s)[9]):
+            return 'M'
+        if o and s[2:4] == list(o[2:4]) and s[9] == o[9]:
+            return None
+        return None if self.hash(self.body(p)) == e['sha'] else 'M'
+
+    def ignored(self):
+        rules = []
+
+        def load(f, base):
+            if os.path.exists(f):
+                for ln in text(f).splitlines():
+                    ln = ln.rstrip()
+                    if not ln or ln[0] == '#':
+                        continue
+                    neg = ln[0] == '!'
+                    ln = ln[1:] if neg else ln
+                    only = ln.endswith('/')
+                    ln = ln.rstrip('/')
+                    anch = '/' in ln
+                    ln, r, i = ln.lstrip('/'), '', 0
+                    while i < len(ln):
+                        if ln[i:i + 3] == '**/':
+                            r += '(?:.*/)?'
+                            i += 3
+                        elif ln[i:i + 2] == '**':
+                            r += '.*'
+                            i += 2
+                        elif ln[i] == '*':
+                            r += '[^/]*'
+                            i += 1
+                        elif ln[i] == '?':
+                            r += '[^/]'
+                            i += 1
+                        elif ln[i] == '[' and ']' in ln[i + 2:]:
+                            j = ln.index(']', i + 2)
+                            r += '[' + ln[i + 1:j].replace('!', '^', 1) + ']'
+                            i = j + 1
+                        else:
+                            i += ln[i] == '\\' and i + 1 < len(ln)
+                            r += re.escape(ln[i])
+                            i += 1
+                    try:
+                        rules.append((re.compile(re.escape(base) + ('' if anch else '(?:.*/)?') + r + r'\Z'), neg, only))
+                    except re.error:
+                        pass
+        load(self.file('info', 'exclude'), '')
+        load(os.path.join(self.top, '.gitignore'), '')
+
+        def test(rel, isdir):
+            hit = False
+            for r, neg, only in rules:
+                if (isdir or not only) and r.match(rel):
+                    hit = not neg
+            return hit
+        return load, test
+
+    def untracked(self, ix, start=''):
+        load, test = self.ignored()
+        dirs = {''}
+        for p in ix:
+            d = os.path.dirname(p)
+            while d not in dirs:
+                dirs.add(d)
+                d = os.path.dirname(d)
+        for r, ds, fs in os.walk(self.top):
+            rel = os.path.relpath(r, self.top)
+            rel = '' if rel == '.' else rel + '/'
+            if rel:
+                load(os.path.join(r, '.gitignore'), rel)
+            for d in sorted(ds):
+                p = rel + d
+                if d == '.git' or p in ix or test(p, True):
+                    ds.remove(d)
+                elif os.path.islink(os.path.join(r, d)):
+                    ds.remove(d)
+                    yield p
+                elif os.path.exists(os.path.join(r, d, '.git')):
+                    ds.remove(d)
+                    yield p + '/'
+            ds.sort()
+            for f in sorted(fs):
+                p = rel + f
+                if p not in ix and not test(p, False):
+                    yield p
+
+    # -- the files --
+
+    def checkout(self, tree, force=False, only=None):
+        """The working files as in a tree; changed ones stop it unless force."""
+        ix, new = self.index(), self.tree(tree)
+        if only is not None:
+            new = {p: v for p, v in new.items() if only(p)}
+        gone = [p for p in ix if p not in new] if only is None else []
+        todo = [p for p, v in new.items() if force or p not in ix or (ix[p]['mode'], ix[p]['sha']) != v]
+        if not force:
+            bad = [p for p in gone + todo if (p in ix and self.changed(p, ix[p]) == 'M') or (p not in ix and new[p][0] != '160000' and os.path.lexists(os.path.join(self.top, p)) and self.hash(self.body(os.path.join(self.top, p))) != new[p][1])]
+            if bad:
+                raise Fail('error: these files would be overwritten:\n\t' + '\n\t'.join(bad[:20]) + '\nCommit them or move them away first.', 1)
+        real = os.path.realpath(self.top)
+        for p in gone:
+            f = os.path.join(self.top, p)
+            if ix[p]['mode'] != '160000' and os.path.lexists(f):
+                os.remove(f)
+                d = os.path.dirname(f)
+                while d != self.top and not os.listdir(d):
+                    os.rmdir(d)
+                    d = os.path.dirname(d)
+            del ix[p]
+        for p in todo:
+            mode, sha = new[p]
+            f = os.path.join(self.top, p)
+            d = os.path.dirname(f)
+            os.makedirs(d, exist_ok=True)
+            if not (os.path.realpath(d) + '/').startswith(real.rstrip('/') + '/'):
+                raise Fail(f'fatal: {p} would be outside the repository', 128)
+            if mode == '160000':
+                os.makedirs(f, exist_ok=True)
+                ix[p] = {'mode': mode, 'sha': sha, 'stat': None}
+                continue
+            b = self.read(sha)[1]
+            if os.path.lexists(f):
+                os.remove(f)
+            if mode == '120000':
+                os.symlink(os.fsdecode(b), f)
+            else:
+                with open(f, 'wb') as h:
+                    h.write(b)
+                os.chmod(f, 0o755 if mode == '100755' else 0o644)
+            ix[p] = {'mode': mode, 'sha': sha, 'stat': self.stat(f)}
+        self.save_index(ix)
+
+    def write_tree(self, ix):
+        def build(pre, items):
+            ents, i = [], 0
+            while i < len(items):
+                p, e = items[i]
+                n, _, rest = p[len(pre):].partition('/')
+                if rest:
+                    sub = pre + n + '/'
+                    j = i
+                    while j < len(items) and items[j][0].startswith(sub):
+                        j += 1
+                    ents.append((os.fsencode(n + '/'), '40000', build(sub, items[i:j])))
+                    i = j
+                else:
+                    ents.append((os.fsencode(n), e['mode'], e['sha']))
+                    i += 1
+            ents.sort()
+            return self.write('tree', b''.join(m.encode() + b' ' + n.rstrip(b'/') + b'\0' + bytes.fromhex(s) for n, m, s in ents))
+        return build('', sorted(ix.items()))
+
+    # -- from afar --
+
+    def url(self, u, base=None):
+        u = re.sub(r'^git@([^:/]+):', r'https://\1/', u)
+        u = re.sub(r'^(?:ssh://git@|git://)', 'https://', u)
+        if u.startswith(('./', '../')) and base:
+            from urllib.parse import urljoin
+            return urljoin(base.rstrip('/') + '/', u)
+        return u
+
+
+def git_entry(h, at):
+    """(kind, size, base, data, end) of a pack's entry: kind ofs and ref are deltas."""
+    import zlib
+    h.seek(at)
+    b = h.read(64)
+    c, i = b[0], 1
+    t, size, sh = c >> 4 & 7, c & 15, 4
+    while c & 128:
+        c = b[i]
+        i += 1
+        size |= (c & 127) << sh
+        sh += 7
+    kind, base = Git.KINDS.get(t), None
+    if t == 6:
+        c = b[i]
+        i += 1
+        o = c & 127
+        while c & 128:
+            c = b[i]
+            i += 1
+            o = (o + 1) << 7 | c & 127
+        kind, base = 'ofs', at - o
+    elif t == 7:
+        kind, base = 'ref', b[i:i + 20].hex()
+        i += 20
+    elif kind is None:
+        raise Fail('fatal: the pack is damaged', 128)
+    h.seek(at + i)
+    z, out, used = zlib.decompressobj(), [], 0
+    while not z.eof:
+        x = h.read(max(4096, min(size, 1 << 20)))
+        if not x:
+            raise Fail('fatal: the pack is damaged', 128)
+        out.append(z.decompress(x))
+        used += len(x)
+    return kind, size, base, b''.join(out), at + i + used - len(z.unused_data)
+
+
+def git_delta(base, d):
+    i = 0
+
+    def num():
+        nonlocal i
+        v = sh = 0
+        while True:
+            c = d[i]
+            i += 1
+            v |= (c & 127) << sh
+            sh += 7
+            if not c & 128:
+                return v
+    num()
+    size = num()
+    out = []
+    while i < len(d):
+        c = d[i]
+        i += 1
+        if c & 128:
+            o = n = 0
+            for k in range(4):
+                if c >> k & 1:
+                    o |= d[i] << 8 * k
+                    i += 1
+            for k in range(3):
+                if c >> 4 + k & 1:
+                    n |= d[i] << 8 * k
+                    i += 1
+            n = n or 0x10000
+            out.append(base[o:o + n])
+        else:
+            out.append(d[i:i + c])
+            i += c
+    r = b''.join(out)
+    if len(r) != size:
+        raise Fail('fatal: the pack is damaged', 128)
+    return r
+
+
+class GitRemote:
+    """A repository over https (git's smart protocol)."""
+    def __init__(self, url):
+        self.url = url.rstrip('/')
+        if not re.match(r'https?://', self.url):
+            raise Fail(f'fatal: only https addresses are cloned here: {url}', 128)
+        if '@' in self.url.split('/')[2]:
+            raise Fail('fatal: an address with a password in it is not used here', 128)
+        b = self.ask('/info/refs?service=git-upload-pack').read()
+        self.refs, self.caps, self.head = {}, '', None
+        for ln in self.lines(b):
+            if not ln or ln.startswith(b'#'):
+                continue
+            ln, _, caps = ln.partition(b'\0')
+            if caps:
+                self.caps = caps.decode()
+            sha, _, r = ln.strip().decode().partition(' ')
+            if re.fullmatch('[0-9a-f]{40}', sha) and r != 'capabilities^{}':
+                self.refs[r] = sha
+        m = re.search(r'symref=HEAD:(\S+)', self.caps)
+        self.head = m[1] if m else next((r for r, s in self.refs.items() if r.startswith('refs/heads/') and s == self.refs.get('HEAD')), None)
+
+    def ask(self, path, data=None):
+        import urllib.error
+        import urllib.request
+        q = urllib.request.Request(self.url + path, data=data, headers={'User-Agent': 'git/2.40 (henge)'} | ({'Content-Type': 'application/x-git-upload-pack-request'} if data else {}))
+        try:
+            return urllib.request.urlopen(q, timeout=120)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403, 404):
+                raise Fail(f'fatal: {self.url} is not there, or is private (github_download has the user\'s sign-in)', 128) from None
+            raise Fail(f'fatal: {self.url} answered {e.code}', 128) from None
+        except OSError as e:
+            raise Fail(f'fatal: unable to access {self.url}: {e}', 128) from None
+
+    @staticmethod
+    def lines(b):
+        i = 0
+        while i + 4 <= len(b):
+            n = int(b[i:i + 4], 16)
+            if n < 4:
+                yield None
+                i += 4
+            else:
+                yield b[i + 4:i + n]
+                i += n
+
+    def fetch(self, g, wants, depth=0):
+        """Gets what is wanted, and all it needs, into g."""
+        wants = [w for w in dict.fromkeys(wants) if depth or not g.has(w)]
+        if not wants:
+            return
+        pk = lambda s: b'%04x' % (len(s) + 4) + s
+        caps = [c for c in ('ofs-delta', 'side-band-64k', 'no-progress') if c in self.caps.split()] + ['agent=git/2.40-henge']
+        if depth and 'shallow' not in self.caps.split():
+            depth = 0
+        req = b''.join(pk(f'want {w}{" " + " ".join(caps) if i == 0 else ""}\n'.encode()) for i, w in enumerate(wants))
+        old = (g.get('shallow') or '').split()
+        req += b''.join(pk(f'shallow {s}\n'.encode()) for s in old)
+        if depth:
+            req += pk(f'deepen {depth}\n'.encode())
+        req += b'0000'
+        if not depth and not old:
+            req += b''.join(pk(f'have {s}\n'.encode()) for s in list(dict.fromkeys(g.refs().values()))[:200])
+        req += pk(b'done\n')
+        b = self.ask('/git-upload-pack', req).read()
+        i, pack, shallow = 0, [], set(old)
+        while i + 4 <= len(b):
+            if b[i:i + 4] == b'PACK':
+                pack.append(b[i:])
+                break
+            n = int(b[i:i + 4], 16)
+            x = b[i + 4:i + n] if n >= 4 else b''
+            i += max(n, 4)
+            if x.startswith(b'shallow '):
+                shallow.add(x.split()[1].decode())
+            elif x.startswith(b'unshallow '):
+                shallow.discard(x.split()[1].decode())
+            elif x.startswith((b'NAK', b'ACK')) or not x:
+                continue
+            elif x.startswith(b'ERR'):
+                raise Fail('fatal: ' + x[4:].decode('utf-8', 'replace').strip(), 128)
+            elif x[0] == 1:
+                pack.append(x[1:])
+            elif x[0] == 3:
+                raise Fail('fatal: ' + x[1:].decode('utf-8', 'replace').strip(), 128)
+        data = b''.join(pack)
+        if not data:
+            raise Fail('fatal: nothing came', 128)
+        g.add_pack(data)
+        if shallow != set(old):
+            g.put('shallow', ''.join(s + '\n' for s in sorted(shallow)))
+
+
+def git_clone(url, d, depth=0, ref=None, recursive=False, quiet=False, sha=None, nocheckout=False):
+    import shutil
+    if os.path.exists(d) and (not os.path.isdir(d) or os.listdir(d)):
+        raise Fail(f"fatal: destination path '{d}' already exists and is not an empty directory.", 128)
+    if not quiet:
+        err(f"Cloning into '{os.path.relpath(d)}'...")
+        sys.stderr.flush()
+    r = GitRemote(url)
+    had = os.path.isdir(d)
+    g = Git.make(d)
+    try:
+        g.put('config', g.get('config') + f'[remote "origin"]\n\turl = {url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n')
+        heads = {k: v for k, v in r.refs.items() if k.startswith('refs/heads/')}
+        tags = {k: v for k, v in r.refs.items() if k.startswith('refs/tags/') and not k.endswith('^{}')}
+        full = None
+        if sha:
+            try:
+                r.fetch(g, [sha], depth)
+            except Fail:
+                depth = 0
+                r.fetch(g, list(heads.values()))
+        else:
+            if ref:
+                full = next((p + ref for p in ('refs/heads/', 'refs/tags/') if p + ref in r.refs), None)
+                if not full:
+                    raise Fail(f'fatal: Remote branch {ref} not found in upstream origin', 128)
+            else:
+                full = r.head
+            if not full or full not in r.refs:
+                err('warning: You appear to have cloned an empty repository.')
+                return g
+            r.fetch(g, [r.refs[full]] if depth else list(heads.values()) + list(tags.values()), depth)
+        for k, v in (heads | tags).items():
+            if g.has(v):
+                g.put(k.replace('refs/heads/', 'refs/remotes/origin/'), v + '\n')
+        if sha or full.startswith('refs/tags/'):
+            at = g.resolve(sha or r.refs[full], 'commit')
+            g.put('HEAD', at + '\n')
+        else:
+            at = r.refs[full]
+            b = full[11:]
+            g.put(full, at + '\n')
+            g.put('HEAD', f'ref: {full}\n')
+            g.put('config', g.get('config') + f'[branch "{b}"]\n\tremote = origin\n\tmerge = {full}\n')
+        if not nocheckout:
+            g.checkout(g.resolve(at, 'tree'), True)
+            if recursive:
+                git_submodules(g, url, depth, True, quiet)
+    except BaseException:
+        # Only what this clone made.
+        for n in os.listdir(d):
+            p = os.path.join(d, n)
+            shutil.rmtree(p) if os.path.isdir(p) and not os.path.islink(p) else os.remove(p)
+        if not had:
+            os.rmdir(d)
+        raise
+    return g
+
+
+def git_submodules(g, base, depth=0, deep=False, quiet=False, only=()):
+    f = os.path.join(g.top, '.gitmodules')
+    if not os.path.exists(f):
+        return
+    mods = {}
+    for k, v in Git.parse(text(f)):
+        n, _, key = k[10:].rpartition('.')
+        mods.setdefault(n, {})[key] = v
+    ix = g.index()
+    for n, m in mods.items():
+        p, u = os.path.normpath(m.get('path', '')), m.get('url')
+        if not u or p not in ix or ix[p]['mode'] != '160000' or (only and p not in only):
+            continue
+        if p.startswith('..') or os.path.isabs(p) or not (os.path.realpath(os.path.join(g.top, p)) + '/').startswith(os.path.realpath(g.top) + '/'):
+            raise Fail(f'fatal: the submodule {n} would be outside the repository', 128)
+        d, sha = os.path.join(g.top, p), ix[p]['sha']
+        u = g.url(u, base)
+        if os.path.exists(os.path.join(d, '.git')):
+            s = Git(d)
+            if s.head() != sha:
+                if not s.has(sha):
+                    GitRemote(u).fetch(s, [sha], depth)
+                s.checkout(s.resolve(sha, 'tree'))
+                s.put('HEAD', sha + '\n')
+        else:
+            s = git_clone(u, d, depth, sha=sha, quiet=True)
+            if not quiet:
+                put(f"Submodule path '{p}': checked out '{sha}'")
+                State.out.flush()
+        if deep:
+            git_submodules(s, u, depth, True, quiet)
+
+
+def git_patch(path, a, b, ma='100644', mb='100644'):
+    """The difference of two files as git shows it; None for one that is not there."""
+    import difflib
+    o = [f'diff --git a/{path} b/{path}\n']
+    if a is None:
+        o.append(f'new file mode {mb}\n')
+    elif b is None:
+        o.append(f'deleted file mode {ma}\n')
+    elif ma != mb:
+        o += [f'old mode {ma}\n', f'new mode {mb}\n']
+    if b'\0' in (a or b'')[:8000] or b'\0' in (b or b'')[:8000]:
+        if a != b:
+            o.append(f'Binary files {"/dev/null" if a is None else "a/" + path} and {"/dev/null" if b is None else "b/" + path} differ\n')
+        return os.fsencode(''.join(o))
+    x, y = ([ln + '\n' for ln in s.decode('utf-8', 'surrogateescape').split('\n')] for s in (a or b'', b or b''))
+    for s, l in ((a or b'', x), (b or b'', y)):
+        if s.endswith(b'\n') or not s:
+            l.pop()
+        else:
+            l[-1] = l[-1][:-1]
+    for ln in difflib.unified_diff(x, y, '/dev/null' if a is None else 'a/' + path, '/dev/null' if b is None else 'b/' + path):
+        if ln.startswith(('--- ', '+++ ')) and not o[-1].startswith(('+', '-', ' ', '\\', '@')) or ln.startswith('+++ ') and o[-1].startswith('--- '):
+            o.append(ln.rstrip('\n').rstrip('\t') + '\n')
+        else:
+            o.append(ln if ln.endswith('\n') else ln + '\n\\ No newline at end of file\n')
+    return os.fsencode(''.join(o)) if len(o) > 1 else b''
+
+
+def git_date(who):
+    import datetime
+    m = re.match(r'(.*) (\d+) ([+-])(\d\d)(\d\d)$', who)
+    z = datetime.timezone((1 if m[3] == '+' else -1) * datetime.timedelta(hours=int(m[4]), minutes=int(m[5])))
+    t = datetime.datetime.fromtimestamp(int(m[2]), z)
+    return m[1], f'{t:%a %b} {t.day} {t:%H:%M:%S %Y} {m[3]}{m[4]}{m[5]}', t
+
+
+def git_decide(g, args):
+    """Paths, relative to the repository's top, as a test; None: no paths given."""
+    if not args:
+        return None
+    ps = [os.path.relpath(os.path.realpath(a) if os.path.isdir(a) else os.path.join(os.path.realpath(os.path.dirname(a) or '.'), os.path.basename(a)), os.path.realpath(g.top)) for a in args]
+    for a, p in zip(args, ps):
+        if p.startswith('..'):
+            raise Fail(f"fatal: {a}: '{a}' is outside repository", 128)
+    return lambda f: any(p == '.' or f == p or f.startswith(p + '/') or git_glob(p, f) for p in ps)
+
+
+@command('git')
+def git(name, args):
+    args, over, here = list(args), [], os.getcwd()
+    try:
+        while args and args[0].startswith('-'):
+            a = args.pop(0)
+            if a == '-C' and args:
+                os.chdir(args.pop(0))
+            elif a == '-c' and args:
+                k, _, v = args.pop(0).partition('=')
+                over.append((k.lower(), v))
+            elif a in ('--version', '-v'):
+                put('git version 2.40.0.henge')
+                return 0
+            elif a in ('--help', '-h'):
+                put(GIT_HELP)
+                return 0
+            elif a not in ('--no-pager', '--no-optional-locks', '--literal-pathspecs'):
+                raise Fail(f'{a} is not supported here', 129)
+        if not args or args[0] == 'help':
+            put(GIT_HELP)
+            return 0 if args else 1
+        if args[0] == 'version':
+            put('git version 2.40.0.henge')
+            return 0
+        f = globals().get('git_c_' + args[0].replace('-', '_'))
+        if not f:
+            raise Fail(f"'{args[0]}' is not here: Henge's git has the everyday commands (git help). Push with github_save.", 1)
+        Git.OVER = over
+        return f(args[1:])
+    finally:
+        Git.OVER = []
+        os.chdir(here)
+
+
+def git_args(args, flags=(), vals=()):
+    """(options, the rest, whether -- was there); unknown options are errors."""
+    o, rest, args, dd = {}, [], list(args), None
+    while args:
+        a = args.pop(0)
+        if a == '--':
+            dd = len(rest)
+            rest += args
+            break
+        if not a.startswith('-') or a == '-':
+            rest.append(a)
+            continue
+        k, e, v = a.partition('=')
+        if k in vals:
+            if e:
+                o[k] = v
+            elif args:
+                o[k] = args.pop(0)
+            else:
+                raise Fail(f'{k} needs a value', 129)
+        elif a in flags:
+            o[a] = True
+        elif len(a) > 2 and a[1] != '-' and a[:2] in vals:
+            o[a[:2]] = a[2:]
+        elif len(a) > 2 and a[1] != '-' and all('-' + c in flags or '-' + c in vals for c in a[1:]):
+            for i, c in enumerate(a[1:]):
+                if '-' + c in vals:
+                    o['-' + c] = a[i + 2:] or (args.pop(0) if args else '')
+                    break
+                o['-' + c] = True
+        else:
+            raise Fail(f'the option {a} is not supported here', 129)
+    return o, rest, dd
+
+
+def git_c_clone(args):
+    o, r, _ = git_args(args, ('--recursive', '--recurse-submodules', '-q', '--quiet', '--single-branch', '--no-single-branch', '--shallow-submodules', '--no-checkout', '-n', '--no-tags', '--progress', '-v'),
+                       ('--depth', '-b', '--branch', '-j', '--jobs', '--filter', '-c', '--config', '-o'))
+    if not r or len(r) > 2:
+        raise Fail('usage: git clone [--depth N] [-b REF] [--recursive] URL [DIR]', 129)
+    if '-o' in o:
+        raise Fail('the option -o is not supported here', 129)
+    u = Git('.').url(r[0])
+    d = os.path.abspath(r[1] if len(r) > 1 else re.sub(r'\.git$', '', u.rstrip('/').rsplit('/', 1)[1]))
+    git_clone(u, d, integer(o.get('--depth', '0')), o.get('-b') or o.get('--branch'), '--recursive' in o or '--recurse-submodules' in o, '-q' in o or '--quiet' in o, nocheckout='-n' in o or '--no-checkout' in o)
+
+
+def git_c_submodule(args):
+    o, r, _ = git_args(args, ('--init', '--recursive', '-q', '--quiet', '--progress', '--force', '--recommend-shallow'), ('--depth', '-j', '--jobs'))
+    g = Git.find()
+    if r[:1] not in (['update'], ['init'], ['sync'], ['status'], []):
+        raise Fail(f'git submodule {r[0]} is not here', 1)
+    if r[:1] == ['update']:
+        git_submodules(g, g.settings().get('remote.origin.url', ''), integer(o.get('--depth', '0')), '--recursive' in o, '-q' in o or '--quiet' in o, [os.path.relpath(os.path.join(os.getcwd(), p), g.top) for p in r[1:]])
+    elif r[:1] in ([], ['status']):
+        for p, e in sorted(g.index().items()):
+            if e['mode'] == '160000':
+                s = os.path.join(g.top, p)
+                put((' ' if os.path.exists(s + '/.git') and Git(s).head() == e['sha'] else '-' if not os.path.exists(s + '/.git') else '+') + e['sha'] + ' ' + p)
+
+
+def git_c_fetch(args):
+    o, r, _ = git_args(args, ('-q', '--quiet', '--all', '--tags', '-t', '--prune', '-p', '--no-tags', '-f', '--force', '--unshallow', '--progress'), ('--depth',))
+    g = Git.find()
+    if '--unshallow' in o:
+        o['--depth'] = '2147483647'
+    u = g.settings().get(f'remote.{r[0] if r else "origin"}.url') or (r[0] if r and '/' in r[0] else None)
+    if not u:
+        raise Fail('fatal: no such remote', 128)
+    rem, depth = GitRemote(g.url(u)), integer(o.get('--depth', '0'))
+    if r[1:]:
+        want = [next((rem.refs[p + x] for p in ('', 'refs/heads/', 'refs/tags/') if p + x in rem.refs), x if re.fullmatch('[0-9a-f]{40}', x) else None) for x in r[1:]]
+        if None in want:
+            raise Fail("fatal: couldn't find remote ref " + r[1 + want.index(None)], 128)
+        rem.fetch(g, want, depth)
+        g.put('FETCH_HEAD', want[0] + '\n')
+    else:
+        keep = {k: v for k, v in rem.refs.items() if k.startswith('refs/heads/') or (k.startswith('refs/tags/') and not k.endswith('^{}') and (not depth or '--tags' in o))}
+        rem.fetch(g, list(keep.values()), depth)
+        want = []
+    for k, v in rem.refs.items():
+        if k.startswith('refs/heads/') and g.has(v) and (not r[1:] or v in want):
+            g.put('refs/remotes/origin/' + k[11:], v + '\n')
+        elif k.startswith('refs/tags/') and not k.endswith('^{}') and g.has(v):
+            g.put(k, v + '\n')
+
+
+def git_c_ls_remote(args):
+    o, r, _ = git_args(args, ('--heads', '-h', '--tags', '-t', '-q', '--refs', '--symref', '--exit-code'))
+    u = r[0] if r else 'origin'
+    if '/' not in u:
+        u = Git.find().settings().get(f'remote.{u}.url', u)
+    for k, v in GitRemote(Git('.').url(u)).refs.items():
+        if ('--heads' in o and not k.startswith('refs/heads/')) or ('--tags' in o and not k.startswith('refs/tags/')) or (r[1:] and not any(k == p or k.endswith('/' + p) for p in r[1:])):
+            continue
+        put(v + '\t' + k)
+
+
+def git_c_init(args):
+    o, r, _ = git_args(args, ('-q', '--quiet'), ('-b', '--initial-branch'))
+    d = os.path.abspath(r[0] if r else '.')
+    os.makedirs(d, exist_ok=True)
+    again = os.path.exists(os.path.join(d, '.git'))
+    if not again:
+        Git.make(d).put('HEAD', f'ref: refs/heads/{o.get("-b") or o.get("--initial-branch") or dict(Git.OVER).get("init.defaultbranch", "main")}\n')
+    if '-q' not in o and '--quiet' not in o:
+        put(f'{"Reinitialized existing" if again else "Initialized empty"} Git repository in {d}/.git/')
+
+
+def git_c_add(args):
+    o, r, _ = git_args(args, ('-A', '--all', '-u', '--update', '-f', '--force', '-v', '.'))
+    g = Git.find()
+    ix = g.index()
+    if not r and not {'-A', '--all', '-u', '--update'} & set(o):
+        raise Fail('Nothing specified, nothing added.', 0)
+    if ('-A' in o or '--all' in o or '-u' in o or '--update' in o) and not r:
+        ok = lambda p: True
+    else:
+        ok = git_decide(g, r)
+    hit = False
+    for p in list(ix):
+        if ok(p):
+            hit = True
+            c = g.changed(p, ix[p])
+            if c == 'D':
+                del ix[p]
+            elif c and ix[p]['mode'] == '160000':
+                ix[p]['sha'] = Git(os.path.join(g.top, p)).head()
+            elif c:
+                f = os.path.join(g.top, p)
+                ix[p] = {'mode': g.mode(f), 'sha': g.write('blob', g.body(f)), 'stat': g.stat(f)}
+    if '-u' not in o and '--update' not in o:
+        new = list(g.untracked(ix))
+        if '-f' in o or '--force' in o:
+            new += [os.path.relpath(os.path.realpath(a), os.path.realpath(g.top)) for a in r if os.path.isfile(a)]
+        for p in new:
+            if ok(p) and p not in ix:
+                hit = True
+                f = os.path.join(g.top, p)
+                if p.endswith('/'):
+                    h = Git(f.rstrip('/')).head()
+                    if h:
+                        ix[p.rstrip('/')] = {'mode': '160000', 'sha': h, 'stat': None}
+                else:
+                    ix[p] = {'mode': g.mode(f), 'sha': g.write('blob', g.body(f)), 'stat': g.stat(f)}
+    for a in r:
+        if not hit and not os.path.lexists(a) and not glob_has(a):
+            raise Fail(f"fatal: pathspec '{a}' did not match any files", 128)
+    g.save_index(ix)
+
+
+def git_glob(p, f):
+    import fnmatch
+    return fnmatch.fnmatchcase(f, p)
+
+
+def glob_has(a):
+    return any(c in a for c in '*?[')
+
+
+def git_c_rm(args):
+    o, r, _ = git_args(args, ('--cached', '-r', '-q', '-f', '--ignore-unmatch'))
+    if '--cached' not in o:
+        raise Fail('only git rm --cached is here: remove the file, then git add -A', 1)
+    g = Git.find()
+    ok, ix = git_decide(g, r) or (lambda p: False), g.index()
+    gone = [p for p in ix if ok(p)]
+    if not gone and '--ignore-unmatch' not in o:
+        raise Fail(f"fatal: pathspec '{' '.join(r)}' did not match any files", 128)
+    for p in gone:
+        del ix[p]
+        put(f"rm '{p}'")
+    g.save_index(ix)
+
+
+def git_c_commit(args):
+    import time
+    o, msgs, rest = {}, [], []
+    args = list(args)
+    while args:
+        a = args.pop(0)
+        if (a == '--message' or re.fullmatch('-[aqn]*m', a)) and args:
+            msgs.append(args.pop(0))
+            o |= {'-' + c: True for c in a[1:-1]} if a[1] != '-' else {}
+        elif a.startswith('--message='):
+            msgs.append(a[10:])
+        elif a in ('-F', '--file') and args:
+            f = args.pop(0)
+            msgs.append(data(f).decode('utf-8', 'replace').rstrip('\n'))
+        elif a in ('-a', '--all', '-q', '--quiet', '--allow-empty', '--no-verify', '-n', '--no-gpg-sign'):
+            o[a] = True
+        else:
+            raise Fail(f'{a} is not supported here: git commit -m MESSAGE', 129)
+    g = Git.find()
+    if '-a' in o or '--all' in o:
+        git_c_add(['-u'])
+    s, e = g.settings(), os.environ.get
+    who = [(e(f'GIT_{k}_NAME') or s.get('user.name'), e(f'GIT_{k}_EMAIL') or s.get('user.email')) for k in ('AUTHOR', 'COMMITTER')]
+    if not all(n and m for n, m in who):
+        raise Fail('fatal: unable to auto-detect who you are: ask the user, then git config user.name and user.email', 128)
+    if not msgs:
+        raise Fail('a message is needed: git commit -m MESSAGE', 1)
+    ix, head = g.index(), g.head()
+    tree = g.write_tree(ix)
+    if '--allow-empty' not in o and (tree == g.resolve(head, 'tree') if head else not ix):
+        put('nothing to commit')
+        return 1
+    z = time.strftime('%z')
+    now = f'{int(time.time())} {z}'
+    body = f'tree {tree}\n' + (f'parent {head}\n' if head else '') + f'author {who[0][0]} <{who[0][1]}> {now}\ncommitter {who[1][0]} <{who[1][1]}> {now}\n\n' + '\n\n'.join(msgs).strip('\n') + '\n'
+    sha, b = g.write('commit', body.encode()), g.branch()
+    g.put('refs/heads/' + b if b else 'HEAD', sha + '\n')
+    if '-q' not in o and '--quiet' not in o:
+        put(f'[{b or "detached HEAD"} {sha[:7]}] {msgs[0].splitlines()[0]}')
+
+
+def git_c_status(args):
+    o, r, _ = git_args(args, ('-s', '--short', '--porcelain', '-b', '--branch', '-u', '-uno', '-uall', '--ignored', '--untracked-files=no', '--porcelain=v1', '--ignore-submodules'))
+    g = Git.find()
+    ix, head = g.index(), g.head()
+    old = g.tree(g.resolve(head, 'tree')) if head else {}
+    ok = git_decide(g, r) or (lambda p: True)
+    st = {}
+    for p in sorted(set(ix) | set(old)):
+        if not ok(p):
+            continue
+        x = 'A' if p not in old else 'D' if p not in ix else 'M' if old[p] != (ix[p]['mode'], ix[p]['sha']) else ' '
+        y = (g.changed(p, ix[p]) or ' ') if p in ix else ' '
+        if x + y != '  ':
+            st[p] = x + y
+    new = [] if '-uno' in o or '--untracked-files=no' in o else [p for p in g.untracked(ix) if ok(p)]
+    if '-uall' not in o:
+        dirs, short = {d for p in ix for d in (p[:i + 1] for i, c in enumerate(p) if c == '/')}, []
+        for p in new:
+            q = next((p[:i + 1] for i, c in enumerate(p) if c == '/' and p[:i + 1] not in dirs), p)
+            if q not in short:
+                short.append(q)
+        new = short
+    if {'-s', '--short', '--porcelain', '--porcelain=v1'} & set(o):
+        if '-b' in o or '--branch' in o:
+            put('## ' + (g.branch() or 'HEAD (no branch)'))
+        for p, c in st.items():
+            put(c + ' ' + p)
+        for p in new:
+            put('?? ' + p)
+        return 0
+    put(f'On branch {g.branch()}' if g.branch() else f'HEAD detached at {(head or "")[:7]}')
+    word = {'A': 'new file', 'M': 'modified', 'D': 'deleted'}
+    for title, i in (('Changes to be committed:', 0), ('Changes not staged for commit:', 1)):
+        l = [(c[i], p) for p, c in st.items() if c[i] != ' ']
+        if l:
+            put('\n' + title)
+            for c, p in l:
+                put(f'\t{word[c]}:   {p}')
+    if new:
+        put('\nUntracked files:')
+        for p in new:
+            put('\t' + p)
+    if not st and not new:
+        put('nothing to commit, working tree clean')
+
+
+def git_changes(g, a, b, ok):
+    """Patches from one {path: (mode, sha)} to another."""
+    for p in sorted(set(a) | set(b)):
+        if a.get(p) != b.get(p) and (ok is None or ok(p)):
+            f = lambda t: (b'Subproject commit ' + t[p][1].encode() + b'\n' if t[p][0] == '160000' else g.read(t[p][1])[1]) if p in t else None
+            yield p, f(a), f(b), a.get(p, ('100644',))[0], b.get(p, ('100644',))[0]
+
+
+def git_show_changes(changes, o):
+    n = 0
+    for p, x, y, m1, m2 in changes:
+        n += 1
+        if '--name-only' in o:
+            put(p)
+        elif '--name-status' in o:
+            put(('A' if x is None else 'D' if y is None else 'M') + '\t' + p)
+        elif '--stat' in o:
+            d = git_patch(p, x, y, m1, m2).split(b'\n')
+            put(f' {p} | +{sum(1 for l in d if l.startswith(b"+") and not l.startswith(b"+++ "))} -{sum(1 for l in d if l.startswith(b"-") and not l.startswith(b"--- "))}')
+        elif '--quiet' not in o:
+            outb(git_patch(p, x, y, m1, m2))
+    return n
+
+
+def git_split(g, r, dd):
+    """Revisions and paths of an argument list."""
+    if dd is not None:
+        return r[:dd], r[dd:]
+    i = 0
+    while i < len(r) and (('..' in r[i] and not os.path.exists(r[i])) or (not os.path.lexists(r[i]) and g.name(r[i])) or r[i] == 'HEAD'):
+        i += 1
+    for a in r[i:]:
+        if not os.path.lexists(a) and not glob_has(a):
+            raise Fail(f"fatal: ambiguous argument '{a}': unknown revision or path not in the working tree.", 128)
+    return r[:i], r[i:]
+
+
+def git_c_diff(args):
+    o, r, dd = git_args(args, ('--cached', '--staged', '--name-only', '--name-status', '--stat', '--quiet', '--exit-code', '--no-color', '--no-ext-diff', '-p', '--binary', '--full-index'))
+    g = Git.find()
+    revs, paths = git_split(g, r, dd)
+    ok, ix = git_decide(g, paths), g.index()
+    if len(revs) == 1 and '..' in revs[0]:
+        revs = [x or 'HEAD' for x in revs[0].replace('...', '..').split('..')]
+    t = lambda x: g.tree(g.resolve(x, 'tree'))
+    if len(revs) == 2:
+        ch = git_changes(g, t(revs[0]), t(revs[1]), ok)
+    elif '--cached' in o or '--staged' in o:
+        ch = git_changes(g, t(revs[0] if revs else 'HEAD') if revs or g.head() else {}, {p: (e['mode'], e['sha']) for p, e in ix.items()}, ok)
+    else:
+        base = t(revs[0]) if revs else {p: (e['mode'], e['sha']) for p, e in ix.items()}
+
+        def work():
+            for p in sorted(base):
+                if ok and not ok(p):
+                    continue
+                m, s = base[p]
+                same = ix[p] if p in ix and (ix[p]['mode'], ix[p]['sha']) == (m, s) else {'mode': m, 'sha': s}
+                c = g.changed(p, same)
+                f = os.path.join(g.top, p)
+                if not c:
+                    continue
+                if m == '160000':
+                    yield p, f'Subproject commit {s}\n'.encode(), f'Subproject commit {Git(f).head()}\n'.encode(), m, m
+                else:
+                    yield p, g.read(s)[1], None if c == 'D' else g.body(f), m, m if c == 'D' else g.mode(f)
+            for p in sorted(ix) if revs else []:
+                if p not in base and (not ok or ok(p)) and os.path.lexists(os.path.join(g.top, p)):
+                    f = os.path.join(g.top, p)
+                    yield p, None, g.body(f), '100644', g.mode(f)
+        ch = work()
+    n = git_show_changes(ch, o)
+    return 1 if n and ('--quiet' in o or '--exit-code' in o) else 0
+
+
+def git_format(g, c, fmt):
+    an, ad, at = git_date(c['author'])
+    cn, cd, ct = git_date(c['committer'])
+    sub, _, body = c['msg'].partition('\n')
+    e = lambda x: (x.split(' <')[0], x[x.rfind('<') + 1:].rstrip('>'))
+    m = {'H': c['sha'], 'h': c['sha'][:7], 'T': c['tree'], 't': c['tree'][:7], 'P': ' '.join(c['parents']), 'p': ' '.join(x[:7] for x in c['parents']), 's': sub, 'b': body.strip('\n'), 'B': c['msg'].rstrip('\n'),
+         'an': e(an)[0], 'ae': e(an)[1], 'ad': ad, 'at': str(int(at.timestamp())), 'ai': f'{at:%Y-%m-%d %H:%M:%S %z}', 'aI': at.isoformat(), 'as': f'{at:%Y-%m-%d}', 'cs': f'{ct:%Y-%m-%d}',
+         'cn': e(cn)[0], 'ce': e(cn)[1], 'cd': cd, 'ct': str(int(ct.timestamp())), 'ci': f'{ct:%Y-%m-%d %H:%M:%S %z}', 'cI': ct.isoformat(), 'n': '\n', '%': '%', 'd': '', 'D': ''}
+    return re.sub(r'%([ac][nedtiIs]|[A-Za-z%])', lambda k: m.get(k[1], k[0]), fmt)
+
+
+def git_print(g, c, o):
+    f = o.get('--format') or o.get('--pretty')
+    if f == 'oneline' or ('--oneline' in o and not f):
+        put((c['sha'] if '--oneline' not in o else c['sha'][:7]) + ' ' + c['msg'].partition('\n')[0])
+    elif f and f not in ('medium', 'short', 'full'):
+        put(git_format(g, c, re.sub(r'^t?format:', '', f)))
+    else:
+        n, d, _ = git_date(c['author'])
+        put(f'commit {c["sha"]}\nAuthor: {n}\nDate:   {d}\n')
+        put('\n'.join('    ' + l if l else '' for l in c['msg'].rstrip('\n').split('\n')))
+
+
+def git_c_log(args):
+    args = ['-n' + a[1:] if re.fullmatch(r'-\d+', a) else a for a in args]
+    o, r, dd = git_args(args, ('--oneline', '--stat', '-p', '--patch', '--name-only', '--name-status', '--no-color', '--no-decorate', '--decorate', '--all', '--no-merges', '--reverse', '--first-parent'), ('-n', '--max-count', '--format', '--pretty', '--skip'))
+    g = Git.find()
+    revs, paths = git_split(g, r, dd)
+    ok = git_decide(g, paths)
+    left = integer(o.get('-n') or o.get('--max-count') or '1000000')
+    start, hide = [], set()
+    for x in revs or ['HEAD']:
+        a, dots, b = x.partition('..')
+        if dots:
+            hide |= {c['sha'] for c in g.log([g.resolve(a or 'HEAD', 'commit')])}
+            x = b or 'HEAD'
+        elif x.startswith('^'):
+            hide |= {c['sha'] for c in g.log([g.resolve(x[1:], 'commit')])}
+            continue
+        if x == 'HEAD' and not g.head():
+            raise Fail(f"fatal: your current branch '{g.branch()}' does not have any commits yet", 128)
+        start.append(g.resolve(x, 'commit'))
+    if '--all' in o:
+        start += [g.resolve(s, 'commit') for s in g.refs().values()]
+    skip, got = integer(o.get('--skip', '0')), []
+    for c in g.log(start):
+        if c['sha'] in hide or ('--no-merges' in o and len(c['parents']) > 1):
+            continue
+        show = {'-p', '--patch', '--stat', '--name-only', '--name-status'} & set(o)
+        ch = None
+        if ok or show:
+            ch = list(git_changes(g, g.tree(g.commit(c['parents'][0])['tree']) if c['parents'] else {}, g.tree(c['tree']), ok))
+            if ok and not ch:
+                continue
+        if skip:
+            skip -= 1
+            continue
+        if left <= 0:
+            break
+        left -= 1
+        got.append((c, ch if show else None))
+        if '--reverse' not in o:
+            c, ch = got.pop()
+            git_print(g, c, o)
+            if ch is not None:
+                git_show_changes(ch, o)
+            if not ({'--oneline', '--format', '--pretty'} & set(o)):
+                put('')
+    for c, ch in reversed(got):
+        git_print(g, c, o)
+        if ch is not None:
+            git_show_changes(ch, o)
+
+
+def git_c_show(args):
+    o, r, dd = git_args(args, ('--oneline', '--stat', '--name-only', '--name-status', '--no-color', '-s', '--no-patch', '-p'), ('--format', '--pretty'))
+    g = Git.find()
+    for x in r or ['HEAD']:
+        sha = g.resolve(x)
+        k, b = g.read(sha)
+        if k == 'blob':
+            outb(b)
+        elif k == 'tree':
+            put(f'tree {x}\n')
+            for p in sorted({q.split('/')[0] + ('/' if '/' in q else '') for q in g.tree(sha)}):
+                put(p)
+        else:
+            c = g.commit(g.resolve(sha, 'commit'))
+            git_print(g, c, o)
+            if '-s' not in o and '--no-patch' not in o:
+                put('')
+                git_show_changes(git_changes(g, g.tree(g.commit(c['parents'][0])['tree']) if c['parents'] else {}, g.tree(c['tree']), None), o)
+
+
+def git_c_apply(args):
+    o, r, _ = git_args(args, ('--check', '-R', '--reverse', '-v', '--verbose', '--ignore-whitespace', '--3way', '--index', '--whitespace=nowarn', '--whitespace=fix', '--whitespace=warn'), ('-p', '--directory'))
+    if '--index' in o or '--3way' in o:
+        raise Fail('--index and --3way are not supported here', 129)
+    a = ['-p' + o.get('-p', '1'), '-f', '-s'] + (['-R'] if '-R' in o or '--reverse' in o else []) + (['--dry-run'] if '--check' in o else []) + (['-d', o['--directory']] if '--directory' in o else [])
+    for f in r or ['-']:
+        b = data(f)
+        # All of it or none.
+        if call(['patch', '--dry-run'] + [v for v in a if v != '--dry-run'], b, True)[0]:
+            err(f'error: patch does not apply: {f}')
+            return 1
+        if '--check' not in o and call(['patch'] + a, b)[0]:
+            return 1
+
+
+def git_c_checkout(args):
+    o, r, dd = git_args(args, ('-q', '--quiet', '-f', '--force', '--detach', '--recurse-submodules'), ('-b', '-B'))
+    g = Git.find()
+    if '-B' in o:
+        raise Fail('-B is not supported here', 129)
+    force = '-f' in o or '--force' in o
+    if '-b' in o:
+        if 'refs/heads/' + o['-b'] in g.refs():
+            raise Fail(f"fatal: a branch named '{o['-b']}' already exists", 128)
+        at = g.resolve(r[0] if r else 'HEAD', 'commit') if r or g.head() else None
+        if r and at != g.head():
+            g.checkout(g.resolve(at, 'tree'), force)
+        if at:
+            g.put('refs/heads/' + o['-b'], at + '\n')
+        g.put('HEAD', f'ref: refs/heads/{o["-b"]}\n')
+        put(f"Switched to a new branch '{o['-b']}'") if '-q' not in o else None
+        return 0
+    revs, paths = (r[:dd], r[dd:]) if dd is not None else (r[:1], r[1:]) if r and not os.path.lexists(r[0]) else ([], r)
+    if dd is None and r and os.path.lexists(r[0]) and (g.name(r[0]) and len(r) == 1 and 'refs/heads/' + r[0] in g.refs()):
+        revs, paths = r, []
+    if paths:
+        ok = git_decide(g, paths)
+        if revs:
+            g.checkout(g.resolve(revs[0], 'tree'), True, ok)
+        else:
+            ix = g.index()
+            if not any(ok(p) for p in ix):
+                raise Fail(f"error: pathspec '{paths[0]}' did not match any file(s) known to git", 1)
+            t = g.write_tree(ix)
+            g.checkout(t, True, ok)
+        return 0
+    if not revs:
+        raise Fail('a branch, commit or file is needed', 128)
+    n = revs[0]
+    rs = g.refs()
+    if 'refs/heads/' + n not in rs and 'refs/remotes/origin/' + n in rs and 'refs/tags/' + n not in rs:
+        g.checkout(g.resolve(rs['refs/remotes/origin/' + n], 'tree'), force)
+        g.put('refs/heads/' + n, rs['refs/remotes/origin/' + n] + '\n')
+        g.put('HEAD', f'ref: refs/heads/{n}\n')
+        said = f"Switched to a new branch '{n}'"
+    else:
+        at = g.resolve(n, 'commit')
+        g.checkout(g.resolve(at, 'tree'), force)
+        if 'refs/heads/' + n in rs and '--detach' not in o:
+            g.put('HEAD', f'ref: refs/heads/{n}\n')
+            said = f"Switched to branch '{n}'"
+        else:
+            g.put('HEAD', at + '\n')
+            said = f'HEAD is now at {at[:7]} {g.commit(at)["msg"].partition(chr(10))[0]}'
+    if '-q' not in o and '--quiet' not in o:
+        err(said)
+
+
+def git_c_switch(args):
+    return git_c_checkout(['-b' if a in ('-c', '--create') else a for a in args])
+
+
+def git_c_branch(args):
+    o, r, _ = git_args(args, ('--show-current', '-a', '--all', '-r', '--list', '-v', '-q', '--no-color'))
+    g = Git.find()
+    if '--show-current' in o:
+        if g.branch():
+            put(g.branch())
+        return 0
+    if r and '--list' not in o:
+        if 'refs/heads/' + r[0] in g.refs():
+            raise Fail(f"fatal: a branch named '{r[0]}' already exists", 128)
+        g.put('refs/heads/' + r[0], g.resolve(r[1] if r[1:] else 'HEAD', 'commit') + '\n')
+        return 0
+    if not g.branch():
+        put(f'* (HEAD detached at {(g.head() or "")[:7]})')
+    for k in sorted(g.refs()):
+        if k.startswith('refs/heads/') and '-r' not in o:
+            put(('* ' if k[11:] == g.branch() else '  ') + k[11:])
+        elif k.startswith('refs/remotes/') and {'-a', '--all', '-r'} & set(o):
+            put('  ' + (k[13:] if '-r' in o else k[5:]))
+
+
+def git_c_tag(args):
+    o, r, _ = git_args(args, ('-l', '--list'))
+    g = Git.find()
+    if r and '-l' not in o and '--list' not in o:
+        if 'refs/tags/' + r[0] in g.refs():
+            raise Fail(f"fatal: tag '{r[0]}' already exists", 128)
+        g.put('refs/tags/' + r[0], g.resolve(r[1] if r[1:] else 'HEAD') + '\n')
+        return 0
+    for k in sorted(g.refs()):
+        if k.startswith('refs/tags/') and (not r or git_glob(r[0], k[10:])):
+            put(k[10:])
+
+
+def git_c_ls_files(args):
+    o, r, dd = git_args(args, ('-z', '-c', '--cached', '-s', '--stage', '-o', '--others', '--exclude-standard', '-m', '--modified', '--recurse-submodules', '--error-unmatch', '--full-name'))
+    g = Git.find()
+    ix, ok = g.index(), git_decide(g, r)
+    here = '' if '--full-name' in o else os.path.relpath(os.path.realpath('.'), os.path.realpath(g.top)) + '/'
+    here = '' if here == './' else here
+    others = '-o' in o or '--others' in o
+    l = list(g.untracked(ix)) if others else [p for p in sorted(ix) if not {'-m', '--modified'} & set(o) or g.changed(p, ix[p])]
+    if others and ('-c' in o or '--cached' in o):
+        l = sorted(l + list(ix))
+    hit = 0
+    for p in l:
+        if p.startswith(here) and (ok is None or ok(p)):
+            hit += 1
+            out((f'{ix[p]["mode"]} {ix[p]["sha"]} 0\t' if '-s' in o or '--stage' in o else '') + p[len(here):] + ('\0' if '-z' in o else '\n'))
+    if '--error-unmatch' in o and not hit:
+        raise Fail(f"error: pathspec '{' '.join(r)}' did not match any file(s) known to git", 1)
+
+
+def git_c_rev_parse(args):
+    o, r, _ = git_args(args, ('--show-toplevel', '--git-dir', '--absolute-git-dir', '--is-inside-work-tree', '--abbrev-ref', '--verify', '-q', '--quiet', '--short', '--show-prefix', '--show-cdup', '--is-shallow-repository', '--is-bare-repository', '--git-common-dir'), ())
+    g = Git.find()
+    if '--show-toplevel' in o:
+        put(g.top)
+    if '--git-dir' in o or '--absolute-git-dir' in o or '--git-common-dir' in o:
+        put('.git' if '--absolute-git-dir' not in o and os.path.realpath('.') == os.path.realpath(g.top) and g.dir.endswith('/.git') else g.dir)
+    if '--is-inside-work-tree' in o:
+        put('true')
+    if '--is-bare-repository' in o:
+        put('false')
+    if '--is-shallow-repository' in o:
+        put('true' if g.get('shallow') else 'false')
+    if '--show-prefix' in o or '--show-cdup' in o:
+        p = os.path.relpath(os.path.realpath('.'), os.path.realpath(g.top))
+        put('' if p == '.' else p + '/' if '--show-prefix' in o else '../' * (p.count('/') + 1))
+    for x in r:
+        try:
+            sha = g.resolve(x)
+        except Fail:
+            if '-q' in o or '--quiet' in o:
+                return 1
+            raise
+        if '--abbrev-ref' in o:
+            put((g.branch() or 'HEAD') if x in ('HEAD', '@') else x)
+        else:
+            put(sha[:7] if '--short' in o else sha)
+
+
+def git_c_describe(args):
+    o, r, _ = git_args(['--dirty=-dirty' if a == '--dirty' else a for a in args], ('--tags', '--always', '--long', '--all', '--first-parent'), ('--abbrev', '--match', '--dirty', '--exclude'))
+    g = Git.find()
+    at = g.resolve(r[0] if r else 'HEAD', 'commit')
+    tags = {}
+    for k, s in g.refs().items():
+        if k.startswith('refs/tags/') and ('--match' not in o or git_glob(o['--match'], k[10:])):
+            kind = g.read(s)[0]
+            if kind == 'tag' or '--tags' in o:
+                tags[g.resolve(s, 'commit')] = k[10:]
+    n, d = integer(o.get('--abbrev', '7')), ''
+    if '--dirty' in o and any(g.changed(p, e) for p, e in g.index().items()):
+        d = o['--dirty']
+    for i, c in enumerate(g.log([at])):
+        if c['sha'] in tags:
+            t = tags[c['sha']]
+            put((t if (not i and '--long' not in o) or not n else f'{t}-{i}-g{at[:max(n, 4)]}') + d)
+            return 0
+    if '--always' in o:
+        put(at[:max(n, 4)] + d)
+        return 0
+    raise Fail('fatal: No names found, cannot describe anything.', 128)
+
+
+def git_c_config(args):
+    o, r, _ = git_args(args, ('--global', '--local', '--get', '--list', '-l', '--add', '--replace-all', '--unset', '--get-all', '--bool'), ('-f', '--file', '--type', '--get-regexp'))
+    if '--unset' in o or '-f' in o or '--file' in o or '--get-regexp' in o:
+        raise Fail('this form of git config is not here', 1)
+    if '--list' in o or '-l' in o:
+        g = Git.find(False)
+        for k, v in (g.settings() if g else dict(Git.OVER)).items():
+            put(f'{k}={v}')
+        return 0
+    if not r:
+        raise Fail('usage: git config [--global] NAME [VALUE]', 129)
+    sec, _, key = r[0].rpartition('.')
+    k = sec.partition('.')[0].lower() + ('.' + sec.partition('.')[2] if '.' in sec else '') + '.' + key.lower()
+    g = Git.find(len(r) > 1 and '--global' not in o)
+    home = os.path.join(os.environ.get('HOME', ''), '.gitconfig')
+    if len(r) == 1:
+        s = g.settings() if g else dict((Git.parse(text(home)) if os.path.exists(home) else []) + Git.OVER)
+        if k not in s:
+            return 1
+        put(s[k])
+        return 0
+    f = home if '--global' in o else g.file('config')
+    ls = text(f).splitlines() if os.path.exists(f) else []
+    a, _, b = sec.partition('.')
+    head = f'[{a} "{b}"]' if b else f'[{a}]'
+    i = next((i for i, l in enumerate(ls) if l.strip().lower() == head.lower()), None)
+    new = f'\t{key} = {r[1]}'
+    if i is None:
+        ls += [head, new]
+    else:
+        j = i + 1
+        while j < len(ls) and not ls[j].strip().startswith('['):
+            if ls[j].partition('=')[0].strip().lower() == key.lower():
+                ls[j] = new
+                break
+            j += 1
+        else:
+            ls.insert(i + 1, new)
+    with open(f, 'w') as h:
+        h.write('\n'.join(ls) + '\n')
+
+
+def git_c_remote(args):
+    o, r, _ = git_args(args, ('-v', '--verbose'))
+    g = Git.find()
+    rem = {k[7:-4]: v for k, v in g.settings().items() if k.startswith('remote.') and k.endswith('.url')}
+    if not r:
+        for n, u in rem.items():
+            put(f'{n}\t{u} (fetch)\n{n}\t{u} (push)' if o else n)
+    elif r[0] == 'get-url' and r[1:]:
+        if r[1] not in rem:
+            raise Fail(f"error: No such remote '{r[1]}'", 2)
+        put(rem[r[1]])
+    elif r[0] in ('add', 'set-url') and len(r) == 3:
+        if (r[1] in rem) == (r[0] == 'add'):
+            raise Fail(f'error: remote {r[1]} ' + ('already exists.' if r[1] in rem else 'is not there'), 3)
+        git_c_config([f'remote.{r[1]}.url', r[2]])
+    else:
+        raise Fail('git remote, -v, get-url, set-url and add are here', 1)
+
+
+def git_c_cat_file(args):
+    o, r, _ = git_args(args, ('-p', '-t', '-s', '-e'))
+    g = Git.find()
+    if len(r) == 2 and not o:
+        o, r = {'-p': True}, [g.resolve(r[1], r[0])]
+    sha = g.resolve(r[0])
+    k, b = g.read(sha)
+    if '-t' in o:
+        put(k)
+    elif '-s' in o:
+        put(str(len(b)))
+    elif '-p' in o:
+        if k == 'tree':
+            i = 0
+            while i < len(b):
+                sp, z = b.index(b' ', i), b.index(b'\0', i)
+                m = b[i:sp].decode().zfill(6)
+                put(f'{m} {"tree" if m[0] == "0" else "commit" if m == "160000" else "blob"} {b[z + 1:z + 21].hex()}\t{os.fsdecode(b[sp + 1:z])}')
+                i = z + 21
+        else:
+            outb(b)
+
+
+# ---- brew: what a script asks of it, answered by what is here ----
+
+BREW = {'cmake': 'cmake', 'ninja': 'ninja', 'python': 'python3', 'python3': 'python3', 'llvm': 'clang', 'gcc': 'clang', 'make': 'make', 'coreutils': 'ls', 'gnu-sed': 'sed', 'gawk': 'awk', 'grep': 'grep',
+        'findutils': 'find', 'gnu-tar': 'tar', 'wget': 'wget', 'curl': 'curl', 'jq': 'jq', 'git': 'git', 'xz': 'xz', 'sqlite': 'sqlite3', 'ripgrep': 'rg', 'tree': 'tree', 'unzip': 'unzip', 'zip': 'zip', 'bash': 'bash', 'glslang': 'glslc', 'shaderc': 'glslc'}
+
+
+@command('brew')
+def brew(name, args):
+    import shutil
+    what = [a for a in args[1:] if not a.startswith('-')]
+    if args[:1] in (['update'], ['upgrade'], ['tap'], ['cleanup']):
+        return 0
+    if args[:1] == ['--prefix']:
+        put(xc_tools())
+        return 0
+    if args[:1] not in (['install'], ['list'], ['bundle']) or not what:
+        raise Fail('this is not Homebrew: brew install only says whether a tool is here already', 1)
+    bad = []
+    for w in what:
+        t = BREW.get(re.sub(r'@.*', '', w), w)
+        if t in CMDS or shutil.which(t):
+            put(f'{w}: here ({t}), Henge\'s')
+        else:
+            bad.append(w)
+    if bad:
+        raise Fail('not here, and cannot be installed: ' + ' '.join(bad) + '. A library: get its source (git clone, github_download) and build it with the project.', 1)
+
+
+# ---- framecheck: flicker in a run of screenshots ----
+
+def pic_read(path):
+    """(width, height, rgb bytes) of a PNG, PPM or BMP."""
+    import struct
+    import zlib
+    with open(path, 'rb') as f:
+        b = f.read()
+    if b[:8] == b'\x89PNG\r\n\x1a\n':
+        i, z, pal, lace, depth = 8, [], b'', 1, 0
+        while i + 8 <= len(b):
+            n, k = struct.unpack('>I4s', b[i:i + 8])
+            x = b[i + 8:i + 8 + n]
+            i += n + 12
+            if k == b'IHDR':
+                w, h, depth, kind, _, _, lace = struct.unpack('>IIBBBBB', x)
+            elif k == b'PLTE':
+                pal = x
+            elif k == b'IDAT':
+                z.append(x)
+        if depth not in (8, 16) or lace:
+            raise Fail(f'{path}: this kind of PNG is not read here', 1)
+        ch = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[kind]
+        bpp = ch * depth // 8
+        d, st = zlib.decompress(b''.join(z)), w * bpp
+        prev, rows = bytearray(st), []
+        for y in range(h):
+            t, r = d[y * (st + 1)], bytearray(d[y * (st + 1) + 1:(y + 1) * (st + 1)])
+            if t == 1:
+                for c in range(bpp, st):
+                    r[c] = (r[c] + r[c - bpp]) & 255
+            elif t == 2:
+                r = bytearray((p + q) & 255 for p, q in zip(r, prev))
+            elif t == 3:
+                for c in range(st):
+                    r[c] = (r[c] + (((r[c - bpp] if c >= bpp else 0) + prev[c]) >> 1)) & 255
+            elif t == 4:
+                for c in range(bpp):
+                    r[c] = (r[c] + prev[c]) & 255
+                for c in range(bpp, st):
+                    a, u, ul = r[c - bpp], prev[c], prev[c - bpp]
+                    pa, pb, pc = abs(u - ul), abs(a - ul), abs(a + u - 2 * ul)
+                    r[c] = (r[c] + (a if pa <= pb and pa <= pc else u if pb <= pc else ul)) & 255
+            rows.append(bytes(r))
+            prev = r
+        raw = b''.join(rows)
+        if depth == 16:
+            raw = raw[::2]
+        out_ = bytearray(w * h * 3)
+        for c in range(3):
+            if kind == 3:
+                out_[c::3] = raw.translate(bytes((pal[c::3] + bytes(256))[:256]))
+            else:
+                out_[c::3] = raw[c if ch > 2 else 0::ch]
+        return w, h, bytes(out_)
+    m = re.match(rb'P6\s+(?:#[^\n]*\s+)*(\d+)\s+(\d+)\s+255\s', b)
+    if m:
+        w, h = int(m[1]), int(m[2])
+        return w, h, b[m.end():m.end() + w * h * 3]
+    if b[:2] == b'BM':
+        at, = struct.unpack('<I', b[10:14])
+        w, h, _, bits, comp = struct.unpack('<iiHHI', b[18:34])
+        if bits in (24, 32) and comp in (0, 3):
+            st, n = (w * bits // 8 + 3) // 4 * 4, bits // 8
+            rows = [b[at + y * st:at + y * st + w * n] for y in range(abs(h))]
+            raw = b''.join(rows if h < 0 else rows[::-1])
+            out_ = bytearray(w * abs(h) * 3)
+            for c in range(3):
+                out_[c::3] = raw[2 - c::n]
+            return w, abs(h), bytes(out_)
+    raise Fail(f'{path}: PNG, PPM and BMP pictures are read here', 1)
+
+
+def pic_write(path, w, h, rgb):
+    import struct
+    import zlib
+
+    def chunk(t, d):
+        return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
+    raw = b''.join(b'\0' + rgb[y * w * 3:(y + 1) * w * 3] for y in range(h))
+    with open(path, 'wb') as f:
+        f.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+
+@command('framecheck')
+def framecheck(name, args):
+    """Finds what is there in one frame only, or gone in one only: a cell unlike both its neighbours in time, which are alike."""
+    o, r, _ = git_args(args, ('-h', '--help'), ('-o', '--threshold', '--cell', '--area'))
+    if not r or '-h' in o or '--help' in o:
+        put('usage: framecheck [-o worst.png] [--threshold 24] [--cell 8] [--area 0.1] FRAMES...   (a folder, or PNG, PPM or BMP files in order)\n'
+            'Looks at every three frames in a row for parts that change and change back (flicker) and for frames of one colour.\n'
+            '--area: the least part of the picture, in percent. -o: the worst place as three pictures side by side. Exit code 1: something was found.\n'
+            'Frames must follow one another (none skipped). Things that blink or move fast on purpose are found too: look at the picture.')
+        return 0 if args else 2
+    files = []
+    for a in r:
+        if os.path.isdir(a):
+            l = [f for f in os.listdir(a) if f.lower().endswith(('.png', '.ppm', '.bmp'))]
+            l.sort(key=lambda f: [(0, int(x), '') if x.isdigit() else (1, 0, x) for x in re.split(r'(\d+)', f)])
+            files += [os.path.join(a, f) for f in l]
+        else:
+            files.append(a)
+    if len(files) < 3:
+        raise Fail('three frames or more are needed', 2)
+    T, C, area = float(o.get('--threshold', '24')), max(2, integer(o.get('--cell', '8'))), float(o.get('--area', '0.1'))
+    hist, found, size, flat = [], [], None, []
+    for n, f in enumerate(files):
+        w, h, b = pic_read(f)
+        if size and size != (w, h):
+            raise Fail(f'{f}: another size ({w}x{h}) than the frames before', 1)
+        if w < C or h < C:
+            raise Fail(f'{f}: too small', 1)
+        size = (w, h)
+        cw, rows = w // C, []
+        for y in range(h // C):
+            acc = [0] * (cw * 3)
+            for q in range(0, C, 2):
+                ln = b[(y * C + q) * w * 3:(y * C + q) * w * 3 + cw * C * 3]
+                for s in range(0, C, 2):
+                    for c in range(3):
+                        acc[c::3] = [u + v for u, v in zip(acc[c::3], ln[s * 3 + c::C * 3])]
+            rows += acc
+        k = len(range(0, C, 2)) ** 2
+        v = [x / k for x in rows]
+        if all(max(v[c::3]) - min(v[c::3]) < 2 for c in range(3)):
+            flat.append(n)
+        hist = (hist + [v])[-3:]
+        if len(hist) == 3:
+            p, m, q = hist
+            hit = sorted({i // 3 for i in range(len(m)) if abs(m[i] - p[i]) > T and abs(m[i] - q[i]) > T and (m[i] > p[i]) == (m[i] > q[i]) and abs(p[i] - q[i]) < T / 2})
+            if hit and len(hit) * 300 >= area * len(m):
+                xs, ys = [i % cw for i in hit], [i // cw for i in hit]
+                found.append((len(hit), n - 1, (min(xs) * C, min(ys) * C, (max(xs) + 1) * C, (max(ys) + 1) * C)))
+    put(f'{len(files)} frames of {size[0]}x{size[1]}')
+    if flat:
+        put(f'{len(flat)} of one colour: ' + ', '.join(os.path.basename(files[i]) for i in flat[:20]))
+    total = (size[0] // C) * (size[1] // C)
+    if not found:
+        put('no flicker found')
+        return 1 if flat else 0
+    put(f'{len(found)} frame(s) with flicker:')
+    for n, i, box in found[:60]:
+        put(f'  {os.path.basename(files[i])}: {n * 100 / total:.1f}% of the picture, x {box[0]}-{box[2]}, y {box[1]}-{box[3]}')
+    if '-o' in o:
+        n, i, (x0, y0, x1, y1) = max(found)
+        x0, y0, x1, y1 = max(0, x0 - 16), max(0, y0 - 16), min(size[0], x1 + 16), min(size[1], y1 + 16)
+        ps = [pic_read(files[j])[2] for j in (i - 1, i, i + 1)]
+        gap = b'\xff\x00\xff' * 4
+        img = b''.join(gap.join(p[(y * size[0] + x0) * 3:(y * size[0] + x1) * 3] for p in ps) for y in range(y0, y1))
+        pic_write(o['-o'], (x1 - x0) * 3 + 8, y1 - y0, img)
+        put(f'{o["-o"]}: {os.path.basename(files[i])} in the middle, the frames before and after beside it')
+    return 1
+
+
 # ---- main ----
 
 @command('help')

@@ -287,12 +287,26 @@ extension ProjectTools {
     SHELL: sh (also as bash and zsh) is a small shell: functions, case, [[ ]], $(( )), here-documents, pipes (one after the other, not at once). If $HENGE_TOOLS/bin/devtools.names \
     exists, the names in it work too (grep, sed, awk, find, diff, patch, make, tar, curl, sqlite3, jq…): Python versions with the common options, slower than the real ones.
 
-    NOT HERE: git (github_download, github_save), autoconf/configure scripts, Apple's Xcode, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
+    GIT. If devtools.names lists git, Henge's own clones public repositories (--depth 1, --recursive) and has the everyday local commands (git help); no push, merge or pull: \
+    github_save sends files, with the user's agreement, and github_download has their sign-in for private ones. brew only says whether a tool is here.
+
+    NOT HERE: autoconf/configure scripts, Apple's Xcode, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
     pip packages with C parts, fork(), job control in the shell, the Metal compiler. Python's subprocess works (multiprocessing pools become threads). \
     For a large Makefile write henge-project.json or a build.ninja instead.
 
     XCODE PROJECTS. If devtools.names lists xcodebuild, Henge's own builds a simple .xcodeproj (one iPhone app, with its static libraries, frameworks and source-only Swift packages; -list, -scheme, -target, -configuration): it writes henge-project.json \
     beside it and says what it cannot do (xcodebuild -help). After editing that file by hand use `build` instead.
+
+    STARTING A PROJECT. A new folder of the projects folder (leave others alone): ask what it should do only if that is not clear, write henge-project.json or use the Xcode project it has, \
+    get the smallest version to build, then add. Keep CLAUDE.md in it: what is done, what is next, the build command. Tell the user the IPA's name; they sign it.
+
+    BUILT ON GITHUB SO FAR (Actions). Get the repository into a new folder and read .github/workflows. Say of each step what it does and whether it can run here: checkout = git clone or \
+    github_download; brew/apt tools = those here; Xcode = xcodebuild here; caches, artifacts, signing and uploads are not needed. Libraries it downloads ready-made for a Mac or the simulator \
+    do not link: build their source. What a step makes from the user's own files stays on the phone. Then write the local steps down in CLAUDE.md and build here from then on; no pushes to start a build.
+
+    TEST HERE FIRST. The user would rather not install an IPA for each change: make one for them only when they ask or the work is done. Until then: build, run_program (the app's own code in Henge, without its window), drive it with program_command, read its output and any pictures it writes, \
+    fix, repeat. For flicker have the program write every frame of a stretch as PNG, PPM or BMP, run framecheck -o worst.png FOLDER \
+    (if devtools.names lists it) and look at the picture; the same stretch again after a fix. Say which checks passed and what only the installed app can show (sound, touch, speed, its window). One IPA for many fixes.
 
     STRONG PHONES. Metal, 120 Hz (info: "CADisableMinimumFrameDurationOnPhone": true), Core ML, Accelerate, NEON and threads are all available to an app. \
     A .metal file in "sources" is copied into the app: device.makeLibrary(source: String(contentsOf: url), options: nil) compiles it there. For more memory than iOS gives \
