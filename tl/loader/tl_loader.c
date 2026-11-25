@@ -1734,8 +1734,11 @@ static int is_system_path(const char *p) {
     return !strncmp(p, "/usr/lib/", 9) || !strncmp(p, "/System/", 8);
 }
 
+static const char *tool_path_of(const void *caller, const char *path, char *buf); /* tl_tool.h */
 static void *rt_dlopen(const char *path, int mode) {
     int ns = ns_of(__builtin_return_address(0));
+    char real[PATH_MAX];
+    path = tool_path_of(__builtin_return_address(0), path, real);
     TlImage *exe = main_of(ns);
     if (!path) return exe ? (void *)exe : dlopen(NULL, mode);
     char expanded[PATH_MAX];

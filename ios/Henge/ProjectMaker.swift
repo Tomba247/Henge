@@ -115,13 +115,14 @@ enum ProjectMaker {
             let fixed = "/henge/toolchain"
             var a = ["-frontend", "-c"] + swift.map { "$KIT/" + $0 } + ["-module-name", module, "-target", target, "-sdk", fixed + "/sdk/iPhoneOS.sdk", "-swift-version", "5",
                      "-resource-dir", fixed + "/lib/swift", "-enable-objc-interop", "-no-color-diagnostics", "-in-process-plugin-server-path",
-                     t + "/lib/swift/host/libSwiftInProcPluginServer.dylib", "-plugin-path", t + "/lib/swift/host/plugins",
+                     fixed + "/lib/swift/host/libSwiftInProcPluginServer.dylib", "-plugin-path", fixed + "/lib/swift/host/plugins",
                      "-module-cache-path", fixed + "/module-cache"]
             // A lone main.swift runs from its top; anything else has an @main.
             if !swift.contains(where: { ($0 as NSString).lastPathComponent == "main.swift" }) { a.append("-parse-as-library") }
             var deps = swift
             if let b = o["bridging_header"] as? String { a += ["-import-objc-header", "$KIT/" + b]; deps.append(b) }
-            a += try strings("include").flatMap { ["-Xcc", "-I" + ($0.hasPrefix("/") ? $0 : root.path + "/" + $0)] }
+            let beside = root.deletingLastPathComponent().path == tools.deletingLastPathComponent().path ? fixed + "/../" + root.lastPathComponent : root.path
+            a += try strings("include").flatMap { ["-Xcc", "-I" + ($0.hasPrefix("/") ? $0 : beside + "/" + $0)] }
             let own = try strings("swift_flags")
             a += own.contains { $0.hasPrefix("-O") } ? own : ["-O"] + own
             made = .init(tool: t + "/bin/swift-frontend", args: a, obj: "build/obj/\(module).swift.o", deps: deps)

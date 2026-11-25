@@ -605,6 +605,9 @@ static const char *tool_path(TlToolRun *r, const char *path, char *buf) {
     }
     return (size_t)snprintf(buf, PATH_MAX, "%s%s", real, path + n) < PATH_MAX ? buf : path;
 }
+static const char *tool_path_of(const void *caller, const char *path, char *buf) {
+    return path && !strncmp(path, TL_TOOLCHAIN, sizeof TL_TOOLCHAIN - 1) ? tool_path(tool_run_of(caller), path, buf) : path;
+}
 /* A real path in place, under TL_TOOLCHAIN if it lies there (never longer than a container's path). */
 static char *tool_path_back(TlToolRun *r, char *path) {
     const char *real = r->alias;
@@ -650,8 +653,10 @@ static int tool_symlink(const char *p, const char *q) { TOOL_PATHS(p, q); return
 static int tool_clonefile(const char *p, const char *q, uint32_t f) { TOOL_PATHS(p, q); return clonefile(p, q, f); }
 static int tool_copyfile(const char *p, const char *q, copyfile_state_t st, copyfile_flags_t f) { TOOL_PATHS(p, q); return copyfile(p, q, st, f); }
 static char *tool_realpath(const char *p, char *to) {
+    const char *given = p;
     TOOL_PATH(p);
-    return tool_path_back(r, realpath(p, to));
+    char *out = realpath(p, to);
+    return p != given ? tool_path_back(r, out) : out;
 }
 static int tool_close(int fd) {
     if (fd >= 0 && fd <= 2) return 0;
@@ -716,7 +721,7 @@ static int *tool_NSGetArgc(void) { TlToolRun *r = &g_tool; return &r->argc; }
 static char ***tool_NSGetArgv(void) { TlToolRun *r = &g_tool; return (char ***)&r->argv; }
 
 static int tool_chdir(const char *path) {
-    TlToolRun *r = &g_tool;
+    TOOL_PATH(path);
     if (!g_thread_chdir) return 0;
     int rc = g_thread_chdir(path);
     char now[PATH_MAX];
