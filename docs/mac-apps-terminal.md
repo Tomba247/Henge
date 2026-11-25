@@ -52,14 +52,20 @@ projects and anything this toolchain lacks (below). How many tests it saves depe
 
 ## How to use it
 
-You need an iPhone or iPad that Henge runs on with JIT, a Mac once (to make the toolchain), and your own copy of the
-program you want in the terminal.
+**You do not install macOS for this**: no virtual Mac, no 43 GB. You need an iPhone or iPad that Henge runs on with JIT,
+your own copy of the program you want in the terminal, and, **once, to make the toolchain, any Mac with Xcode** (your own,
+a friend's or a rented one). After that no Mac is needed. Building needs the toolchain; without it the terminal has little more
+than the program you bring.
+
+Henge makes its folders when it opens: **Projects** (with Toolkit in it), **Mac Apps** and **Shared**, all in Files › On My
+iPhone › Henge. You make none of them.
 
 1. **Make the toolchain**, on a Mac with Xcode and Homebrew's `python`, `ninja` and `cmake`:
    `zsh tools/phone-kit/make_toolchain.sh ~/Toolchain` (set `BREW` to Homebrew's folder, such as `/opt/homebrew`).
    It copies Apple's compiler and iPhone SDK from your Xcode. They are Apple's: for your own use, **not to be shared**.
    No release of this fork contains them.
-2. **Put it on the phone**: the folder goes in Files › On My iPhone › Henge › **Projects** › **Toolchain**.
+2. **Put it on the phone**: the folder called `Toolchain` that you just made goes inside Files › On My iPhone › Henge ›
+   **Projects** (Projects is already there).
 3. **Turn on** Settings › **Mac apps without macOS**.
 4. **Bring in the program** (Mac Apps): a program, an `.app`, or a `.dmg`, also one left in Files › Henge › Mac Apps. For Claude
    Code, its macOS arm64 program file by itself (the `claude` in Anthropic's macOS download). It is not included: it is

@@ -19,6 +19,10 @@ struct HengeApp: App {
         HengeLog.log("app", "increased memory limit: \(Entitlements.increasedMemory ? "yes" : "no"); extended addressing: \(Entitlements.extendedAddressing ? "yes" : "no"); limit \(Entitlements.memoryLimitAtLaunch >> 20) MB")
         // Without the guard, a brk no debugger answers kills the app instead of failing.
         JITBootstrap.installTrapGuard()
+        // The folders Files shows, so nobody has to make one: Projects (the terminal's), Mac Apps and Shared.
+        for folder in [TerminalSession.projects.appendingPathComponent("Toolkit/bin", isDirectory: true), MacAppsStore.folder, Sharing.folder] {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
         Microphone.configureSession()
         if Microphone.isOn { Microphone.requestPermission() }
         Machines.shared.collectImports()

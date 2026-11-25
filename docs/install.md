@@ -20,8 +20,16 @@ case you want to go back, and copy anything you care about out of Files › On M
 5. Choose what to run:
    - **macOS**: the Install tab. Keep about 43 GB free, Henge open and the device charging.
    - **Linux**: see "Running a Linux machine" below.
-   - **Claude Code and the toolchain**: turn on Settings › **Mac apps without macOS**, then follow the steps in "A coding
-     terminal" below.
+   - **Claude Code and the toolchain**: **no macOS to install**. Turn on Settings › **Mac apps without macOS**, then follow
+     the steps in "A coding terminal" below.
+
+Henge makes the **Projects**, **Mac Apps** and **Shared** folders by itself when it opens.
+
+| | Claude Code and the toolchain | Linux machine | macOS machine |
+|---|---|---|---|
+| macOS to install | **No** | **No** | Yes, about 43 GB free |
+| A computer | Once, a Mac with Xcode, to make the toolchain | No | No |
+| henge-env.txt settings | None needed | Optional | Optional |
 
 **If it goes wrong**
 
