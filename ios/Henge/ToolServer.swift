@@ -195,7 +195,7 @@ enum ProjectTools {
     }
 
     static func make(folder: URL, home: URL, token: @escaping () -> String?, run: @escaping ProjectBuilder.RunTool,
-                     program: @escaping ProgramRunner.Start, stop: @escaping () -> Void, stopTools: @escaping (String) -> Void, log: @escaping (String) -> Void) -> [ToolServer.Tool] {
+                     program: @escaping ProgramRunner.Start, stop: @escaping () -> Void, stopTools: @escaping (String) -> Void, shared: URL? = nil, log: @escaping (String) -> Void) -> [ToolServer.Tool] {
         let one = NSLock()
         let tools = folder.appendingPathComponent("Toolchain")
         let runner = ProgramRunner(start: program, stop: stop, tools: tools)
@@ -246,6 +246,17 @@ enum ProjectTools {
                       let m = a["message"] as? String, let p = a["paths"] as? String, !branch.isEmpty, !p.isEmpty else { return (false, "folder, repo, branch, paths and message are needed.") }
                 log("github: saving to \(repo) \(branch)")
                 return GitHub(token: t).save(d, repo: repo, branch: branch, paths: p.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }, message: m)
+            },
+            .init(name: "shared_folder", about: "Where the user puts files for you outside the projects folder (Files > Henge > Shared, also the Mac's shared folder; $HENGE_SHARED), such as a game dump of their own, and what is in it. Use full paths. Change nothing there unless asked; keep what it holds out of github_save.", inputs: []) { _ in
+                let fm = FileManager.default
+                guard let f = shared, let e = fm.enumerator(atPath: f.path) else { return (true, "There is none.") }
+                var lines = [String](), more = 0
+                while let n = e.nextObject() as? String {
+                    if lines.count == 300 { more += 1; if more == 5000 { break }; continue }
+                    let dir = e.fileAttributes?[.type] as? FileAttributeType == .typeDirectory
+                    lines.append("  " + n + (dir ? "/" : "  \((e.fileAttributes?[.size] as? NSNumber)?.int64Value ?? 0) bytes"))
+                }
+                return (true, ([f.path] + (lines.isEmpty ? ["  (empty)"] : lines.sorted()) + (more > 0 ? ["  and \(more)\(more == 5000 ? "+" : "") more"] : [])).joined(separator: "\n"))
             },
             .init(name: "search", about: "Search file contents with a regular expression (grep). Returns path:line: text.",
                   inputs: [("pattern", "string", "Regular expression (ICU)"), ("path", "string", "File or folder to search; default the projects folder"),

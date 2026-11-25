@@ -153,8 +153,13 @@ final class TerminalSession: ObservableObject {
         env += ["BUN_JSC_useJIT=0", "BUN_OPTIONS=--preload=\(pre.path)", "CLAUDE_CODE_TMPDIR=\(tmp)", "DISABLE_AUTOUPDATER=1"]
         var args = arguments.split(separator: " ").map(String.init)
         let projects = ProjectTools.projects(in: Self.projects)
+        // Files > Henge > Shared, the folder a Mac mounts, is the terminal's too.
+        try? fm.createDirectory(at: Sharing.folder, withIntermediateDirectories: true)
+        setenv("HENGE_SHARED", Sharing.folder.path, 1) // for the tools
+        env.append("HENGE_SHARED=" + Sharing.folder.path)
         if (app.executable as NSString).lastPathComponent.lowercased().hasPrefix("claude") {
-            let s = ToolServer(tools: ProjectTools.make(folder: Self.projects, home: Self.home, token: { GitHubToken.read() }, run: Self.runTool, program: Self.runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }) {
+            args += ["--add-dir", Sharing.folder.path]
+            let s = ToolServer(tools: ProjectTools.make(folder: Self.projects, home: Self.home, token: { GitHubToken.read() }, run: Self.runTool, program: Self.runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }, shared: Sharing.folder) {
                 HengeLog.log("macapps", "terminal: \($0)")
             })
             if s.start() {

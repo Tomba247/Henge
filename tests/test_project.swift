@@ -29,7 +29,7 @@ func runProgram(_ path: String, _ argv0: String, _ entry: String, _ env: [String
     }, box.toOpaque())
 }
 func tools(_ log: @escaping (String) -> Void) -> [ToolServer.Tool] {
-    ProjectTools.make(folder: folder, home: FileManager.default.temporaryDirectory, token: { ProcessInfo.processInfo.environment["TEST_TOKEN"] }, run: runTool, program: runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }, log: log)
+    ProjectTools.make(folder: folder, home: FileManager.default.temporaryDirectory, token: { ProcessInfo.processInfo.environment["TEST_TOKEN"] }, run: runTool, program: runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }, shared: ProcessInfo.processInfo.environment["TEST_SHARED"].map { URL(fileURLWithPath: $0) }, log: log)
 }
 if let a = ProcessInfo.processInfo.environment["TEST_API"] { GitHub.api = a }
 let server = ToolServer(tools: tools { FileHandle.standardError.write(Data("tools: \($0)\n".utf8)) })
