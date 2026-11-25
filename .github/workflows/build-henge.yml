@@ -204,12 +204,12 @@ jobs:
           echo "(built from $GITHUB_SHA)" >> /tmp/notes.txt
           echo "**Version:** $VERSION (build $BUILD)" >> /tmp/notes.txt
           if ! gh release create "$TAG" /Users/runner/Desktop/Henge.ipa /Users/runner/Desktop/Henge.tipa --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "Unofficial fork of Henge (by Leviidev) · Linux on iPhone test build $GITHUB_RUN_NUMBER" --notes-file /tmp/notes.txt --prerelease; then
+            --target "$GITHUB_SHA" --title "Unofficial fork of Henge (by Leviidev) · Linux and coding on iPhone test build $GITHUB_RUN_NUMBER" --notes-file /tmp/notes.txt --prerelease; then
             prev=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
             at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$prev" -q .object.sha)
             echo "release on $GITHUB_SHA refused; tagging it on $at ($prev's commit) instead"
             gh release create "$TAG" /Users/runner/Desktop/Henge.ipa /Users/runner/Desktop/Henge.tipa --repo "$GITHUB_REPOSITORY" \
-              --target "$at" --title "Unofficial fork of Henge (by Leviidev) · Linux on iPhone test build $GITHUB_RUN_NUMBER" --notes-file /tmp/notes.txt --prerelease
+              --target "$at" --title "Unofficial fork of Henge (by Leviidev) · Linux and coding on iPhone test build $GITHUB_RUN_NUMBER" --notes-file /tmp/notes.txt --prerelease
           fi
           tools/release-notes.sh "$TAG" "$(git log -1 --format=%s | cut -c1-300)" || true
           SIZE=$(stat -f %z /Users/runner/Desktop/Henge.ipa)
