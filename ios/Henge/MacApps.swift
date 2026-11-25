@@ -276,8 +276,6 @@ struct MacAppRunView: View {
     @State private var result: String?
     @State private var confirmDelete = false
     @State private var showScreen = false
-    @State private var github = ""
-    @State private var githubSaved = GitHubToken.read() != nil
     @State private var showTerminal = false
     @AppStorage("terminal.arguments") private var arguments = ""
 
@@ -305,20 +303,12 @@ struct MacAppRunView: View {
                         .font(.system(size: 15, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .padding(12).deskCard().padding(.top, 12)
                     if (app.executable as NSString).lastPathComponent.lowercased().hasPrefix("claude") {
-                        HStack {
-                            SecureField(githubSaved ? "GitHub: connected (paste a new token to change)" : "GitHub token (optional)", text: $github)
-                                .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            Button(github.isEmpty && githubSaved ? "Forget" : "Save") { GitHubToken.write(github); github = ""; githubSaved = GitHubToken.read() != nil }
-                                .disabled(github.isEmpty && !githubSaved)
-                        }
-                        .font(.system(size: 15)).padding(12).deskCard().padding(.top, 12)
-                        Text("Connects GitHub: private repositories, and saving work to a branch. Make a fine-grained token on github.com (Settings › Developer settings) for only the repositories you choose. It stays in this iPhone's Keychain and, while Claude runs, in a file only Henge reads. Public repositories need none.")
-                            .font(.system(size: 13)).foregroundStyle(Desk.dim).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                        GitHubConnector()
                     }
                     Button(TerminalSession.shared.started ? "Show Terminal" : "Open in a Terminal") { showTerminal = true }
                         .buttonStyle(DeskButtonStyle())
                         .disabled(!TerminalSession.shared.started && henge_tl_ran_program() != 0).padding(.top, 10)
-                    Text("A terminal suits programs you type into, such as Claude Code. It starts in Files → Henge → Projects. Programs it tries to start are refused, as iOS allows none.")
+                    Text("A terminal suits programs you type into, such as Claude Code. It starts in Files → Henge → Projects. It can start the Toolchain's programs; others are refused, as iOS allows none.")
                         .font(.system(size: 13)).foregroundStyle(Desk.dim).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                     Text("Programs run inside Henge, one per launch. After one has run, quit Henge and open it again to run another or to start a Mac.")
                         .font(.system(size: 13)).foregroundStyle(Desk.dim).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
@@ -370,5 +360,71 @@ struct MacAppRunView: View {
                 running = false
             }
         }
+    }
+}
+
+/// Mac Apps > GitHub: makes a token on GitHub's own page, checks it, and keeps it in the Keychain.
+private struct GitHubConnector: View {
+    @State private var token = ""
+    @State private var saved = GitHubToken.read() != nil
+    @State private var login = ""
+    @State private var problem = ""
+    @State private var checking = false
+    @Environment(\.openURL) private var openURL
+
+    /// GitHub's page for a new token, with what Henge needs filled in; the user chooses the repositories and its life.
+    private static let page = URL(string: "https://github.com/settings/personal-access-tokens/new?name=Henge&description=Henge%20terminal&expires_in=30&contents=write&pull_requests=write&issues=write&actions=read&metadata=read")!
+
+    var body: some View {
+        DeskHeading("GitHub")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(saved ? (login.isEmpty ? "Connected" : "Connected as \(login)") : "Not connected")
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(saved ? Desk.good : Desk.text)
+                Spacer()
+                if checking { ProgressView() }
+                if saved { Button("Disconnect", role: .destructive) { GitHubToken.write(""); saved = false; login = ""; problem = "" }.font(.system(size: 15)) }
+            }
+            if !saved {
+                Button("1. Make a token on GitHub") { openURL(Self.page) }.font(.system(size: 15))
+                HStack {
+                    SecureField("2. Paste it here", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled().onSubmit(connect)
+                    Button("Connect", action: connect).disabled(token.isEmpty || checking)
+                }
+                .font(.system(size: 15))
+            }
+            if !problem.isEmpty { Text(problem).font(.system(size: 13)).foregroundStyle(.red) }
+            Text(saved ? "Claude can read and save to the repositories you allowed. A change here counts for GitHub's own tools after Henge is opened again."
+                 : "For private repositories, saving work, pull requests and issues. On GitHub's page choose the repositories (Only select repositories), then Generate and copy. It stays in this iPhone's Keychain and, while Claude runs, in a file only Henge reads. Public repositories need none.")
+                .font(.system(size: 13)).foregroundStyle(Desk.dim)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(17).deskCard()
+        .task { if let t = GitHubToken.read(), login.isEmpty { await check(t, keep: false) } }
+    }
+    private func connect() {
+        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !checking else { return }
+        Task { await check(t, keep: true) }
+    }
+    @MainActor private func check(_ t: String, keep: Bool) async {
+        checking = true
+        problem = ""
+        defer { checking = false }
+        do {
+            let (d, r) = try await URLSession.shared.data(for: GitHub(token: t).request("/user"))
+            let code = (r as? HTTPURLResponse)?.statusCode ?? 0
+            let name = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["login"] as? String ?? ""
+            guard code == 200 else {
+                problem = code == 401 ? "GitHub does not accept this token: it may be mistyped or have expired." : "GitHub answered \(code)."
+                return
+            }
+            if keep {
+                guard GitHubToken.write(t) else { problem = "The Keychain refused it."; return }
+                token = ""
+                saved = true
+                HengeLog.log("macapps", "github: connected")
+            }
+            login = name
+        } catch { if keep { problem = "GitHub cannot be reached: \(error.localizedDescription)" } }
     }
 }

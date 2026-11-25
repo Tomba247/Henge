@@ -173,7 +173,12 @@ repository or its releases.
 | `search` · `find_files` | Regular-expression search |
 | `project_help` | The project format and what works, for the program to read first |
 | `download` · `github_download` | Bring in source (zip, tar.gz, tar.xz, tar.bz2; submodules too) |
-| `github_save` | Commit chosen files to a branch, never forced. Needs a token you add |
+| `github_save` | Commit chosen files to a branch, never forced. Needs GitHub connected |
+| GitHub's own tools | Pull requests, issues, code search: GitHub's hosted server, when connected |
+
+**Connecting GitHub** (Mac Apps › the program › GitHub): **Make a token** opens GitHub's page with what is needed filled
+in; choose the repositories, generate, and paste it back. Henge checks it and shows who you are connected as. Disconnect
+removes it from the iPhone; GitHub's settings revoke it.
 
 **Safety.** The server listens on 127.0.0.1 only, and a new secret is needed at every launch. Folders the tools write to
 must be inside Projects. The optional GitHub token is kept in the iPhone's Keychain; while the program runs it is also in
