@@ -911,28 +911,29 @@ static int spawn(int n, char **v, Io io) {
     pid_t pid;
     char path[PATH_MAX];
     int rc = ENOENT;
-    if (strchr(v[0], '/')) {
+    const char *file = strchr(v[0], '/') ? v[0] : NULL;
+    for (const char *s = file ? NULL : getenv("PATH"); s && *s && !file;) { /* the user's Toolkit/bin is among these */
+        const char *e = strchr(s, ':');
+        snprintf(path, sizeof path, "%.*s/%s", (int)(e ? e - s : (long)strlen(s)), s, v[0]);
+        struct stat is;
+        if (!stat(path, &is) && S_ISREG(is.st_mode)) file = path;
+        s = e ? e + 1 : NULL;
+    }
+    if (file) {
         /* A script runs by its first line. */
         char head[512] = "";
-        int fd = open(v[0], O_RDONLY);
+        int fd = open(file, O_RDONLY);
         if (fd >= 0) { ssize_t k = read(fd, head, sizeof head - 1); close(fd); if (k > 0) head[k] = 0; }
         if (head[0] == '#' && head[1] == '!') {
             strtok(head, "\r\n");
             Words w = {0};
             for (char *t = strtok(head + 2, " "); t; t = strtok(NULL, " ")) if (!(w.n == 0 && !strcmp(t, "/usr/bin/env"))) add_word(&w, strdup(t));
-            for (int i = 0; i < n; i++) add_word(&w, v[i]);
+            add_word(&w, (char *)file);
+            for (int i = 1; i < n; i++) add_word(&w, v[i]);
             rc = posix_spawnp(&pid, w.v[0], &fa, NULL, w.v, environ);
-        } else rc = posix_spawn(&pid, v[0], &fa, NULL, v, environ);
-    } else {
-        const char *s = getenv("PATH");
-        for (; s && *s && rc == ENOENT;) {
-            const char *e = strchr(s, ':');
-            snprintf(path, sizeof path, "%.*s/%s", (int)(e ? e - s : (long)strlen(s)), s, v[0]);
-            if (!access(path, F_OK)) rc = posix_spawn(&pid, path, &fa, NULL, v, environ);
-            s = e ? e + 1 : NULL;
-        }
-        if (rc == ENOENT) rc = posix_spawnp(&pid, v[0], &fa, NULL, v, environ);
+        } else rc = posix_spawn(&pid, file, &fa, NULL, v, environ);
     }
+    if (rc == ENOENT && file != v[0]) rc = posix_spawnp(&pid, v[0], &fa, NULL, v, environ);
     posix_spawn_file_actions_destroy(&fa);
     if (rc) { say(io.err, "%s: %s\n", v[0], rc == ENOENT ? "not found" : strerror(rc)); return 127; }
     int st = 0;

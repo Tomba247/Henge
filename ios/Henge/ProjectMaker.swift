@@ -11,7 +11,7 @@ enum ProjectMaker {
     /// What a command started from a tool gets over the app's environment.
     static func environment(tools: URL, home: String) -> [String] {
         let t = tools.path, cert = t + "/python/cert.pem"
-        return ["PATH=\(t)/bin", "HENGE_TOOLS=\(t)", "PYTHONHOME=\(t)/python", "SDKROOT=\(t)/sdk/iPhoneOS.sdk", "IPHONEOS_DEPLOYMENT_TARGET=17.0",
+        return ["PATH=\(t)/bin:\(tools.deletingLastPathComponent().path)/Toolkit/bin", "HENGE_TOOLS=\(t)", "PYTHONHOME=\(t)/python", "SDKROOT=\(t)/sdk/iPhoneOS.sdk", "IPHONEOS_DEPLOYMENT_TARGET=17.0",
                 "CMAKE_TOOLCHAIN_FILE=\(t)/henge.cmake", "CMAKE_GENERATOR=Ninja", "CC=clang", "CXX=clang++", "SSL_CERT_FILE=\(cert)",
                 "HOME=\(home)", "SHELL=\(t)/bin/sh", "BUN_OPTIONS=", "PYTHONUNBUFFERED=1"]
     }

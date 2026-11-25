@@ -297,6 +297,16 @@ extension ProjectTools {
     XCODE PROJECTS. If devtools.names lists xcodebuild, Henge's own builds a simple .xcodeproj (one iPhone app, with its static libraries, frameworks and source-only Swift packages; -list, -scheme, -target, -configuration): it writes henge-project.json \
     beside it and says what it cannot do (xcodebuild -help). After editing that file by hand use `build` instead.
 
+    MAKING THE TOOLS YOU NEED. When a project needs a command that is not here, make it, in the projects' Toolkit folder: Toolkit/bin/NAME is a command in every project (by its name in run_command and scripts; \
+    from Python's subprocess with shell=True), a script starting with #!/usr/bin/env python3 or #!/usr/bin/env sh, or a program built here. It stays when Henge is updated; Toolchain/bin does not: never change that. \
+    Names already here come first: choose a new one. Prefer building an existing open-source tool from its source (keep its license beside it, source in Toolkit/src); else write the part that is needed. \
+    Test each on a small input, and list it in Toolkit/README.md with what it does and lacks: read that file first in a new project. Libraries many projects use go in Toolkit/lib and Toolkit/include.
+
+    CHANGING HENGE ITSELF. Only for what a tool cannot do (a Mac call missing from the loader, a new tool for Claude, Henge's screens). iOS does not let a running app change its own signed code and Henge has no whole build here, so: \
+    github_download the user's fork (ask which branch) to a folder, make the smallest change, add a test beside it, check what can be checked here (C files: clang -fsyntax-only), show the user the difference, \
+    and with their agreement github_save it to a branch of its own, not main. They start "Build Henge IPA" for that branch in GitHub's Actions (it makes a public release), sign that IPA and install it over Henge; projects stay. \
+    If it fails, they install the release before it. Keep the failing program small enough to run again after the update, and say what was not tested.
+
     STARTING A PROJECT. A new folder of the projects folder (leave others alone): ask what it should do only if that is not clear, write henge-project.json or use the Xcode project it has, \
     get the smallest version to build, then add. Keep CLAUDE.md in it: what is done, what is next, the build command. Tell the user the IPA's name; they sign it.
 
