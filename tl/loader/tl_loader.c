@@ -1735,10 +1735,14 @@ static int is_system_path(const char *p) {
 }
 
 static const char *tool_path_of(const void *caller, const char *path, char *buf); /* tl_tool.h */
+static void *dlopen_in(int ns, const char *path, int mode);
+/* Small: past 4 KB of frame the compiler's stack check (__chkstk_darwin) takes the place of the return address. */
 static void *rt_dlopen(const char *path, int mode) {
-    int ns = ns_of(__builtin_return_address(0));
+    const void *caller = __builtin_return_address(0);
     char real[PATH_MAX];
-    path = tool_path_of(__builtin_return_address(0), path, real);
+    return dlopen_in(ns_of(caller), tool_path_of(caller, path, real), mode);
+}
+static __attribute__((noinline)) void *dlopen_in(int ns, const char *path, int mode) {
     TlImage *exe = main_of(ns);
     if (!path) return exe ? (void *)exe : dlopen(NULL, mode);
     char expanded[PATH_MAX];
