@@ -306,3 +306,26 @@ extension ProjectTools {
     get it to run here headless and check it, then add the iPhone shell. 5 Keep notes in the project's CLAUDE.md. Copyrighted assets stay on the phone, outside github_save.
     """
 }
+
+/// Swift's print and debugPrint as a tool calls them (henge-tl-term.c): what they write is the tool's output.
+@_silgen_name("henge_tool_print") public func hengeToolPrint(_ items: [Any], separator: String, terminator: String) {
+    send(items.map { String(describing: $0) }.joined(separator: separator) + terminator)
+}
+@_silgen_name("henge_tool_debug_print") public func hengeToolDebugPrint(_ items: [Any], separator: String, terminator: String) {
+    send(items.map { String(reflecting: $0) }.joined(separator: separator) + terminator)
+}
+private func send(_ s: String) {
+    var s = s
+    s.withUTF8 { b in b.baseAddress?.withMemoryRebound(to: CChar.self, capacity: b.count) { tl_tool_print($0, b.count) } }
+}
+
+/// The main actor of Swift programs run as tools (tl_tool.h): their jobs go to the program's own first thread.
+final class ToolMainExecutor: SerialExecutor {
+    static let shared = ToolMainExecutor()
+    func enqueue(_ job: UnownedJob) { tl_tool_main_job(unsafeBitCast(job, to: UnsafeMutableRawPointer.self)) }
+    func asUnownedSerialExecutor() -> UnownedSerialExecutor { UnownedSerialExecutor(ordinary: self) }
+}
+@_silgen_name("henge_tool_swift") public func hengeToolSwift() {
+    let e = unsafeBitCast(ToolMainExecutor.shared.asUnownedSerialExecutor(), to: (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?).self)
+    tl_tool_main_executor(e.0, e.1)
+}

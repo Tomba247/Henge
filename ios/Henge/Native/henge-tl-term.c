@@ -126,6 +126,9 @@ static int security_tool(pid_t *pid, const char *path, char *const argv[]) {
 
 /* The compiler, linker and other tools beside it (tl_tool_command): loaded at their first use and kept. Told before the
    program starts. */
+void henge_tool_print(void); /* Swift's, with the arguments of its print (ProjectTools.swift) */
+void henge_tool_debug_print(void);
+void henge_tool_swift(void);
 static char *tool_folders[9], **tool_env;
 static int tool_copies;
 void henge_tl_tool_setup(const char *const *folders, int copies, const char *const *env) {
@@ -134,6 +137,9 @@ void henge_tl_tool_setup(const char *const *folders, int copies, const char *con
     tool_folders[n] = NULL;
     tool_copies = copies;
     while (env && env[e]) e++;
+    henge_tool_swift();
+    tl_tool_answer("_$ss5print_9separator10terminatoryypd_S2StF", (void *)henge_tool_print);
+    tl_tool_answer("_$ss10debugPrint_9separator10terminatoryypd_S2StF", (void *)henge_tool_debug_print);
     tool_env = calloc((size_t)e + 1, sizeof *tool_env);
     for (int i = 0; i < e; i++) tool_env[i] = strdup(env[i]);
 }

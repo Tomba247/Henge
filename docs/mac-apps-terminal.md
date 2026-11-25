@@ -29,6 +29,9 @@ Actions**:
 | Actions minutes, commits just to test | Every try | None |
 | IPAs to sign and install | Often one for each try | When there is something worth looking at |
 
+Tests need **no simulator**: `"kind": "tool"` builds C, C++ or Swift into a command-line program that runs at once, and
+Python is there as well. Screens and touch still need the installed app.
+
 ### What a strong phone is good for here
 
 | Tried on a Mac, in the same loader | Result |
@@ -38,6 +41,7 @@ Actions**:
 | AI-style kernels: Accelerate and NEON, 700 MB of data | Built and run here |
 | Randomizer for a made-up ROM: shuffled table, fixed checksum, IPS patch, and its app | Run here; IPA built |
 | A 40-file C project with generated data, by `make` and by CMake and Ninja | Built and run here |
+| Swift command-line tests: `print`, `await` in main, actors, task groups, main actor | Built and run here |
 | Code for another processor (`--target=armv4t-none-eabi`) | Compiles; there is no linker for it |
 | Mac source to iPhone: shared SwiftUI, SwiftData, Charts and Objective-C++ | IPA built |
 
@@ -227,7 +231,7 @@ sandboxed from Henge**: run only source you trust, and look before allowing a co
 | Terminal, sign-in and saved sign-in | Used on an iPhone 18 Pro Max, iOS 27.0.1 |
 | clang 21, the shell, Python 3.15 | Reported working on that iPhone by the coding program in it |
 | A sample app built to an IPA | Reported on that iPhone: first build 28.7 s |
-| `run_program` | It ran and ended with 0 on that iPhone; the output file was empty (not explained yet) |
+| `run_program` | It ran and ended with 0 on that iPhone with nothing in its output. Swift's `print` went elsewhere: fixed, checked on a Mac |
 | Claude Code's Bash tool, the developer tools, `python3 -I` | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |
 | The tool server after iOS closed it in the background | Checked on a Mac by closing its port; not checked on an iPhone |
 | Swift, CMake, Ninja | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |

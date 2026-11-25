@@ -15,6 +15,9 @@ static HvJitRegion jit;
 static HengeDualMapping mapping;
 _Atomic int henge_tl_ran;
 void henge_ios_release_high_room(void) {}
+void henge_tool_print(void) {} /* ProjectTools.swift */
+void henge_tool_debug_print(void) {}
+void henge_tool_swift(void) {}
 int henge_vm_state(void) { return 0; }
 HengeDualMapping *henge_ios_jit_get_mapping(void) { return &mapping; }
 static FILE *out;

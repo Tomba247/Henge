@@ -122,6 +122,11 @@ int tl_tool_command(const char *path, int argc, const char **argv, const char **
    tl_tool_file_action's functions: what the program's own posix_spawn_file_actions_* are to be). ended: its wait status,
    on another thread. 0 or an error number. tl_tool_kill ends it and what it started. */
 int tl_tool_spawn(pid_t *pid, const char *path, void *const *fa, char *const argv[], char *const envp[], void (*ended)(void *, int), void *context);
+void tl_tool_answer(const char *symbol, void *fn); /* for tools, before all else */
+void tl_tool_print(const char *bytes, size_t len); /* to the output of the tool that called */
+/* The executor tools use for Swift's main actor (an UnownedSerialExecutor's two words), and what its enqueue calls. */
+void tl_tool_main_executor(void *identity, void *witness);
+void tl_tool_main_job(void *job);
 int tl_tool_exists(const char *name);
 void *tl_tool_file_action(const char *symbol);
 int tl_tool_kill(pid_t pid);

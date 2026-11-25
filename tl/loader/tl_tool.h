@@ -38,6 +38,7 @@ typedef struct TlToolRun {
     ino_t fdino[1024];
     pthread_key_t keys[128];
     int nkeys;
+    struct TlToolJob *jobs; /* Swift's, for its main actor */
     struct sigaction sigchld;
     _Atomic int chld; /* children that ended, and how many of them a wait of its has been told */
     int chld_seen;
@@ -971,7 +972,133 @@ static void tool_assert(const char *fn, const char *file, int line, const char *
 static int tool_system(const char *command);
 static FILE *tool_popen(const char *command, const char *mode);
 static int tool_pclose(FILE *f);
+/* Swift's main actor for tools: the app's main thread is not theirs (it draws, and may not end), and the runtime's own way
+   to wait for its jobs would end the app. Where a tool's code names the main executor it gets the host's executor in its
+   place (tl_tool_main_executor), whose jobs its first thread runs while it waits (main with await). */
+typedef struct TlToolJob { void *job; struct TlToolJob *next; } TlToolJob;
+typedef struct { void *identity, *witness; } TlSwiftExecutor;
+static void (*g_swift_job_run)(void *, TlSwiftExecutor);
+__attribute__((used)) static void *g_swift_main, *g_swift_switch; /* the app's main executor; the runtime's swift_task_switch */
+__attribute__((used)) static TlSwiftExecutor g_swift_ours;
+void tl_tool_main_executor(void *identity, void *witness) { g_swift_ours = (TlSwiftExecutor){identity, witness}; }
+void tl_tool_main_job(void *job) {
+    /* Where a job says its kind and what it runs, and a task the contexts it returns to: part of Swift's ABI. */
+    enum { JOB_FLAGS = 0x20, JOB_CODE = 0x38, TASK_CONTEXT = 0x40 };
+    TlImage *im = tl_image_containing(*(void **)((char *)job + JOB_CODE));
+    void **ctx = *(uint8_t *)((char *)job + JOB_FLAGS) == 0 ? *(void ***)((char *)job + TASK_CONTEXT) : NULL;
+    for (int i = 0; !im && ctx && i < 64; i++, ctx = ctx[0]) im = tl_image_containing(ctx[1]); /* in the runtime's code, on a tool's behalf */
+    TlToolRun *r = NULL;
+    TlToolJob *j = calloc(1, sizeof *j);
+    j->job = job;
+    pthread_mutex_lock(&g_tool_lock);
+    if (im && im->ns > 0 && im->ns < TL_MAX_NS) r = g_tool_runs[im->ns];
+    TlToolRun *own = pthread_getspecific(g_tool_key);
+    if (!r) r = own;
+    if (r) {
+        TlToolJob **at = &r->jobs;
+        while (*at) at = &(*at)->next;
+        *at = j;
+        pthread_cond_broadcast(&g_tool_cond);
+    } else
+        free(j); /* its program has ended */
+    pthread_mutex_unlock(&g_tool_lock);
+}
+static void tool_swift_drain(void) {
+    TlToolRun *r = &g_tool;
+    for (;;) {
+        pthread_mutex_lock(&g_tool_lock);
+        TlToolJob *j = r->jobs;
+        if (j) r->jobs = j->next;
+        else {
+            const struct timespec step = {0, 50000000};
+            pthread_cond_timedwait_relative_np(&g_tool_cond, &g_tool_lock, &step);
+        }
+        pthread_mutex_unlock(&g_tool_lock);
+        tool_point();
+        if (!j) continue;
+        void *job = j->job;
+        free(j);
+        g_swift_job_run(job, g_swift_ours);
+    }
+}
+static TlSwiftExecutor tool_swift_main(void) { return g_swift_ours; }
+/* Its arguments: x0 what goes on, x1 and x2 the executor, x22 the async context. */
+__attribute__((naked)) static void tool_swift_switch(void) {
+    __asm__("adrp x16, _g_swift_main@PAGE\n ldr x16, [x16, _g_swift_main@PAGEOFF]\n cmp x1, x16\n b.ne 1f\n cbz x1, 1f\n"
+            "adrp x16, _g_swift_ours@PAGE\n add x16, x16, _g_swift_ours@PAGEOFF\n ldp x1, x2, [x16]\n"
+            "1: adrp x16, _g_swift_switch@PAGE\n ldr x16, [x16, _g_swift_switch@PAGEOFF]\n br x16\n");
+}
+static _Bool (*g_swift_current)(TlSwiftExecutor);
+static _Bool (*g_swift_current_flags)(TlSwiftExecutor, uintptr_t);
+static TlSwiftExecutor tool_swift_mine(TlSwiftExecutor e) { return e.identity && e.identity == g_swift_main ? g_swift_ours : e; }
+static _Bool tool_swift_current(TlSwiftExecutor e) { return g_swift_current(tool_swift_mine(e)); }
+static _Bool tool_swift_current_flags(TlSwiftExecutor e, uintptr_t f) { return g_swift_current_flags(tool_swift_mine(e), f); }
+/* A task may be made to start on an executor, named in its options: {flags, next, executor}. */
+typedef struct { void *task, *context; } TlSwiftTask;
+static TlSwiftTask (*g_swift_create)(size_t, void **, void *, void *, void *);
+static TlSwiftTask tool_swift_create(size_t flags, void **options, void *type, void *fn, void *ctx) {
+    for (void **o = options; o; o = o[1])
+        if (g_swift_main && o[2] == g_swift_main) o[2] = g_swift_ours.identity, o[3] = g_swift_ours.witness;
+    return g_swift_create(flags, options, type, fn, ctx);
+}
+/* MainActor as an Actor: what the runtime's own code (task groups) asks for the executor of an actor it is given. */
+static const void *g_swift_actor, *g_swift_actor_table[2];
+static const void *(*g_swift_table)(const void *, const void *, const void *);
+static const void *tool_swift_table(const void *conformance, const void *type, const void *args) {
+    return conformance == g_swift_actor ? g_swift_actor_table : g_swift_table(conformance, type, args);
+}
+static void *tool_swift_symbol(const char *sym) {
+    static const char *const names[] = {"_swift_task_asyncMainDrainQueue", "_swift_task_getMainExecutor", "_swift_task_switch", "_swift_task_isCurrentExecutor",
+                                        "_swift_task_isCurrentExecutorWithFlags", "_swift_task_create", "_swift_getWitnessTable", "_$sScMScAsWP"};
+    static void *const with[] = {(void *)tool_swift_drain, (void *)tool_swift_main, (void *)tool_swift_switch, (void *)tool_swift_current,
+                                 (void *)tool_swift_current_flags, (void *)tool_swift_create, (void *)tool_swift_table, (void *)g_swift_actor_table};
+    if ((strncmp(sym, "_swift_", 7) && strncmp(sym, "_$sScM", 6)) || !g_swift_ours.identity) return NULL;
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        if (strcmp(sym, names[i])) continue;
+        TlSwiftExecutor (*real)(void) = (TlSwiftExecutor (*)(void))dlsym(RTLD_DEFAULT, "swift_task_getMainExecutor");
+        g_swift_job_run = (void (*)(void *, TlSwiftExecutor))dlsym(RTLD_DEFAULT, "swift_job_run");
+        g_swift_switch = dlsym(RTLD_DEFAULT, "swift_task_switch");
+        g_swift_current = (_Bool (*)(TlSwiftExecutor))dlsym(RTLD_DEFAULT, "swift_task_isCurrentExecutor");
+        g_swift_current_flags = (_Bool (*)(TlSwiftExecutor, uintptr_t))dlsym(RTLD_DEFAULT, "swift_task_isCurrentExecutorWithFlags");
+        g_swift_create = (TlSwiftTask (*)(size_t, void **, void *, void *, void *))dlsym(RTLD_DEFAULT, "swift_task_create");
+        if (!real || !g_swift_job_run || !g_swift_switch || !g_swift_create) return NULL;
+        g_swift_table = (const void *(*)(const void *, const void *, const void *))dlsym(RTLD_DEFAULT, "swift_getWitnessTable");
+        g_swift_actor = dlsym(RTLD_DEFAULT, "$sScMScAsMc");
+        if (!g_swift_table || !g_swift_actor) return NULL;
+        g_swift_actor_table[0] = g_swift_actor, g_swift_actor_table[1] = (const void *)tool_swift_main;
+        g_swift_main = real().identity;
+        return dlsym(RTLD_DEFAULT, sym + 1) ? with[i] : NULL;
+    }
+    return NULL;
+}
+/* Symbols the host answers for tools (Swift's print, whose own writes to the app's output). */
+static struct { const char *name; void *fn; } g_tool_answers[8];
+void tl_tool_answer(const char *symbol, void *fn) {
+    for (int i = 0; i < 8; i++)
+        if (!g_tool_answers[i].name || !strcmp(g_tool_answers[i].name, symbol)) {
+            g_tool_answers[i].fn = fn, g_tool_answers[i].name = symbol;
+            return;
+        }
+}
+/* From such an answer: to the output of the tool it was called by, found on the stack when its thread is the system's. */
+void tl_tool_print(const char *p, size_t n) {
+    TlToolRun *r = pthread_getspecific(g_tool_key);
+    void **fp = __builtin_frame_address(0);
+    for (int i = 0; !r && fp && i < 24; i++) {
+        void **up = fp[0];
+        TlImage *im = tl_image_containing(fp[1]);
+        if (im && im->ns > 0 && im->ns < TL_MAX_NS) r = g_tool_runs[im->ns];
+        if (up <= fp || (char *)up - (char *)fp > 1 << 20) break;
+        fp = up;
+    }
+    tool_text_to(r ? r : &g_tool_none, 1, p, n);
+}
+
 static void *tool_lookup(const char *sym, int ns) {
+    for (int i = 0; i < 8 && g_tool_answers[i].name; i++)
+        if (!strcmp(sym, g_tool_answers[i].name)) return g_tool_answers[i].fn;
+    void *swift = tool_swift_symbol(sym);
+    if (swift) return swift;
     if (!strncmp(sym, "__ZNSt3__1", 10)) {
         void *o = tl_tool_stream(ns, sym);
         if (o) return o;
