@@ -18,6 +18,11 @@ final class TerminalScreen {
     private(set) var cols: Int, rows: Int
     private(set) var lines: [Row]
     private(set) var scrollback: [Row] = []
+    /// Rows ever added to scrollback: how far what a reader looks at has moved.
+    private(set) var pushed = 0
+    /// The program has the whole screen; it wants mouse events (and in the form with numbers).
+    var fullScreen: Bool { mainLines != nil }
+    private(set) var mouse = false, mouseNumbers = false
     private(set) var cx = 0, cy = 0
     private(set) var cursorVisible = true, bracketedPaste = false, appCursor = false
     private var style = Style()
@@ -74,6 +79,7 @@ final class TerminalScreen {
 
     private func push(_ row: Row) {
         scrollback.append(row)
+        pushed += 1
         if scrollback.count > Self.scrollbackMax + 200 { scrollback.removeFirst(scrollback.count - Self.scrollbackMax) }
     }
     private var blank: Cell { var c = Cell(); c.style.bg = style.bg; return c }
@@ -317,6 +323,8 @@ final class TerminalScreen {
         case 1: appCursor = on
         case 7: autowrap = on
         case 25: cursorVisible = on
+        case 1000, 1002, 1003: mouse = on
+        case 1006: mouseNumbers = on
         case 2004: bracketedPaste = on
         case 47, 1047, 1049:
             if on, mainLines == nil {

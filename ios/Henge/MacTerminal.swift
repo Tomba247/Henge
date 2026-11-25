@@ -197,8 +197,23 @@ final class TerminalUIView: UIView, UIKeyInput, UITextInputTraits, UIEditMenuInt
     private var font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     private var boldFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .bold)
     private var cell = CGSize(width: 7, height: 15)
-    private var offset = 0 // rows scrolled back
-    private var panStart = 0
+    private var offset = 0 { didSet { if (offset > 0) != (oldValue > 0) { toBottom.isHidden = offset == 0 } } } // rows scrolled back
+    private var panned = CGFloat(0) // of a swipe, what is not yet a row
+    private var seenRows = 0
+    private var coasting: CADisplayLink?
+    private var speed = CGFloat(0)
+    private lazy var toBottom: UIButton = {
+        var c = UIButton.Configuration.filled()
+        c.image = UIImage(systemName: "arrow.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold))
+        c.baseBackgroundColor = TerminalLook.accent
+        c.baseForegroundColor = .black
+        c.cornerStyle = .capsule
+        let b = UIButton(configuration: c, primaryAction: UIAction { [weak self] _ in self?.stopCoasting(); self?.offset = 0; self?.setNeedsDisplay() })
+        b.accessibilityLabel = "Scroll to the bottom"
+        b.isHidden = true
+        addSubview(b)
+        return b
+    }()
     private var ctrl = false { didSet { ctrlButton?.configuration?.baseForegroundColor = ctrl ? TerminalLook.accent : .white } }
     private weak var ctrlButton: UIButton?
 
@@ -241,9 +256,20 @@ final class TerminalUIView: UIView, UIKeyInput, UITextInputTraits, UIEditMenuInt
         session.resize(cols: Int((bounds.width - 8) / cell.width), rows: Int(bounds.height / cell.height))
         setNeedsDisplay()
     }
-    override func layoutSubviews() { super.layoutSubviews(); fit() }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        fit()
+        toBottom.frame = CGRect(x: bounds.width - 60, y: bounds.height - 60, width: 46, height: 46)
+    }
+    override func willMove(toWindow w: UIWindow?) { super.willMove(toWindow: w); if w == nil { stopCoasting() } }
 
-    func contentChanged() { setNeedsDisplay() }
+    /// Someone reading further up stays at what they read; history a program cleared is gone.
+    func contentChanged() {
+        let (rows, most) = session.read { ($0.pushed, $0.fullScreen ? 0 : $0.scrollback.count) }
+        if offset > 0 { offset = min(offset + max(0, rows - seenRows), most) }
+        seenRows = rows
+        setNeedsDisplay()
+    }
 
     // MARK: selecting
 
@@ -326,11 +352,55 @@ final class TerminalUIView: UIView, UIKeyInput, UITextInputTraits, UIEditMenuInt
         if !isFirstResponder { becomeFirstResponder() }
     }
     @objc private func panned(_ g: UIPanGestureRecognizer) {
-        if g.state == .began { panStart = offset }
-        let most = session.read { $0.scrollback.count }
-        offset = min(max(0, panStart + Int(g.translation(in: self).y / cell.height)), most)
-        setNeedsDisplay()
+        switch g.state {
+        case .began: stopCoasting(); panned = 0; g.setTranslation(.zero, in: self)
+        case .changed:
+            scroll(by: g.translation(in: self).y, at: g.location(in: self))
+            g.setTranslation(.zero, in: self)
+        case .ended:
+            speed = g.velocity(in: self).y
+            coastAt = g.location(in: self)
+            guard abs(speed) > 250 else { return }
+            let l = CADisplayLink(target: self, selector: #selector(coast(_:)))
+            l.add(to: .main, forMode: .common)
+            coasting = l
+        default: break
+        }
     }
+    private var coastAt = CGPoint.zero
+    @objc private func coast(_ l: CADisplayLink) {
+        let t = CGFloat(l.targetTimestamp - l.timestamp)
+        speed *= pow(0.12, t)
+        if abs(speed) < 40 || !scroll(by: speed * t, at: coastAt) { stopCoasting() }
+    }
+    private func stopCoasting() { coasting?.invalidate(); coasting = nil }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { stopCoasting(); super.touchesBegan(touches, with: event) }
+    /// Down (positive) shows what is further up. A program that has the whole screen scrolls itself. false: no further.
+    @discardableResult private func scroll(by y: CGFloat, at p: CGPoint) -> Bool {
+        panned += y
+        let n = Int(panned / cell.height)
+        guard n != 0 else { return true }
+        panned -= CGFloat(n) * cell.height
+        let (full, mouse, numbers, app, most, cols, rows) = session.read { ($0.fullScreen, $0.mouse, $0.mouseNumbers, $0.appCursor, $0.scrollback.count, $0.cols, $0.rows) }
+        if mouse && numbers {
+            let c = min(max(1, Int((p.x - 4) / cell.width) + 1), cols), r = min(max(1, Int(p.y / cell.height) + 1), rows)
+            // A wheel's step is about three rows.
+            wheel += n
+            let steps = wheel / 3
+            wheel -= steps * 3
+            if steps != 0 { session.send(String(repeating: "\u{1b}[<\(steps > 0 ? 64 : 65);\(c);\(r)M", count: min(abs(steps), 20))) }
+            return true
+        }
+        if full {
+            session.send(String(repeating: (app ? "\u{1b}O" : "\u{1b}[") + (n > 0 ? "A" : "B"), count: min(abs(n), 20)))
+            return true
+        }
+        let was = min(offset, most)
+        offset = min(max(0, was + n), most)
+        setNeedsDisplay()
+        return offset != was
+    }
+    private var wheel = 0
     private var pinchSize: CGFloat = 11
     @objc private func pinched(_ g: UIPinchGestureRecognizer) {
         if g.state == .began { pinchSize = font.pointSize }
