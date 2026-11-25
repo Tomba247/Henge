@@ -392,9 +392,11 @@ final class ProgramRunner {
         let re = try? NSRegularExpression(pattern: r.needs)
         let there = (try? fm.subpathsOfDirectory(atPath: home.path)) ?? []
         if let re, !r.needs.isEmpty, !there.contains(where: { re.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }) { return (false, r.missing) }
+        // $KIT is the project's folder, as in a build; paths of an earlier install are moved to where Henge is now.
+        func place(_ s: String) -> String { ProjectBuilder.here(s, root: home.path).replacingOccurrences(of: "$KIT", with: root.resolvingSymlinksInPath().path) }
         for (n, text) in r.files {
             try? fm.createDirectory(at: b(n).deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? ProjectBuilder.here(text, root: home.path).write(to: b(n), atomically: true, encoding: .utf8)
+            try? place(text).write(to: b(n), atomically: true, encoding: .utf8)
         }
         // A copy runs, so the next build can write the original.
         let copy = home.appendingPathComponent("program")
@@ -406,7 +408,7 @@ final class ProgramRunner {
         Self.active = true // then iOS pauses all of it when the user leaves
         if Self.away { Self.active = false; return (false, notNow) }
         locked { running = true; ended = ""; lines = Data(); port = r.port; file = FileHandle(forWritingAtPath: out.path) }
-        let env = ["HOME=\(home.path)"] + r.env.map { ProjectBuilder.here($0, root: home.path) }
+        let env = ["HOME=\(home.path)"] + r.env.map(place)
         Thread.detachNewThread { [self] in
             let code = start(copy.path, b(plan.program).path, r.entry, env) { [self] d in
                 locked {

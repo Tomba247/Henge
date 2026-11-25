@@ -12114,27 +12114,53 @@ def pic_write(path, w, h, rgb):
 @command('framecheck')
 def framecheck(name, args):
     """Finds what is there in one frame only, or gone in one only: a cell unlike both its neighbours in time, which are alike."""
-    o, r, _ = git_args(args, ('-h', '--help'), ('-o', '--threshold', '--cell', '--area'))
+    o, r, _ = git_args(args, ('-h', '--help'), ('-o', '--threshold', '--cell', '--area', '--size'))
     if not r or '-h' in o or '--help' in o:
-        put('usage: framecheck [-o worst.png] [--threshold 24] [--cell 8] [--area 0.1] FRAMES...   (a folder, or PNG, PPM or BMP files in order)\n'
+        put('usage: framecheck [-o worst.png] [--threshold 24] [--cell 8] [--area 0.1] [--size WxH] FRAMES...   (a folder, or PNG, PPM or BMP files in order)\n'
+            '--size: the files are raw RGBA of this size, 4 bytes a pixel, one or more pictures in each.\n'
             'Looks at every three frames in a row for parts that change and change back (flicker) and for frames of one colour.\n'
             '--area: the least part of the picture, in percent. -o: the worst place as three pictures side by side. Exit code 1: something was found.\n'
             'Frames must follow one another (none skipped). Things that blink or move fast on purpose are found too: look at the picture.')
         return 0 if args else 2
+    raw = re.fullmatch(r'(\d+)x(\d+)', o.get('--size', ''))
+    if '--size' in o and (not raw or not int(raw[1]) * int(raw[2])):
+        raise Fail('--size is WxH, like 640x480', 2)
     files = []
     for a in r:
         if os.path.isdir(a):
-            l = [f for f in os.listdir(a) if f.lower().endswith(('.png', '.ppm', '.bmp'))]
+            l = [f for f in os.listdir(a) if f.lower().endswith(('.rgba', '.raw', '.bin') if raw else ('.png', '.ppm', '.bmp'))]
             l.sort(key=lambda f: [(0, int(x), '') if x.isdigit() else (1, 0, x) for x in re.split(r'(\d+)', f)])
             files += [os.path.join(a, f) for f in l]
         else:
             files.append(a)
+    if raw:
+        w, h = int(raw[1]), int(raw[2])
+        each = []
+        for f in files:
+            n = os.path.getsize(f)
+            if not n or n % (w * h * 4):
+                raise Fail(f'{f}: {n} bytes are not whole {w}x{h} RGBA pictures', 1)
+            each += [f'{f}#{i}' for i in range(n // (w * h * 4))]
+        files = each
+
+    def load(f):
+        if not raw:
+            return pic_read(f)
+        p, _, i = f.rpartition('#')
+        with open(p, 'rb') as k:
+            k.seek(int(i) * w0 * h0 * 4)
+            b = k.read(w0 * h0 * 4)
+        rgb = bytearray(w0 * h0 * 3)
+        for c in range(3):
+            rgb[c::3] = b[c::4]
+        return w0, h0, bytes(rgb)
+    w0, h0 = (int(raw[1]), int(raw[2])) if raw else (0, 0)
     if len(files) < 3:
         raise Fail('three frames or more are needed', 2)
     T, C, area = float(o.get('--threshold', '24')), max(2, integer(o.get('--cell', '8'))), float(o.get('--area', '0.1'))
     hist, found, size, flat = [], [], None, []
     for n, f in enumerate(files):
-        w, h, b = pic_read(f)
+        w, h, b = load(f)
         if size and size != (w, h):
             raise Fail(f'{f}: another size ({w}x{h}) than the frames before', 1)
         if w < C or h < C:
@@ -12173,7 +12199,7 @@ def framecheck(name, args):
     if '-o' in o:
         n, i, (x0, y0, x1, y1) = max(found)
         x0, y0, x1, y1 = max(0, x0 - 16), max(0, y0 - 16), min(size[0], x1 + 16), min(size[1], y1 + 16)
-        ps = [pic_read(files[j])[2] for j in (i - 1, i, i + 1)]
+        ps = [load(files[j])[2] for j in (i - 1, i, i + 1)]
         gap = b'\xff\x00\xff' * 4
         img = b''.join(gap.join(p[(y * size[0] + x0) * 3:(y * size[0] + x1) * 3] for p in ps) for y in range(y0, y1))
         pic_write(o['-o'], (x1 - x0) * 3 + 8, y1 - y0, img)

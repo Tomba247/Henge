@@ -275,7 +275,7 @@ extension ProjectTools {
       "icon": "icon.png", "info": {extra Info.plist keys},
       "kind": "tool",                                             a program to run here (./build/<name>), no app
       "commands": ["cmake -S . -B build/cm", "ninja -C build/cm"], "executable": "build/cm/game",   other build systems: run first; what they made becomes the app's program
-      "run": {"entry": "_main", "home": "run", "env": ["A=1"], "files": {}, "port": 4777}     how run_program runs it here without a window; port: where it takes one JSON line per connection (0: none)
+      "run": {"entry": "_main", "home": "run", "env": ["A=1"], "files": {}, "port": 4777}     how run_program runs it here without a window; port: where it takes one JSON line per connection (0: none); $KIT in env and files is the project's folder: use it, not a full path
     }
     Swift with SwiftUI: an @main App struct. Macros (@Observable, @Model, #Preview) work. A C or C++ main() for a game normally comes from SDL (build SDL's sources with it) \
     or a small UIKit UIApplicationMain shell.
@@ -305,7 +305,7 @@ extension ProjectTools {
     do not link: build their source. What a step makes from the user's own files stays on the phone. Then write the local steps down in CLAUDE.md and build here from then on; no pushes to start a build.
 
     TEST HERE FIRST. The user would rather not install an IPA for each change: make one for them only when they ask or the work is done. Until then: build, run_program (the app's own code in Henge, without its window), drive it with program_command, read its output and any pictures it writes, \
-    fix, repeat. For flicker have the program write every frame of a stretch as PNG, PPM or BMP, run framecheck -o worst.png FOLDER \
+    fix, repeat. For flicker have the program write every frame of a stretch as PNG, PPM, BMP or raw RGBA (--size WxH), run framecheck -o worst.png FOLDER \
     (if devtools.names lists it) and look at the picture; the same stretch again after a fix. Say which checks passed and what only the installed app can show (sound, touch, speed, its window). One IPA for many fixes.
 
     STRONG PHONES. Metal, 120 Hz (info: "CADisableMinimumFrameDurationOnPhone": true), Core ML, Accelerate, NEON and threads are all available to an app. \
