@@ -58,6 +58,12 @@ $(B)/henge-agent: tools/henge-agent.m
 	codesign -f -s - $@
 
 # Compressed in the app: tools that sign an IPA would try to sign a bare Mach-O too.
+# The terminal's shell and developer tools, which the app puts in the user's Toolchain (ios/Henge/ProjectMaker.swift):
+# raw deflate of JSON, name to base64. Packed: a loose program in the app would have to be signed.
+$(B)/henge-tools.z: tools/phone-kit/sh.c tools/phone-kit/devtools.py | $(B)
+	env -u SDKROOT xcrun --sdk iphoneos clang -w -O1 -target arm64-apple-ios17.0 tools/phone-kit/sh.c -o $(B)/kit-sh
+	python3 tools/phone-kit/devtools.py --names > $(B)/kit-names
+	python3 -I -c 'import base64,json,sys,zlib; o=zlib.compressobj(9,zlib.DEFLATED,-15); d=json.dumps({n: base64.b64encode(open(f,"rb").read()).decode() for n,f in zip(("sh","devtools.py","devtools.names"),sys.argv[2:])},sort_keys=True).encode(); open(sys.argv[1],"wb").write(o.compress(d)+o.flush())' $@ $(B)/kit-sh tools/phone-kit/devtools.py $(B)/kit-names
 $(B)/henge-agent.gz: $(B)/henge-agent
 	gzip -9 -n -c $< > $@
 

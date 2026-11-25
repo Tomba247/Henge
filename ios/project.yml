@@ -111,7 +111,7 @@ targets:
         script: |
           set -e
           cd "$SRCROOT/.."
-          make ios-lib build/henge-agent.gz build/tl-samples.dmg
+          make ios-lib build/henge-agent.gz build/henge-tools.z build/tl-samples.dmg
           ./tools/build_ios_restore.sh
         basedOnDependencyAnalysis: false
     postBuildScripts:
@@ -120,6 +120,7 @@ targets:
         script: |
           set -e
           cp "$SRCROOT/../build/henge-agent.gz" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/henge-agent.gz"
+          cp "$SRCROOT/../build/henge-tools.z" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/henge-tools.z"
           rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/tl-samples.dmg"
           cp -X "$SRCROOT/../build/tl-samples.dmg" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/tl-samples.dmg"
         basedOnDependencyAnalysis: false

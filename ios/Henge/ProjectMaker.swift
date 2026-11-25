@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A project described by a henge-project.json, which a coding program in the terminal writes itself: turned into a
@@ -18,6 +19,27 @@ enum ProjectMaker {
     static func prepare(_ tools: URL) {
         let fm = FileManager.default
         for n in (try? fm.contentsOfDirectory(atPath: tools.appendingPathComponent("bin").path)) ?? [] { chmod(tools.appendingPathComponent("bin/" + n).path, 0o755) }
+    }
+
+    /// The shell and developer tools that come with this Henge (Makefile's henge-tools.z), into the user's Toolchain: once
+    /// for each version of them, and when one is missing. Returns what it did, for the log; nil: nothing to do.
+    static func install(_ pack: URL, in tools: URL) -> String? {
+        let fm = FileManager.default, bin = tools.appendingPathComponent("bin")
+        guard fm.fileExists(atPath: bin.appendingPathComponent("clang").path), let z = try? Data(contentsOf: pack) else { return nil }
+        let mark = SHA256.hash(data: z).prefix(12).map { String(format: "%02x", $0) }.joined(), stamp = bin.appendingPathComponent(".henge-tools")
+        let names = ["sh", "devtools.py", "devtools.names"]
+        if (try? String(contentsOf: stamp, encoding: .utf8)) == mark, names.allSatisfy({ fm.fileExists(atPath: bin.appendingPathComponent($0).path) }) { return nil }
+        guard let d = try? (z as NSData).decompressed(using: .zlib) as Data, let o = try? JSONSerialization.jsonObject(with: d) as? [String: String] else { return "the tools in the app could not be read" }
+        do {
+            for n in names {
+                guard let b = o[n].flatMap({ Data(base64Encoded: $0) }), !b.isEmpty else { return "the tools in the app are not complete" }
+                let to = bin.appendingPathComponent(n)
+                if (try? Data(contentsOf: to)) != b { try b.write(to: to, options: .atomic) }
+                chmod(to.path, 0o755)
+            }
+            try mark.write(to: stamp, atomically: true, encoding: .utf8)
+            return "the Toolchain's shell and developer tools are up to date"
+        } catch { return "the Toolchain's tools could not be updated: \(error.localizedDescription)" }
     }
 
     /// The files a pattern names: ** for any folders, * within a name.

@@ -186,6 +186,7 @@ final class TerminalSession: ObservableObject {
             var a: [UnsafePointer<CChar>?] = args.map { UnsafePointer(strdup($0)) } + [nil]
             var e: [UnsafePointer<CChar>?] = env.map { UnsafePointer(strdup($0)) } + [nil]
             let tools = Self.projects.appendingPathComponent("Toolchain")
+            if let pack = Bundle.main.url(forResource: "henge-tools", withExtension: "z"), let did = ProjectMaker.install(pack, in: tools) { HengeLog.log("macapps", "terminal: \(did)") }
             var folders: [UnsafePointer<CChar>?] = [UnsafePointer(strdup(tools.appendingPathComponent("bin").path)), nil]
             var toolEnv: [UnsafePointer<CChar>?] = ProjectMaker.environment(tools: tools, home: Self.home.path).map { UnsafePointer(strdup($0)) } + [nil]
             henge_tl_tool_setup(&folders, 3, &toolEnv)
