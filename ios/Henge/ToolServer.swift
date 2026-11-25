@@ -328,6 +328,8 @@ enum ProjectTools {
 
 /// The built program running in Henge, without its window.
 final class ProgramRunner {
+    /// Henge is in the background, where iOS gives an app no GPU: said beside what the program wrote.
+    nonisolated(unsafe) static var away = false
     typealias Start = (_ path: String, _ argv0: String, _ entry: String, _ env: [String], _ output: @escaping (Data) -> Void) -> Int32
     private let start: Start, stop: () -> Void
     private let lock = NSLock()
@@ -342,6 +344,7 @@ final class ProgramRunner {
     private func locked<T>(_ f: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return f() }
     private var isRunning: Bool { locked { running } }
     func tail() -> String {
+        (Self.away ? "(Henge is in the background now: iOS gives it no GPU there, so a program that draws may fail. Try again when the user has Henge open.)\n" : "") +
         locked { (ended.isEmpty ? "" : ended + "\n") + String(decoding: lines.suffix(4000), as: UTF8.self) }
     }
 

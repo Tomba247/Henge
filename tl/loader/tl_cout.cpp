@@ -1,7 +1,10 @@
 /* std::cout, cerr, clog and cin for the tools of tl_tool.h, for each namespace its own: the system's write to the app's
    standard files. What is written goes to the run of the thread that writes it. */
 #include <cstring>
+#include <exception>
+#include <typeinfo>
 #include <iostream>
+#include <string>
 #include <streambuf>
 
 extern "C" void tl_tool_stream_write(int fd, const char *p, size_t n);
@@ -49,6 +52,18 @@ extern "C" void *tl_tool_stream(int ns, const char *sym) {
     return out ? (void *)&sets[ns]->cout : err ? (void *)&sets[ns]->cerr : log ? (void *)&sets[ns]->clog : (void *)&sets[ns]->cin;
 }
 /* As they are at a program's start. */
+/* What nobody caught: only called while the program is being terminated. */
+extern "C" void tl_tool_uncaught(char *out, size_t n) {
+    out[0] = 0;
+    if (!std::current_exception()) return;
+    try { throw; }
+    catch (const std::exception &e) { strlcpy(out, e.what(), n); }
+    catch (const char *s) { strlcpy(out, s, n); }
+    catch (const std::string &s) { strlcpy(out, s.c_str(), n); }
+    catch (...) { strlcpy(out, "not a std::exception", n); }
+}
+extern "C" void *tl_tool_set_terminate(void (*fn)()) { return (void *)std::set_terminate(fn); }
+
 extern "C" void tl_tool_stream_reset(int ns) {
     Set *s = ns >= 0 && ns < 256 ? sets[ns] : nullptr;
     if (!s) return;

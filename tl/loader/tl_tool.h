@@ -53,7 +53,9 @@ static pthread_once_t g_tool_once = PTHREAD_ONCE_INIT;
 static int (*g_thread_chdir)(const char *), (*g_thread_fchdir)(int);
 static int tool_in_read_first(void *c, char *p, int n);
 static FILE *g_tool_in; /* every tool's stdin, unbuffered */
+static void tool_terminate_init(void);
 static void tool_init(void) {
+    tool_terminate_init();
     pthread_key_create(&g_tool_key, NULL);
     g_tool_none.zone = malloc_default_zone();
     g_tool_in = funopen(NULL, tool_in_read_first, NULL, NULL, NULL);
@@ -237,6 +239,51 @@ static void tool_abort(void) {
     static const char why[] = "the tool aborted\n";
     tool_text_to(&g_tool, 2, why, sizeof why - 1);
     tool__exit(134);
+}
+
+/* An exception nobody caught ends the program it was in, not the app. The system keeps one handler for all: the
+   terminal's program sets its own (Bun's ends the app), which still gets what is not a tool's. */
+void tl_tool_uncaught(char *out, size_t n);
+void *tl_tool_set_terminate(void (*fn)(void));
+static void (*volatile g_app_terminate)(void);
+static int tool_call_stack_run(TlToolRun **out) {
+    void *at[64];
+    int n = backtrace(at, 64);
+    for (int i = 0; i < n; i++) {
+        TlImage *im = tl_image_containing(at[i]);
+        TlToolRun *r = im && im->ns > 0 && im->ns < TL_MAX_NS ? g_tool_runs[im->ns] : NULL;
+        if (r) { *out = r; return 1; }
+    }
+    return 0;
+}
+static void tool_terminate(void) {
+    TlToolRun *r = pthread_getspecific(g_tool_key);
+    if (!r && !tool_call_stack_run(&r)) { /* not a tool's */
+        if (g_app_terminate) g_app_terminate();
+        abort();
+    }
+    char what[400], why[512];
+    tl_tool_uncaught(what, sizeof what);
+    int n = snprintf(why, sizeof why, "terminated: an exception was not caught%s%s\n", what[0] ? ": " : "", what);
+    if (n >= (int)sizeof why) n = sizeof why - 1;
+    tl_log("%s: %.*s", r->exe->path, n - 1, why);
+    tool_text_to(r, 2, why, (size_t)n);
+    if (pthread_equal(pthread_self(), r->thread)) {
+        r->code = 134;
+        pthread_exit(NULL);
+    }
+    tool_done(r, 134, 1);
+    for (;;) pause();
+}
+static void *rt_set_terminate(void (*fn)(void)) {
+    pthread_once(&g_tool_once, tool_init);
+    void *was = (void *)g_app_terminate;
+    g_app_terminate = fn;
+    return was;
+}
+static void tool_terminate_init(void) {
+    void *was = tl_tool_set_terminate(tool_terminate);
+    if (was != (void *)tool_terminate && !g_app_terminate) g_app_terminate = (void (*)(void))was;
 }
 
 /* Where a thread of the program waits, it ends when it is time to. */
@@ -1115,6 +1162,7 @@ static void *tool_lookup(const char *sym, int ns) {
         {"__ZnamSt11align_val_tRKSt9nothrow_t", (void *)tool_new_aligned_nothrow},
         {"___cxa_atexit", (void *)tool_cxa_atexit}, {"_atexit", (void *)tool_atexit}, {"__tlv_atexit", (void *)tool_tlv_atexit},
         {"_exit", (void *)tool_exit}, {"__exit", (void *)tool__exit}, {"__Exit", (void *)tool__exit}, {"_abort", (void *)tool_abort},
+        {"__ZSt13set_terminatePFvvE", (void *)tool_null},
         /* The app's own signal handling and folder are not a tool's to change. */
         {"_sigaction", (void *)tool_sigaction}, {"_signal", (void *)tool_null}, {"_sigaltstack", (void *)tool_zero},
         {"_chdir", (void *)tool_chdir}, {"_fchdir", (void *)tool_fchdir}, {"_dup2", (void *)tool_dup2}, {"_dup", (void *)tool_dup}, {"_setrlimit", (void *)tool_zero}, {"_setitimer", (void *)tool_zero},

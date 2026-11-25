@@ -915,6 +915,7 @@ static void chromium_fixups(TlImage *im) {
 }
 
 static void *cf_override(const char *sym);
+static void *rt_set_terminate(void (*fn)(void));
 
 static uint64_t host_symbol(void *handle, const char *install_name, const char *sym, int *found) {
     *found = 0;
@@ -922,6 +923,7 @@ static uint64_t host_symbol(void *handle, const char *install_name, const char *
         void *s = tool_lookup(sym, g_loading_ns);
         if (s) { *found = 1; return (uint64_t)s; }
     }
+    if (!strcmp(sym, "__ZSt13set_terminatePFvvE")) { *found = 1; return (uint64_t)rt_set_terminate; } /* see tool_terminate */
     if (install_name && strstr(install_name, "/CoreFoundation.framework/")) {
         void *s = cf_override(sym);
         if (s) { *found = 1; return (uint64_t)s; }
@@ -2070,6 +2072,7 @@ static TlProc *proc_load(const char *path, int parent_ns, char *const argv[], ch
     return p;
 }
 
+#include <execinfo.h>
 #include "tl_tool.h"
 
 /* The address of a symbol of the image's own table, local ones included, and the room to the next symbol (its size
