@@ -62,6 +62,8 @@ int henge_tl_program_run(const char *path, const char *argv0, const char *entry,
 /* Makes the running program end; the running tools that henge_tl_tool_run started in this folder, and theirs. */
 void henge_tl_program_stop(void);
 void henge_tl_tool_stop(const char *cwd);
+/* Whether Henge is in the background: said with the exception that ended a program. */
+void henge_tl_tool_away(int away);
 
 /* ---- Mac apps with windows (experimental; henge-tl-app.m): an AppKit app runs on the main thread against Henge's
    AppKit, one per launch, and no Mac can start after it. ---- */

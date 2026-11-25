@@ -216,6 +216,14 @@ $(B)/test_tl_glue: tests/test_tl_glue.c ios/Henge/Native/henge-tl.c $(TL_SRC) ho
 $(B)/test_tl_term: tests/test_tl_term.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(TL_SRC) host/jit_region.c $(B)/tl_cout.o | $(B)
 	$(CC) $(CFLAGS) -fblocks -Iios/Henge/Native tests/test_tl_term.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(filter-out %.m %.cpp,$(TL_SRC)) $(B)/tl_cout.o host/jit_region.c \
 	  -x objective-c -fobjc-arc tl/loader/tl_bundle.m tl/loader/tl_stubs.m -framework Foundation -lc++ -lz -lbz2 -lcompression -o $@
+$(B)/test_tl_throw: tests/test_tl_throw.c tests/tl/throw.cpp tests/tl/exit3.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(TL_SRC) tl/loader/tl_tool.h host/jit_region.c $(B)/tl_cout.o | $(B)
+	$(CC) -target arm64-apple-macos13 -O1 tests/tl/exit3.c -o $(B)/tl-exit3
+	c++ -std=c++17 -fblocks -target arm64-apple-macos13 tests/tl/throw.cpp -o $(B)/tl-throw
+	$(CC) $(CFLAGS) -fblocks -Iios/Henge/Native tests/test_tl_throw.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(filter-out %.m %.cpp,$(TL_SRC)) $(B)/tl_cout.o host/jit_region.c \
+	  -x objective-c -fobjc-arc tl/loader/tl_bundle.m tl/loader/tl_stubs.m -framework Foundation -lc++ -lz -lbz2 -lcompression -o $@
+test-tl-throw: $(B)/test_tl_throw
+	$(B)/test_tl_throw $(CURDIR)/$(B)/tl-exit3 $(CURDIR)/$(B)/tl-throw
+.PHONY: test-tl-throw
 # The build and search tools the terminal offers (ios/Henge/ProjectBuilder.swift, ToolServer.swift) on the Mac.
 $(B)/test_project: tests/test_project.swift tests/test_project.c tests/test_project.h ios/Henge/ProjectBuilder.swift ios/Henge/ProjectMaker.swift ios/Henge/ProjectTools.swift ios/Henge/ToolServer.swift ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(TL_SRC) tl/loader/tl_tool.h host/jit_region.c $(B)/tl_cout.o | $(B)
 	$(CC) $(CFLAGS) -fblocks -Iios/Henge/Native -Itests -dynamiclib -undefined dynamic_lookup -install_name @rpath/libtest_project.dylib tests/test_project.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(filter-out %.m %.cpp,$(TL_SRC)) $(B)/tl_cout.o host/jit_region.c \

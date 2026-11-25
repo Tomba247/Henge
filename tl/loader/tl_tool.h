@@ -25,6 +25,7 @@ typedef struct TlToolRun {
     char *cwd;          /* its folder, NULL: the app's */
     int std[3];         /* what its standard files are; -1: output goes to the host, input is empty */
     void *entry;        /* called instead of the program's main */
+    int keeps;          /* ended by an exception, its thread and memory stay (tool_terminate) */
     _Atomic int stop;   /* the program has ended: its other threads end at their next wait */
     _Atomic int kill;   /* it is to end: its main thread too */
     _Atomic int live;   /* threads it started that still run */
@@ -55,8 +56,8 @@ static int tool_in_read_first(void *c, char *p, int n);
 static FILE *g_tool_in; /* every tool's stdin, unbuffered */
 static void tool_terminate_init(void);
 static void tool_init(void) {
-    tool_terminate_init();
     pthread_key_create(&g_tool_key, NULL);
+    tool_terminate_init();
     g_tool_none.zone = malloc_default_zone();
     g_tool_in = funopen(NULL, tool_in_read_first, NULL, NULL, NULL);
     setvbuf(g_tool_in, NULL, _IONBF, 0);
@@ -243,7 +244,9 @@ static void tool_abort(void) {
 
 /* An exception nobody caught ends the program it was in, not the app. The system keeps one handler for all: the
    terminal's program sets its own (Bun's ends the app), which still gets what is not a tool's. */
+int tl_tool_away; /* Henge is in the background: said with what ended a program */
 void tl_tool_uncaught(char *out, size_t n);
+int tl_tool_guard(void (*fn)(void *), void *arg, char *out, size_t n);
 void *tl_tool_set_terminate(void (*fn)(void));
 static void (*volatile g_app_terminate)(void);
 static int tool_call_stack_run(TlToolRun **out) {
@@ -256,18 +259,44 @@ static int tool_call_stack_run(TlToolRun **out) {
     }
     return 0;
 }
+/* Whether the exception was thrown by the program itself, not inside a system library that may hold locks. */
+static int tool_own_throw(void) {
+    void *at[64];
+    int n = backtrace(at, 64);
+    for (int i = 0; i < n; i++) {
+        if (tl_image_containing(at[i])) return 1;
+        Dl_info d;
+        if (!dladdr(at[i], &d) || !d.dli_fname) return 0;
+        if (d.dli_fbase == (void *)&__dso_handle) continue;
+        if (!strstr(d.dli_fname, "/libc++") && !strstr(d.dli_fname, "/libobjc.")) return 0;
+    }
+    return 0;
+}
+static void tool_say_uncaught(TlToolRun *r, const char *what) {
+    char why[640];
+    int n = snprintf(why, sizeof why, "terminated: an exception was not caught%s%s%s\n", what[0] ? ": " : "", what,
+                     tl_tool_away ? " (Henge is in the background, where iOS gives it no GPU)" : "");
+    if (n >= (int)sizeof why) n = sizeof why - 1;
+    tl_log("%s: %.*s", r->exe->path, n - 1, why);
+    tool_text_to(r, 2, why, (size_t)n);
+}
 static void tool_terminate(void) {
     TlToolRun *r = pthread_getspecific(g_tool_key);
     if (!r && !tool_call_stack_run(&r)) { /* not a tool's */
         if (g_app_terminate) g_app_terminate();
         abort();
     }
-    char what[400], why[512];
+    char what[400];
     tl_tool_uncaught(what, sizeof what);
-    int n = snprintf(why, sizeof why, "terminated: an exception was not caught%s%s\n", what[0] ? ": " : "", what);
-    if (n >= (int)sizeof why) n = sizeof why - 1;
-    tl_log("%s: %.*s", r->exe->path, n - 1, why);
-    tool_text_to(r, 2, why, (size_t)n);
+    tool_say_uncaught(r, what);
+    if (pthread_main_np()) { /* the app's: it can neither stay here nor end (blocks on it are guarded, tool_as) */
+        if (g_app_terminate) g_app_terminate();
+        abort();
+    }
+    if (!r->keeps && pthread_equal(pthread_self(), r->thread) && tool_own_throw()) {
+        r->code = 134;
+        pthread_exit(NULL);
+    }
     /* The thread stays where it is, for good: it may hold the system's locks (one whose owner is gone ends the app),
        and what it asked of the GPU may still call back. So this copy's memory is not used again either. */
     tool_done(r, 134, 1);
@@ -668,12 +697,19 @@ static int tool_sigaction(int sig, const struct sigaction *act, struct sigaction
 static int tool_no_fork(void) { errno = ENOSYS; return -1; }
 
 /* Blocks a tool hands to the system's threads run as its own. */
+static void tool_say_uncaught(TlToolRun *r, const char *what);
+static void tool_call_block(void *b) { ((dispatch_block_t)b)(); }
 static void tool_as(TlToolRun *r, void (^block)(void)) {
     void *was = pthread_getspecific(g_tool_key);
     pthread_setspecific(g_tool_key, r);
     int moved = !was && r->cwd && g_thread_chdir;
     if (moved) g_thread_chdir(r->cwd);
-    block();
+    char what[400];
+    if (!pthread_main_np()) block();
+    else if (tl_tool_guard(tool_call_block, (void *)block, what, sizeof what)) { /* the app's main thread goes on */
+        tool_say_uncaught(r, what);
+        tool_done(r, 134, 1);
+    }
     if (moved && g_thread_fchdir) g_thread_fchdir(-1); /* back to the app's folder */
     pthread_setspecific(g_tool_key, was);
 }
@@ -1445,7 +1481,7 @@ int tl_tool_run_at(TlImage *tool, const char *entry, int argc, const char **argv
     if (entry && !at) return 127;
     TlToolRun *r = tool_run_new(tool);
     if (!r) return TL_TOOL_STUCK;
-    r->argc = argc, r->argv = argv, r->output = output, r->context = context, r->entry = at;
+    r->argc = argc, r->argv = argv, r->output = output, r->context = context, r->entry = at, r->keeps = 1;
     r->env = tool_env_with(environ, env);
     return tool_run_it(r);
 }

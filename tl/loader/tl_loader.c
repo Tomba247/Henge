@@ -2073,6 +2073,7 @@ static TlProc *proc_load(const char *path, int parent_ns, char *const argv[], ch
 }
 
 #include <execinfo.h>
+extern const struct mach_header_64 __dso_handle;
 #include "tl_tool.h"
 
 /* The address of a symbol of the image's own table, local ones included, and the room to the next symbol (its size

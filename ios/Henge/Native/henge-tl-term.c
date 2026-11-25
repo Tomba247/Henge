@@ -584,3 +584,5 @@ int henge_tl_program_run(const char *path, const char *argv0, const char *entry,
 
 void henge_tl_program_stop(void) { if (program) tl_tool_stop(program); }
 void henge_tl_tool_stop(const char *cwd) { tl_tool_stop_in(cwd); }
+extern int tl_tool_away;
+void henge_tl_tool_away(int away) { tl_tool_away = away; }

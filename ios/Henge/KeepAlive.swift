@@ -75,12 +75,17 @@ enum KeepAlive {
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
                 ProgramRunner.away = true
+                henge_tl_tool_away(1)
+                TerminalSession.shared.left = ProcessInfo.processInfo.systemUptime
                 update()
+                if playing { ProgramRunner.leave() }
                 HengeLog.log("keepalive", "in the background: \(playing ? "staying awake (silent audio)" : needed ? "could not stay awake" : "nothing to keep, iOS may suspend Henge"); \(henge_available_memory() >> 20) MB left before the limit")
             }
         }
         center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
             ProgramRunner.away = false
+            henge_tl_tool_away(0)
+            MainActor.assumeIsolated { TerminalSession.shared.left = nil }
             HengeLog.log("keepalive", "back in the foreground")
         }
         // The system running short, whoever is using it: the lines before a kill say why, and the Mac is asked

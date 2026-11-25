@@ -10,6 +10,8 @@ final class TerminalSession: ObservableObject {
     private var redrawAsked = false
     private var lastOutput = -Double.infinity
     private var ended = false
+    /// When Henge went to the background; nil in the foreground.
+    var left: Double?
     weak var view: TerminalUIView?
     @Published var status = ""
     @Published var asked: URL?
@@ -42,7 +44,11 @@ final class TerminalSession: ObservableObject {
         lock.lock()
         let recent = ProcessInfo.processInfo.systemUptime - lastOutput < 45, over = ended
         lock.unlock()
-        return started && !over && !ProgramRunner.active && (recent || server?.busy == true)
+        guard started, !over, !ProgramRunner.active, let server else { return false } // Claude's only: others may draw on and on
+        if server.busy { return true }
+        // A screen that only moves (no network, a status line) is not worth the battery for longer than this.
+        if let left, ProcessInfo.processInfo.systemUptime - max(left, server.called) > 3600 { return false }
+        return recent
     }
 
     private let typing = DispatchQueue(label: "terminal input")

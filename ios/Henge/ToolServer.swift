@@ -142,8 +142,10 @@ final class ToolServer {
     }
 
     private let callLock = NSLock()
-    private var callCount = 0
-    private func calls(_ by: Int) { callLock.lock(); callCount += by; callLock.unlock() }
+    private var callCount = 0, lastCall = 0.0
+    private func calls(_ by: Int) { callLock.lock(); callCount += by; lastCall = ProcessInfo.processInfo.systemUptime; callLock.unlock() }
+    /// When a tool was last asked for or answered.
+    var called: Double { callLock.lock(); defer { callLock.unlock() }; return lastCall }
     /// A tool is at work for the program.
     var busy: Bool { callLock.lock(); defer { callLock.unlock() }; return callCount > 0 }
 
@@ -222,7 +224,7 @@ enum ProjectTools {
                 log("run: \(c.prefix(120))")
                 let r = shell.run(c, in: d, timeout: a["timeout_seconds"] as? Int ?? 600)
                 try? r.output.write(to: d.appendingPathComponent(".henge-output.txt"), atomically: false, encoding: .utf8)
-                return (r.code == 0, "exit code \(r.code)\n" + ProjectBuilder.clip(r.output))
+                return (r.code == 0, "exit code \(r.code)\n" + (ProgramRunner.away ? "(Henge is in the background: programs get no GPU there.)\n" : "") + ProjectBuilder.clip(r.output))
             },
             .init(name: "download", about: "Download a file over https into the projects folder; a .zip, .tar.gz, .tar.xz or .tar.bz2 can be unpacked. For a GitHub repository use github_download.",
                   inputs: [("url", "string", "https address"), ("to", "string", "File, or folder when unpacking, relative to the projects folder"), ("unpack", "boolean", "Unpack it into the folder")]) { a in
@@ -332,6 +334,13 @@ final class ProgramRunner {
     nonisolated(unsafe) static var away = false
     /// One runs: Henge is not kept awake in the background then (KeepAlive), so iOS pauses it with the rest.
     nonisolated(unsafe) static var active = false
+    nonisolated(unsafe) private static weak var current: ProgramRunner?
+    /// Henge stays awake in the background for something else (a Mac, an install): what runs ends, before drawing
+    /// without a GPU ends it.
+    static func leave() {
+        guard active, let r = current else { return }
+        DispatchQueue.global(qos: .userInitiated).async { if away { _ = r.end() } }
+    }
     typealias Start = (_ path: String, _ argv0: String, _ entry: String, _ env: [String], _ output: @escaping (Data) -> Void) -> Int32
     private let start: Start, stop: () -> Void
     private let lock = NSLock()
@@ -350,7 +359,8 @@ final class ProgramRunner {
     }
 
     func begin(_ root: URL) -> (ok: Bool, text: String) {
-        if Self.away { return (false, "Not started: Henge is in the background, where iOS gives no GPU and a program that draws would die. Do other work, or ask the user to open Henge and keep it open, then try again.") }
+        let notNow = "Not started: Henge is in the background, where iOS gives no GPU and a program that draws would die. Do other work, or ask the user to open Henge and keep it open, then try again."
+        if Self.away { return (false, notNow) }
         if !end() { return (false, "The program that runs does not end. Quit Henge and open it again.") }
         let fm = FileManager.default
         guard let plan = try? ProjectBuilder.anyPlan(in: root, tools: tools), let r = plan.run else { return (false, "The project does not say how to run it (\"run\", see project_help).") }
@@ -371,7 +381,9 @@ final class ProgramRunner {
         do { try fm.copyItem(at: b(plan.program), to: copy) } catch { return (false, "The program could not be copied: \(error.localizedDescription)") }
         let out = home.appendingPathComponent("output.txt")
         fm.createFile(atPath: out.path, contents: nil)
-        Self.active = true
+        Self.current = self
+        Self.active = true // then iOS pauses all of it when the user leaves
+        if Self.away { Self.active = false; return (false, notNow) }
         locked { running = true; ended = ""; lines = Data(); port = r.port; file = FileHandle(forWritingAtPath: out.path) }
         let env = ["HOME=\(home.path)"] + r.env
         Thread.detachNewThread { [self] in

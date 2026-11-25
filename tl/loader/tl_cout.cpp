@@ -51,7 +51,6 @@ extern "C" void *tl_tool_stream(int ns, const char *sym) {
     if (!sets[ns]) sets[ns] = new Set;
     return out ? (void *)&sets[ns]->cout : err ? (void *)&sets[ns]->cerr : log ? (void *)&sets[ns]->clog : (void *)&sets[ns]->cin;
 }
-/* As they are at a program's start. */
 /* What nobody caught: only called while the program is being terminated. */
 extern "C" void tl_tool_uncaught(char *out, size_t n) {
     out[0] = 0;
@@ -64,6 +63,13 @@ extern "C" void tl_tool_uncaught(char *out, size_t n) {
 }
 extern "C" void *tl_tool_set_terminate(void (*fn)()) { return (void *)std::set_terminate(fn); }
 
+/* Calls fn; whether an exception came out of it, and what it was. */
+extern "C" int tl_tool_guard(void (*fn)(void *), void *arg, char *out, size_t n) {
+    try { fn(arg); return 0; }
+    catch (...) { tl_tool_uncaught(out, n); return 1; }
+}
+
+/* As they are at a program's start. */
 extern "C" void tl_tool_stream_reset(int ns) {
     Set *s = ns >= 0 && ns < 256 ? sets[ns] : nullptr;
     if (!s) return;

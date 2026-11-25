@@ -52,6 +52,7 @@ if a[2] == "build" {
     if let calls = ProcessInfo.processInfo.environment["CALLS"] {
         let all = tools { FileHandle.standardError.write(Data("  \($0)\n".utf8)) }
         for l in ((try? String(contentsOfFile: calls, encoding: .utf8)) ?? "").split(separator: "\n") {
+            if l.contains("\"away\"") { ProgramRunner.away = l.contains("true"); continue } // {"away": true}: Henge is in the background
             guard let o = try? JSONSerialization.jsonObject(with: Data(l.utf8)) as? [String: Any], let t = all.first(where: { $0.name == o["tool"] as? String }) else { continue }
             let t0 = Date(), r = t.call(o)
             FileHandle.standardError.write(Data("== \(t.name) \(r.ok) \(String(format: "%.1f", Date().timeIntervalSince(t0))) s\n\(r.text)\n".utf8))
