@@ -291,7 +291,7 @@ extension ProjectTools {
     pip packages with C parts, fork(), job control in the shell, the Metal compiler. Python's subprocess works (multiprocessing pools become threads). \
     For a large Makefile write henge-project.json or a build.ninja instead.
 
-    XCODE PROJECTS. If devtools.names lists xcodebuild, Henge's own builds a simple .xcodeproj (one iPhone app; -list, -scheme, -target, -configuration): it writes henge-project.json \
+    XCODE PROJECTS. If devtools.names lists xcodebuild, Henge's own builds a simple .xcodeproj (one iPhone app, with its static libraries, frameworks and source-only Swift packages; -list, -scheme, -target, -configuration): it writes henge-project.json \
     beside it and says what it cannot do (xcodebuild -help). After editing that file by hand use `build` instead.
 
     STRONG PHONES. Metal, 120 Hz (info: "CADisableMinimumFrameDurationOnPhone": true), Core ML, Accelerate, NEON and threads are all available to an app. \

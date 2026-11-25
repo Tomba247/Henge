@@ -9253,8 +9253,35 @@ class XcProject:
                     if not f.startswith('.') and os.path.relpath(os.path.join(r, f), top) not in gone:
                         yield os.path.join(r, f)
 
-    def convert(self, target):
+    def refs(self):
+        """The packages the project names: local folders and addresses."""
+        out = []
+        for i in self.main.get('packageReferences', []):
+            r = self.o.get(i, {})
+            if r.get('isa') == 'XCLocalSwiftPackageReference':
+                out.append(('path', os.path.join(self.base, r.get('relativePath', '')), None))
+            elif r.get('isa') == 'XCRemoteSwiftPackageReference':
+                q = r.get('requirement', {})
+                k = q.get('kind', '')
+                w = {'upToNextMajorVersion': ('from', q.get('minimumVersion', '0')), 'upToNextMinorVersion': ('upToNextMinor', q.get('minimumVersion', '0')), 'versionRange': ('from', q.get('minimumVersion', '0')),
+                     'exactVersion': ('exact', q.get('version', '0')), 'branch': ('branch', q.get('branch', 'main')), 'revision': ('revision', q.get('revision', ''))}.get(k, ('any', ''))
+                out.append(('url', r.get('repositoryURL', ''), w))
+        for i, f in self.o.items():
+            w = self.where.get(i)
+            if w and f.get('isa') == 'PBXFileReference' and os.path.exists(os.path.join(w, 'Package.swift')) and ('path', w, None) not in out:
+                out.append(('path', w, None))
+        return out
+
+    def convert(self, target, mods):
         """The henge-project.json for a target."""
+        needs, public = [], []
+        is_lib = target.get('productType') != 'com.apple.product-type.application'
+
+        def product(n):
+            if not mods.packages:
+                for kind, at, w in self.refs():
+                    mods.package(at) if kind == 'path' else mods.remote(at, w)
+            needs.extend(mods.product(n))
         raw = self.settings(target)
 
         def get(k, d=''):
@@ -9314,8 +9341,13 @@ class XcProject:
                 to = d + '/' + b if d.endswith('.lproj') else b
                 res.append(self.rel(f) + ('' if to == b else ':' + to))
 
+        built = {self.o.get(t.get('productReference'), {}).get('path'): t for t in self.targets if t.get('productType') in ('com.apple.product-type.library.static', 'com.apple.product-type.framework', 'com.apple.product-type.framework.static')}
+
         def framework(f, w=None):
             b, e = os.path.splitext(os.path.basename(f))
+            if w is None and os.path.basename(f) in built:
+                needs.extend(mods.library(built[os.path.basename(f)]))
+                return
             if w and e in ('.a', '.dylib', '.tbd') and os.path.exists(w):
                 libs.append(self.rel(w))
             elif e == '.framework' and (w is None or '/System/Library/' in w or not os.path.exists(w)):
@@ -9345,6 +9377,8 @@ class XcProject:
             if isa == 'PBXShellScriptBuildPhase':
                 self.note(f'the script "{ph.get("name", "Run Script")}" is not run: if it makes files the app needs, run it first')
                 continue
+            if isa == 'PBXCopyFilesBuildPhase' and ph.get('files') and all(self.o.get(self.o.get(b, {}).get('fileRef'), {}).get('path') in built or self.o.get(b, {}).get('productRef') for b in ph['files']):
+                continue  # what is linked in needs no copy
             if isa == 'PBXCopyFilesBuildPhase' and ph.get('files'):
                 self.note(f'"{ph.get("name", "Copy Files")}" is not done (embedded extensions and frameworks)')
                 continue
@@ -9354,7 +9388,7 @@ class XcProject:
                 if flt and 'ios' not in flt:
                     continue
                 if b.get('productRef'):
-                    self.fail(f'the Swift package product {self.o.get(b["productRef"], {}).get("productName", "?")}: packages are not built here (add its sources to the app)')
+                    product(self.o.get(b['productRef'], {}).get('productName', '?'))
                     continue
                 r = b.get('fileRef')
                 f = self.o.get(r, {})
@@ -9364,6 +9398,9 @@ class XcProject:
                     nm = d.get('path') or d.get('name', '?')
                     if isa == 'PBXFrameworksBuildPhase':
                         framework(nm, w)
+                    elif isa == 'PBXHeadersBuildPhase':
+                        if w and 'Public' in b.get('settings', {}).get('ATTRIBUTES', []):
+                            public.append(w)
                     elif w is None:
                         if isa in ('PBXSourcesBuildPhase', 'PBXResourcesBuildPhase'):
                             self.fail(f'{nm}: not a file of the project')
@@ -9375,9 +9412,15 @@ class XcProject:
             self.fail('build rules of its own')
         for d in target.get('dependencies', []):
             t = self.o.get(self.o.get(d, {}).get('target'), {})
-            if t:
-                kind = t.get('productType', '')
+            kind = t.get('productType', '')
+            if t and any(b['id'] == self.o[d]['target'] for b in built.values()):
+                needs.extend(mods.library(next(b for b in built.values() if b['id'] == self.o[d]['target'])))
+            elif self.o.get(d, {}).get('productRef'):
+                product(self.o.get(self.o[d]['productRef'], {}).get('productName', '?'))
+            elif t:
                 (self.note if 'extension' in kind or 'watch' in kind else self.fail)(f'the target {t.get("name")} it depends on is not built here')
+        for i in target.get('packageProductDependencies', []):
+            product(self.o.get(i, {}).get('productName', '?'))
         for i, f in self.o.items():
             if f.get('isa') == 'PBXFileReference' and self.where.get(i) and self.where[i].endswith(('.h', '.hpp', '.hh', '.inc')):
                 heads.add(os.path.dirname(self.where[i]))
@@ -9422,6 +9465,17 @@ class XcProject:
             cxx.append('-fobjc-weak')
         if yes('CLANG_ENABLE_MODULES'):
             cf += ['-fmodules', '-fmodules-cache-path=$KIT/build/clang-modules']
+        needs = list(dict.fromkeys(needs))
+        if needs and not is_lib:
+            cc, more = mods.uses(needs)
+            cc, more = ([x.replace(self.root, '$KIT') for x in a] for a in (cc, more))
+            cf += cc
+            flags_cxx = [c for c in cc if not c.startswith('-fmodule-map')]
+            cxx += flags_cxx
+            sw += more
+            fw += mods.fw
+            libs += mods.libs
+            res += mods.res
         if any(f.endswith('.swift') for f in src):
             so = get('SWIFT_OPTIMIZATION_LEVEL') or '-O'
             sw.insert(0, so)
@@ -9488,6 +9542,9 @@ class XcProject:
         p['resources'] = list(dict.fromkeys(res))
         if icons:
             p['icon'] = icons[0]
+        if is_lib:
+            p.pop('icon', None)
+            return p | {'needs': needs, 'public': public}
         p['info'] = self.info(info_file, get, raw, yes('GENERATE_INFOPLIST_FILE'))
         return {k: v for k, v in p.items() if v not in ([], {}, '')}
 
@@ -9580,6 +9637,510 @@ class XcProject:
         return {k: v for k, v in d.items() if v != ''}
 
 
+class SwiftManifest:
+    """What a Package.swift says, read from its text: plain literals and calls, as nearly all packages have them."""
+    TOK = re.compile(r'\s+|//[^\n]*|/\*.*?\*/|"""(.*?)"""|"((?:[^"\\]|\\.)*)"|([A-Za-z_]\w*)|(\d[\d._]*)|([.\[\](){},:=+?!<>&|-]|#\w+|@\w+)', re.S)
+
+    def __init__(self, path):
+        s = self.text = text(path)
+        self.path, self.vars = path, {}
+        m = re.match(r'\s*//\s*swift-tools-version\s*:\s*([\d.]+)', s)
+        self.tools = m[1] if m else '5.0'
+        self.t, i = [], 0
+        while i < len(s):
+            m = self.TOK.match(s, i)
+            if not m:
+                i += 1
+                self.t.append(('x', s[i - 1]))
+                continue
+            for k, g in (('s', 1), ('s', 2), ('i', 3), ('n', 4), ('p', 5)):
+                if m[g] is not None:
+                    self.t.append((k, m[g]))
+                    break
+            i = m.end()
+        if any(k == 'p' and v == '#if' for k, v in self.t):
+            raise Fail(f'{path}: a package that decides with #if is not read here', 1)
+        for i, (k, v) in enumerate(self.t):
+            if v == 'let' and k == 'i' and i + 1 < len(self.t):
+                j = i + 2
+                while j < len(self.t) and self.t[j] != ('p', '=') and self.t[j][1] not in ('let', 'var'):
+                    j += 1
+                try:
+                    self.vars.setdefault(self.t[i + 1][1], self.expr(j + 1)[0])
+                except (IndexError, ValueError):
+                    pass
+        self.package = next((v for v in self.vars.values() if isinstance(v, tuple) and v[0] == 'Package'), None)
+        if not self.package:
+            raise Fail(f'{path}: it cannot be read here', 1)
+        m = re.search(r'\b(package|\w+)\.(targets|dependencies|products)\s*(\.append|\+=)', s)
+        if m:
+            raise Fail(f'{path}: a package changed after it is made is not read here', 1)
+
+    def expr(self, i):
+        v, i = self.one(i)
+        while self.t[i:i + 1] == [('p', '+')]:
+            w, i = self.one(i + 1)
+            if not isinstance(v, list) or not isinstance(w, list):
+                raise ValueError
+            v = v + w
+        return v, i
+
+    def one(self, i):
+        k, v = self.t[i]
+        i += 1
+        if k == 's':
+            return v.replace('\\"', '"').replace('\\\\', '\\'), i
+        if k == 'n':
+            return v, i
+        if (k, v) == ('p', '['):
+            a, d = [], {}
+            if self.t[i] == ('p', ':'):
+                return {}, i + 2
+            while self.t[i] != ('p', ']'):
+                x, i = self.expr(i)
+                if self.t[i] == ('p', ':'):
+                    y, i = self.expr(i + 1)
+                    d[str(x)] = y
+                else:
+                    a.append(x)
+                if self.t[i] == ('p', ','):
+                    i += 1
+            return (d or a), i + 1
+        name = ''
+        if (k, v) == ('p', '.'):
+            k, v = self.t[i]
+            i += 1
+        if k != 'i':
+            raise ValueError
+        name = v
+        while self.t[i:i + 1] == [('p', '.')] and self.t[i + 1][0] == 'i':
+            name, i = self.t[i + 1][1], i + 2
+        if self.t[i:i + 1] == [('p', '(')]:
+            i += 1
+            args = []
+            while self.t[i] != ('p', ')'):
+                lab = ''
+                if self.t[i][0] == 'i' and self.t[i + 1] == ('p', ':'):
+                    lab, i = self.t[i][1], i + 2
+                x, i = self.expr(i)
+                while self.t[i] not in (('p', ','), ('p', ')')):  # 1.0..<2.0 and the like
+                    i += 1
+                args.append((lab, x))
+                if self.t[i] == ('p', ','):
+                    i += 1
+            return (name, args), i + 1
+        if name in ('true', 'false'):
+            return name == 'true', i
+        return self.vars.get(name, (name, [])), i
+
+
+def xc_arg(call, label, default=None):
+    if not isinstance(call, tuple):
+        return default
+    return next((v for k, v in call[1] if k == label), default)
+
+
+def xc_for_ios(call):
+    c = next((v for k, v in call[1] if isinstance(v, tuple) and v[0] == 'when'), None)
+    p = xc_arg(c, 'platforms')
+    return p is None or any(isinstance(x, tuple) and x[0] == 'iOS' for x in p)
+
+
+class XcModules:
+    """The packages and library targets an app uses, each built as a module of its own; the app links their objects."""
+    def __init__(self, project):
+        self.x, self.root = project, project.root
+        self.out = os.path.join(project.root, 'build', 'modules')
+        self.mods, self.order, self.packages, self.res, self.fw, self.libs = {}, [], {}, [], [], []
+
+    # -- packages --
+
+    def package(self, folder, name=None):
+        folder = os.path.normpath(folder)
+        if folder not in self.packages:
+            f = os.path.join(folder, 'Package.swift')
+            if not os.path.exists(f):
+                raise Fail(f'{folder} has no Package.swift', 1)
+            m = SwiftManifest(f)
+            self.packages[folder] = m
+            m.folder, m.name = folder, xc_arg(m.package, 'name', os.path.basename(folder))
+            m.ids = {m.name.lower(), os.path.basename(folder).lower()} | ({name.lower()} if name else set())
+            m.targets = {xc_arg(t, 'name'): t for t in xc_arg(m.package, 'targets', []) if isinstance(t, tuple)}
+            m.products = {xc_arg(p, 'name'): p for p in xc_arg(m.package, 'products', []) if isinstance(p, tuple)}
+            m.deps = []
+            for d in xc_arg(m.package, 'dependencies', []):
+                if xc_arg(d, 'path'):
+                    m.deps.append(lambda p=xc_arg(d, 'path'): self.package(os.path.join(folder, p)))
+                elif xc_arg(d, 'url'):
+                    m.deps.append(lambda d=d: self.remote(xc_arg(d, 'url'), self.wanted(d)))
+        return self.packages[folder]
+
+    @staticmethod
+    def wanted(d):
+        """(kind, value) of a dependency's version."""
+        for lab, v in d[1]:
+            if lab in ('from', 'exact', 'branch', 'revision'):
+                return lab, v
+            if isinstance(v, tuple) and v[0] in ('upToNextMajor', 'upToNextMinor', 'exact', 'branch', 'revision'):
+                return ('from' if v[0] == 'upToNextMajor' else v[0]), xc_arg(v, 'from') or v[1][0][1]
+            if lab == '' and isinstance(v, str):
+                return 'from', v
+        return 'any', ''
+
+    def remote(self, url, want):
+        m = re.match(r'(?:https://github\.com/|git@github\.com:)([\w.-]+)/([\w.-]+?)(?:\.git)?/?$', url)
+        if not m:
+            raise Fail(f'the package {url} is not on GitHub: put it in a folder of the project as a local package', 1)
+        owner, repo = m[1], m[2]
+        to = os.path.join(self.root, '.henge-packages', repo)
+        if os.path.exists(to + '/Package.swift'):
+            return self.package(to, repo)  # got before: its folder is removed to get it anew
+        import io
+        import json
+        import shutil
+        import urllib.request
+        import zipfile
+
+        def get(u):
+            with urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'henge'}), timeout=60) as r:
+                return r.read()
+        kind, v = want
+        ref = v if kind in ('branch', 'revision') else None
+        api, code = os.environ.get('HENGE_GITHUB_API', 'https://api.github.com'), os.environ.get('HENGE_GITHUB_CODE', 'https://codeload.github.com')
+        try:
+            ref = self.pinned(owner, repo) or ref
+            if not ref:
+                num = lambda t: tuple(int(n) for n in (re.findall(r'\d+', t) + ['0', '0', '0'])[:3])
+                tags, page = {}, 1
+                while page < 6:
+                    got = json.loads(get(f'{api}/repos/{owner}/{repo}/tags?per_page=100&page={page}'))
+                    tags |= {num(t['name']): t['name'] for t in got if re.fullmatch(r'v?\d+(\.\d+){0,2}', t['name'])}
+                    if len(got) < 100:
+                        break
+                    page += 1
+                low = num(v)
+                ok = [t for t in tags if kind == 'any' or (t == low if kind == 'exact' else t >= low and t[:2 if kind == 'upToNextMinor' else 1] == low[:2 if kind == 'upToNextMinor' else 1])]
+                if not ok:
+                    raise Fail(f'the package {repo} has no version for {kind} {v}', 1)
+                ref = tags[max(ok)]
+            put(f'getting the package {owner}/{repo} {ref}')
+            State.out.flush()
+            z = zipfile.ZipFile(io.BytesIO(get(f'{code}/{owner}/{repo}/zip/{ref}')))
+        except (OSError, ValueError, zipfile.BadZipFile) as e:
+            raise Fail(f'the package {owner}/{repo} could not be got: {e}', 1) from None
+        part = to + '.part'
+        shutil.rmtree(part, ignore_errors=True)
+        for n in z.namelist():
+            rel = n.split('/', 1)[1] if '/' in n else ''
+            if rel and not n.endswith('/'):
+                f = os.path.normpath(os.path.join(part, rel))
+                if not f.startswith(part + os.sep):
+                    raise Fail(f'the package {repo} holds a bad path', 1)
+                os.makedirs(os.path.dirname(f), exist_ok=True)
+                with open(f, 'wb') as h:
+                    h.write(z.read(n))
+        os.rename(part, to)
+        return self.package(to, repo)
+
+    def pinned(self, owner, repo):
+        """The revision the project's Package.resolved names."""
+        import glob
+        import json
+        for f in glob.glob(glob.escape(self.x.path) + '/**/Package.resolved', recursive=True):
+            try:
+                o = json.loads(text(f))
+            except ValueError:
+                continue
+            for p in o.get('pins') or o.get('object', {}).get('pins', []):
+                u = (p.get('location') or p.get('repositoryURL') or '').lower()
+                if re.search(rf'[/:]{re.escape(owner.lower())}/{re.escape(repo.lower())}(\.git)?/?$', u):
+                    return p.get('state', {}).get('revision')
+        return None
+
+    def product(self, name, near=None, package=None):
+        """The modules of a package's product, built before the one that asks."""
+        todo = [near] if near else []
+        todo += [p for p in self.packages.values() if p not in todo]
+        for p in todo:
+            if package and package.lower() not in p.ids:
+                continue
+            if name in p.products:
+                if p.products[name][0] == 'plugin':
+                    raise Fail(f'the package plugin {name} is not run here', 1)
+                return [m for t in xc_arg(p.products[name], 'targets', []) for m in self.target(p, t)]
+        raise Fail(f'no package here has the product {name}', 1)
+
+    def target(self, p, name):
+        """A package's target; returns the names of its module and all it needs."""
+        key = (p.folder, name)
+        if key in self.mods:
+            return self.mods[key]['all']
+        t = p.targets.get(name)
+        if not t or t[0] not in ('target', 'executableTarget'):
+            raise Fail(f'the package target {name} cannot be built here ({t[0] if t else "not found"})', 1)
+        if any(isinstance(d, tuple) for d in xc_arg(t, 'plugins', [])):
+            self.x.note(f'the build plugins of {name} are not run')
+        if any(m['name'] == name for m in self.mods.values()):
+            raise Fail(f'two modules are called {name}', 1)
+        self.mods[key] = {'name': name, 'all': []}
+        need = []
+        for d in xc_arg(t, 'dependencies', []):
+            if isinstance(d, str):
+                d = ('byName', [('name', d)])
+            if not xc_for_ios(d):
+                continue
+            n = xc_arg(d, 'name')
+            if d[0] == 'target' or (d[0] == 'byName' and n in p.targets):
+                need += self.target(p, n)
+            else:
+                for get in p.deps:
+                    get()
+                need += self.product(n, None, xc_arg(d, 'package'))
+        need = list(dict.fromkeys(need))
+        where = xc_arg(t, 'path')
+        if where is None:
+            where = next((d + '/' + name for d in ('Sources', 'Source', 'src', 'srcs') if os.path.isdir(os.path.join(p.folder, d, name))), None)
+            if where is None and len(p.targets) == 1 and os.path.isdir(os.path.join(p.folder, 'Sources')):
+                where = 'Sources'
+            if where is None:
+                raise Fail(f'the sources of {name} are not there', 1)
+        top = os.path.normpath(os.path.join(p.folder, where))
+        gone = [os.path.normpath(os.path.join(top, e)) for e in xc_arg(t, 'exclude', [])]
+        only = [os.path.normpath(os.path.join(top, e)) for e in xc_arg(t, 'sources', [])]
+        under = lambda f, ds: any(f == d or f.startswith(d + os.sep) for d in ds)
+        src, res = [], []
+        for r in xc_arg(t, 'resources', []):
+            f = os.path.normpath(os.path.join(top, r[1][0][1]))
+            if r[0] == 'embedInCode' or not os.path.exists(f):
+                raise Fail(f'the resource {r[1][0][1]} of {name} cannot be had here', 1)
+            res.append((r[0], f))
+        for r, ds, fs in os.walk(top):
+            ds[:] = sorted(d for d in ds if not d.startswith('.') and not under(os.path.join(r, d), gone) and not d.endswith(('.docc', '.xcassets', '.bundle')))
+            for f in sorted(fs):
+                f = os.path.join(r, f)
+                if under(f, gone) or (only and not under(f, only)) or under(f, [x for k, x in res if k == 'copy']):
+                    continue
+                if os.path.splitext(f)[1].lower() in ('.swift', '.c', '.m', '.mm', '.cpp', '.cc', '.cxx', '.s'):
+                    src.append(f)
+        sw = any(f.endswith('.swift') for f in src)
+        if sw and not all(f.endswith('.swift') for f in src):
+            raise Fail(f'{name} mixes Swift and C sources', 1)
+        m = self.new(key, name, src, need)
+        m['flags'] += ['-O2', '-DSWIFT_PACKAGE=1']
+        major = int(p.tools.split('.')[0])
+        m['swift'] += ['-O', '-D', 'SWIFT_PACKAGE', '-package-name', re.sub(r'\W', '_', p.name.lower()), '-swift-version', '6' if major >= 6 else '5']
+        inc = os.path.normpath(os.path.join(top, xc_arg(t, 'publicHeadersPath', 'include')))
+        if not sw and os.path.isdir(inc):
+            self.clang_module(m, inc)
+        for group in ('cSettings', 'cxxSettings', 'swiftSettings', 'linkerSettings'):
+            for s in xc_arg(t, group, []):
+                if not isinstance(s, tuple) or not xc_for_ios(s):
+                    continue
+                c = next((v for k, v in s[1] if isinstance(v, tuple) and v[0] == 'when'), None)
+                if c and isinstance(xc_arg(c, 'configuration'), tuple) and xc_arg(c, 'configuration')[0].lower() != 'release':
+                    continue
+                a = s[1][0][1] if s[1] else ''
+                to = {'cSettings': m['c'], 'cxxSettings': m['cxx'], 'swiftSettings': m['swift']}.get(group)
+                if s[0] == 'define':
+                    to += ['-D', a] if group == 'swiftSettings' else ['-D' + a + ('=' + xc_arg(s, 'to') if isinstance(xc_arg(s, 'to'), str) else '')]
+                elif s[0] == 'headerSearchPath':
+                    to.append('-I' + os.path.join(top, a))
+                elif s[0] in ('enableUpcomingFeature', 'enableExperimentalFeature'):
+                    to += ['-enable-upcoming-feature' if 'Up' in s[0] else '-enable-experimental-feature', a]
+                elif s[0] in ('swiftLanguageMode', 'swiftLanguageVersion') and isinstance(a, tuple):
+                    to += ['-swift-version', a[0][1:]]
+                elif s[0] == 'defaultIsolation':
+                    to += ['-default-isolation', 'MainActor'] if isinstance(a, tuple) and a[0] == 'self' else []
+                elif s[0] == 'interoperabilityMode':
+                    to += ['-cxx-interoperability-mode=default'] if a[0] == 'Cxx' else []
+                elif s[0] == 'linkedFramework':
+                    self.fw.append(a)
+                elif s[0] == 'linkedLibrary':
+                    self.libs.append(a)
+                elif s[0] == 'strictMemorySafety':
+                    pass
+                elif s[0] == 'unsafeFlags' and group in ('cSettings', 'cxxSettings') and isinstance(a, list):
+                    to += a
+                else:
+                    self.x.note(f'the setting {s[0]} of {name} is left out')
+        for k, old in (('cxxLanguageStandard', m['cxx']), ('cLanguageStandard', m['c'])):
+            v = xc_arg(p.package, k)
+            if isinstance(v, tuple):
+                old.append('-std=' + re.sub(r'^gnucxx|^gnuxx', 'gnu++', re.sub(r'^cxx', 'c++', v[0])))
+        if res:
+            b = f'{p.name}_{name}.bundle'
+            for kind, f in res:
+                each = [f]
+                if kind == 'process' and os.path.isdir(f) and not f.endswith(('.xcassets', '.bundle', '.lproj')):
+                    each = [os.path.join(r, x) for r, ds, fs in os.walk(f) for x in fs if not x.startswith('.')]
+                for x in each:
+                    if x.endswith(('.xcassets', '.storyboard', '.xib', '.xcdatamodeld', '.metal', '.xcstrings')) or '.xcassets/' in x:
+                        self.x.note(f'{os.path.basename(x)} of {name} is left out: it needs a compiler that is not here')
+                    elif not x.endswith('.swift'):
+                        d = os.path.basename(os.path.dirname(x))
+                        self.res.append(self.x.rel(x) + ':' + b + '/' + (d + '/' if d.endswith('.lproj') else '') + os.path.basename(x))
+            if sw:
+                m['extra'] = ('import Foundation\nextension Foundation.Bundle { nonisolated static let module: Bundle = '
+                              f'Bundle(url: Bundle.main.bundleURL.appendingPathComponent("{b}")) ?? Bundle.main }}\n')
+        return m['all']
+
+    # -- both --
+
+    def new(self, key, name, src, need):
+        mod = re.sub(r'\W', '_', name)
+        m = {'name': name, 'mod': mod, 'src': src, 'need': need, 'all': list(dict.fromkeys(need + [mod])), 'flags': [], 'c': [], 'cxx': [], 'swift': [], 'extra': '', 'cc': [], 'map': None}
+        self.mods[key] = m
+        self.order.append(m)
+        return m
+
+    def clang_module(self, m, inc, headers=None):
+        """How others import a C module: its folder of headers and a module map, its own or one made here."""
+        own = os.path.join(inc, 'module.modulemap')
+        m['cc'] = ['-I' + inc]
+        if not os.path.exists(own):
+            um = next((h for h in (f'{inc}/{m["mod"]}.h', f'{inc}/{m["mod"]}/{m["mod"]}.h') if os.path.exists(h)), None)
+            m['map'] = f'module {m["mod"]} {{\n  umbrella {"header " if um else ""}"{um or inc}"\n  export *\n' + ('' if um else '  module * { export * }\n') + '}\n'
+            own = os.path.join(self.out, m['mod'] + '.modulemap')
+        m['cc'].append('-fmodule-map-file=' + own)
+
+    def library(self, t):
+        """A static library or framework target of the project itself."""
+        key = ('', t['id'])
+        if key in self.mods:
+            return self.mods[key]['all']
+        self.mods[key] = {'name': t['name'], 'all': []}
+        p = self.x.convert(t, self)
+        full = lambda a: a.replace('$KIT', self.root)
+        src = [os.path.join(self.root, s) for s in p.get('sources', []) if not s.endswith('.metal')]
+        sw = any(f.endswith('.swift') for f in src)
+        if sw and not all(f.endswith('.swift') for f in src):
+            raise Fail(f'the library {t["name"]} mixes Swift and C sources', 1)
+        m = self.new(key, p['name'], src, p['needs'])
+        for a, b in (('flags', 'flags'), ('c', 'c_flags'), ('cxx', 'cxx_flags'), ('swift', 'swift_flags')):
+            m[a] += [full(x) for x in p.get(b, [])]
+        self.res += p.get('resources', [])
+        self.fw += p.get('frameworks', [])
+        self.libs += p.get('libraries', [])
+        heads = p['public']
+        if heads and not sw:
+            inc = os.path.join(self.out, 'include', m['mod'])
+            m['copy'] = [(h, os.path.join(inc, m['mod'], os.path.basename(h))) for h in heads]
+            m['cc'] = ['-I' + inc]
+            um = os.path.join(inc, m['mod'], m['mod'] + '.h')
+            has = any(to == um for h, to in m['copy'])
+            m['map'] = f'module {m["mod"]} {{\n  umbrella {"header " if has else ""}"{um if has else os.path.join(inc, m["mod"])}"\n  export *\n' + ('' if has else '  module * { export * }\n') + '}\n'
+            m['cc'].append('-fmodule-map-file=' + os.path.join(self.out, m['mod'] + '.modulemap'))
+        return m['all']
+
+    def uses(self, names):
+        """Compiler arguments with which Swift and C sources find modules."""
+        cc = [x for m in self.order if m['mod'] in names for x in m['cc']]
+        return cc, (['-I', self.out] if names else []) + [x for c in cc for x in ('-Xcc', c)]
+
+    def build(self, min_ios):
+        """Builds what changed; returns (objects, a hash of it all)."""
+        import concurrent.futures
+        import hashlib
+        import json
+        import shutil
+        import subprocess
+        tools = xc_tools()
+        os.makedirs(self.out, exist_ok=True)
+        res = sorted(os.listdir(tools + '/lib/clang'))[-1]
+        tgt = 'arm64-apple-ios' + min_ios
+        state_file, objs, sums = os.path.join(self.out, 'state.json'), [], {}
+        try:
+            with open(state_file) as f:
+                state = json.load(f)
+        except (OSError, ValueError):
+            state = {}
+
+        def digest(f):
+            try:
+                with open(f, 'rb') as h:
+                    return hashlib.sha256(h.read()).hexdigest()
+            except OSError:
+                return ''
+        key = lambda *a: hashlib.sha256(json.dumps(a).encode()).hexdigest()
+
+        def run(a):
+            return subprocess.run(a, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=self.root)
+        try:
+            for m in self.order:
+                for a, b in m.get('copy', []):
+                    os.makedirs(os.path.dirname(b), exist_ok=True)
+                    if digest(a) != digest(b):
+                        shutil.copyfile(a, b)
+                if m['map']:
+                    f = os.path.join(self.out, m['mod'] + '.modulemap')
+                    if not os.path.exists(f) or text(f) != m['map']:
+                        with open(f, 'w') as h:
+                            h.write(m['map'])
+                cc, sw = self.uses(m['all'])
+                base = [sums.get(n, '') for n in m['need']]
+                swift = [f for f in m['src'] if f.endswith('.swift')]
+                if swift:
+                    if m['extra']:
+                        f = os.path.join(self.out, m['mod'] + '-bundle.swift')
+                        with open(f, 'w') as h:
+                            h.write(m['extra'])
+                        swift.append(f)
+                    fx, obj = '/henge/toolchain', os.path.join(self.out, m['mod'] + '.o')
+                    a = ['-frontend', '-c'] + swift + ['-module-name', m['mod'], '-target', tgt, '-sdk', fx + '/sdk/iPhoneOS.sdk', '-resource-dir', fx + '/lib/swift', '-enable-objc-interop',
+                         '-no-color-diagnostics', '-in-process-plugin-server-path', fx + '/lib/swift/host/libSwiftInProcPluginServer.dylib', '-plugin-path', fx + '/lib/swift/host/plugins',
+                         '-module-cache-path', fx + '/module-cache', '-parse-as-library', '-suppress-warnings', '-emit-module-path', os.path.join(self.out, m['mod'] + '.swiftmodule')] + sw + m['swift']
+                    k = key(a, [digest(f) for f in swift], base)
+                    if state.get(m['mod']) != k or not os.path.exists(obj) or not os.path.exists(obj[:-2] + '.swiftmodule'):
+                        put(f'building {m["mod"]} ({len(swift)} Swift file(s))')
+                        State.out.flush()
+                        state.pop(m['mod'], None)
+                        r = run([tools + '/bin/swift-frontend'] + a + ['-o', obj])
+                        if r.returncode:
+                            outb(r.stdout[-8000:])
+                            raise Fail(f'the module {m["mod"]} did not compile', 65)
+                        state[m['mod']] = k
+                    sums[m['mod']] = k
+                    objs.append(obj)
+                    continue
+                todo, total = [], []
+                for f in m['src']:
+                    e = os.path.splitext(f)[1].lower()
+                    obj = os.path.join(self.out, m['mod'], self.x.rel(f).replace('../', 'up/') + '.o')
+                    a = [tools + '/bin/clang'] + (['--driver-mode=g++'] if e in ('.cpp', '.cc', '.cxx', '.mm') else []) + ['-target', tgt, '-isysroot', tools + '/sdk/iPhoneOS.sdk', '-resource-dir', tools + '/lib/clang/' + res]
+                    a += m['flags'] + (['-fobjc-arc'] if e in ('.m', '.mm') else []) + (m['cxx'] if e in ('.cpp', '.cc', '.cxx', '.mm') else m['c'])
+                    if e == '.m':
+                        a += ['-fmodules', '-fmodules-cache-path=' + os.path.join(self.root, 'build', 'clang-modules')]
+                    a += [c for c in cc if e == '.m' or not c.startswith('-fmodule-map')] + ['-w', '-fintegrated-cc1', '-fno-color-diagnostics', '-MMD', '-MF', obj + '.d', '-c', f, '-o', obj]
+                    old = state.get(obj, {})
+                    objs.append(obj)
+                    if old.get('key') == key(a) and os.path.exists(obj) and all(digest(d) == h for d, h in old['deps'].items()):
+                        total.append(old['deps'])
+                    else:
+                        todo.append((f, obj, a))
+
+                def one(j):
+                    os.makedirs(os.path.dirname(j[1]), exist_ok=True)
+                    return j, run(j[2])
+                if todo:
+                    put(f'building {m["mod"]} ({len(todo)} file(s))')
+                    State.out.flush()
+                with concurrent.futures.ThreadPoolExecutor(3) as pool:
+                    for (f, obj, a), r in pool.map(one, todo):
+                        state.pop(obj, None)
+                        if r.returncode:
+                            outb(r.stdout[-8000:])
+                            raise Fail(f'{self.x.rel(f)} did not compile', 65)
+                        ds = [w.replace('\\ ', ' ') for w in re.findall(r'(?:\\.|\S)+', text(obj + '.d').replace('\\\n', ' ').split(': ', 1)[1])]
+                        state[obj] = {'key': key(a), 'deps': {d: digest(d) for d in ds if d.startswith(self.root + os.sep) or not d.startswith(tools)}}
+                        total.append(state[obj]['deps'])
+                heads = [h for c in m['cc'] if c.startswith('-I') for r, ds, fs in os.walk(c[2:]) for h in (os.path.join(r, f) for f in fs)]
+                sums[m['mod']] = key(sorted(str(sorted(d.items())) for d in total), [digest(h) for h in sorted(heads)], m['map'], m['flags'], m['c'], m['cxx'], base)
+        finally:
+            with open(state_file, 'w') as f:
+                json.dump(state, f)
+        return objs, key(sums)[:16]
+
+
 def xc_build(folder):
     """Ask Henge's builder (its tool server) for a build of a folder. Returns (worked, text)."""
     import http.client
@@ -9603,8 +10164,9 @@ def xc_build(folder):
 XC_HELP = '''usage: xcodebuild [-project X.xcodeproj] [-target NAME | -scheme NAME] [-configuration NAME] [build | clean] [SETTING=VALUE...]
        xcodebuild -list | -showBuildSettings | -showsdks | -version
 Henge's own, not Apple's. It writes henge-project.json beside the Xcode project and builds that: one iPhone app of Swift,
-C, C++ and Objective-C sources, as an unsigned IPA. Not here: the simulator, tests, archives, signing, Swift packages,
-storyboards, Core Data models, other targets, build scripts. Of an asset catalog it uses the icon and the plain pictures.'''
+C, C++ and Objective-C sources, with the static libraries, frameworks and Swift packages it uses (of plain sources: no
+plugins, macros or binaries; those on GitHub are got into .henge-packages), as an unsigned IPA. Not here: the simulator,
+tests, archives, signing, storyboards, Core Data models, extensions, build scripts. Of an asset catalog it uses the icon and the plain pictures.'''
 
 
 @command('xcodebuild')
@@ -9694,12 +10256,13 @@ def xcodebuild(name, args):
         return 0
     if 'clean' in acts:
         import shutil
-        for d in ('build/obj', 'build/clang-modules', f'build/{x.expand("$(PRODUCT_NAME)", x.settings(t))}.app'):
+        for d in ('build/obj', 'build/clang-modules', 'build/modules', f'build/{x.expand("$(PRODUCT_NAME)", x.settings(t))}.app'):
             shutil.rmtree(os.path.join(x.root, d), ignore_errors=True)
         put('** CLEAN SUCCEEDED **')
         if 'build' not in acts:
             return 0
-    p = x.convert(t)
+    mods = XcModules(x)
+    p = x.convert(t, mods)
     for n in x.notes:
         err('note: ' + n)
     if x.bad:
@@ -9708,6 +10271,17 @@ def xcodebuild(name, args):
         err('\n** BUILD FAILED **\nThis project needs more than Henge\'s xcodebuild has. A henge-project.json written by hand (project_help) may do.')
         return 65
     f, mark = os.path.join(x.root, 'henge-project.json'), os.path.join(x.root, '.henge-xcode')
+    if mods.order:
+        try:
+            objs, mark_of = mods.build(p['min_ios'])
+        except Fail as e:
+            err(e)
+            err('\n** BUILD FAILED **')
+            return 65
+        p['link'] = p.get('link', []) + [x.rel(o) for o in objs]
+        p['defines'] = [f'HENGE_MODULES_{mark_of}=1']  # so that the app's own files are compiled again when a module changed
+        if 'swift_flags' in p:
+            p['swift_flags'] += ['-D', 'HENGE_MODULES_' + mark_of]
     body = json.dumps(p, indent=1, ensure_ascii=False) + '\n'
     if os.path.exists(f):
         with open(f, 'rb') as h:
