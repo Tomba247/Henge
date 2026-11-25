@@ -8,6 +8,11 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <sys/mount.h>
+#include <sys/clonefile.h>
+#include <copyfile.h>
+#include <stdatomic.h>
+#include <dirent.h>
 
 typedef struct TlToolExit { void (*fn)(void *); void *arg; } TlToolExit;
 typedef struct TlToolMap { void *at; size_t len; } TlToolMap;
@@ -23,6 +28,7 @@ typedef struct TlToolRun {
     char **env;         /* its environment */
     const char *command; /* the folder tl_tool_command started it in */
     char *cwd;          /* its folder, NULL: the app's */
+    char *_Atomic alias; /* where TL_TOOLCHAIN really is, once it has used that name */
     int std[3];         /* what its standard files are; -1: output goes to the host, input is empty */
     void *entry;        /* called instead of the program's main */
     int keeps;          /* ended by an exception, its thread and memory stay (tool_terminate) */
@@ -583,14 +589,69 @@ static kern_return_t tool_vm_deallocate(vm_map_t task, vm_address_t at, vm_size_
     tool_forget_map((void *)at, len);
     return vm_deallocate(task, at, len);
 }
+/* TL_TOOLCHAIN is the folder the tool's HENGE_TOOLS names. A compiler writes the paths it was given into its module
+   cache and drops the cache when they change, and the app's folder changes with each update: under this name they do not.
+   What it is told of a file it named so (realpath, F_GETPATH) has this name too. */
+#define TL_TOOLCHAIN "/henge/toolchain"
+static char **tool_env_find(TlToolRun *r, const char *name, size_t n);
+static const char *tool_path(TlToolRun *r, const char *path, char *buf) {
+    size_t n = sizeof TL_TOOLCHAIN - 1;
+    if (!path || strncmp(path, TL_TOOLCHAIN, n) || (path[n] && path[n] != '/')) return path;
+    char *real = r->alias;
+    if (!real) {
+        char **e = tool_env_find(r, "HENGE_TOOLS", 11), *none = NULL;
+        if (!e || !(real = realpath(*e + 12, NULL))) return path;
+        if (!atomic_compare_exchange_strong(&r->alias, &none, real)) free(real), real = none;
+    }
+    return (size_t)snprintf(buf, PATH_MAX, "%s%s", real, path + n) < PATH_MAX ? buf : path;
+}
+/* A real path in place, under TL_TOOLCHAIN if it lies there (never longer than a container's path). */
+static char *tool_path_back(TlToolRun *r, char *path) {
+    const char *real = r->alias;
+    size_t n = real ? strlen(real) : 0, m = sizeof TL_TOOLCHAIN - 1;
+    if (!path || n < m || strncmp(path, real, n) || (path[n] && path[n] != '/')) return path;
+    memmove(path + m, path + n, strlen(path + n) + 1);
+    memcpy(path, TL_TOOLCHAIN, m);
+    return path;
+}
+#define TOOL_PATH(p) TlToolRun *r = &g_tool; char b1[PATH_MAX]; (p) = tool_path(r, (p), b1)
+#define TOOL_PATHS(p, q) TOOL_PATH(p); char b2[PATH_MAX]; (q) = tool_path(r, (q), b2)
 static int tool_open(const char *path, int flags, ...) {
     va_list ap;
     va_start(ap, flags);
     int mode = flags & O_CREAT ? va_arg(ap, int) : 0;
     va_end(ap);
+    TOOL_PATH(path);
     int fd = open(path, flags, mode);
-    tool_opened(&g_tool, fd, 1);
+    tool_opened(r, fd, 1);
     return fd;
+}
+static int tool_fcntl(int fd, int cmd, ...) {
+    va_list ap;
+    va_start(ap, cmd);
+    void *arg = va_arg(ap, void *);
+    va_end(ap);
+    int rc = fcntl(fd, cmd, arg);
+    if (!rc && cmd == F_GETPATH) tool_path_back(&g_tool, arg);
+    return rc;
+}
+static int tool_access(const char *p, int m) { TOOL_PATH(p); return access(p, m); }
+static int tool_stat(const char *p, struct stat *st) { TOOL_PATH(p); return stat(p, st); }
+static int tool_lstat(const char *p, struct stat *st) { TOOL_PATH(p); return lstat(p, st); }
+static int tool_statfs(const char *p, struct statfs *st) { TOOL_PATH(p); return statfs(p, st); }
+static int tool_mkdir(const char *p, mode_t m) { TOOL_PATH(p); return mkdir(p, m); }
+static int tool_unlink(const char *p) { TOOL_PATH(p); return unlink(p); }
+static int tool_remove(const char *p) { TOOL_PATH(p); return remove(p); }
+static DIR *tool_opendir(const char *p) { TOOL_PATH(p); return opendir(p); }
+static ssize_t tool_readlink(const char *p, char *to, size_t n) { TOOL_PATH(p); return readlink(p, to, n); }
+static int tool_rename(const char *p, const char *q) { TOOL_PATHS(p, q); return rename(p, q); }
+static int tool_link(const char *p, const char *q) { TOOL_PATHS(p, q); return link(p, q); }
+static int tool_symlink(const char *p, const char *q) { TOOL_PATHS(p, q); return symlink(p, q); }
+static int tool_clonefile(const char *p, const char *q, uint32_t f) { TOOL_PATHS(p, q); return clonefile(p, q, f); }
+static int tool_copyfile(const char *p, const char *q, copyfile_state_t st, copyfile_flags_t f) { TOOL_PATHS(p, q); return copyfile(p, q, st, f); }
+static char *tool_realpath(const char *p, char *to) {
+    TOOL_PATH(p);
+    return tool_path_back(r, realpath(p, to));
 }
 static int tool_close(int fd) {
     if (fd >= 0 && fd <= 2) return 0;
@@ -1205,7 +1266,11 @@ static void *tool_lookup(const char *sym, int ns) {
         {"_putchar", (void *)tool_putchar}, {"_puts", (void *)tool_puts}, {"_printf", (void *)tool_printf},
         {"_fprintf", (void *)tool_fprintf}, {"_vfprintf", (void *)tool_vfprintf}, {"_vprintf", (void *)tool_vprintf},
         {"_mmap", (void *)tool_mmap}, {"_munmap", (void *)tool_munmap}, {"_vm_allocate", (void *)tool_vm_allocate},
-        {"_vm_deallocate", (void *)tool_vm_deallocate}, {"_open", (void *)tool_open}, {"_close", (void *)tool_close},
+        {"_vm_deallocate", (void *)tool_vm_deallocate}, {"_open", (void *)tool_open}, {"_access", (void *)tool_access}, {"_stat", (void *)tool_stat},
+        {"_lstat", (void *)tool_lstat}, {"_statfs", (void *)tool_statfs}, {"_mkdir", (void *)tool_mkdir}, {"_unlink", (void *)tool_unlink},
+        {"_remove", (void *)tool_remove}, {"_opendir", (void *)tool_opendir}, {"_readlink", (void *)tool_readlink}, {"_rename", (void *)tool_rename},
+        {"_link", (void *)tool_link}, {"_symlink", (void *)tool_symlink}, {"_clonefile", (void *)tool_clonefile}, {"_copyfile", (void *)tool_copyfile},
+        {"_realpath$DARWIN_EXTSN", (void *)tool_realpath}, {"_fcntl", (void *)tool_fcntl}, {"_close", (void *)tool_close},
         {"_getenv", (void *)tool_getenv}, {"_setenv", (void *)tool_setenv}, {"_unsetenv", (void *)tool_unsetenv}, {"_putenv", (void *)tool_putenv},
         {"__NSGetEnviron", (void *)tool_NSGetEnviron}, {"__NSGetArgc", (void *)tool_NSGetArgc}, {"__NSGetArgv", (void *)tool_NSGetArgv},
         {"_read", (void *)tool_read}, {"_read$NOCANCEL", (void *)tool_read}, {"_fstat", (void *)tool_fstat}, {"_isatty", (void *)tool_isatty}, {"_fileno", (void *)tool_fileno},
@@ -1456,6 +1521,7 @@ static int tool_run_it(TlToolRun *r) {
     free(r->maps);
     free(r->exits);
     free(r->env);
+    free(r->alias);
     free(r);
     return code;
 }

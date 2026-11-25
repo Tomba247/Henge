@@ -117,6 +117,32 @@ final class ProjectBuilder {
         return out
     }
 
+    private static let container = "(/private)?/var/mobile/Containers/Data/Application/[0-9A-Fa-f-]{36}(?=/)"
+    /// Paths into Henge's folder as an earlier install had it, moved to where it is now (`root`: a path in it).
+    static func here(_ text: String, root: String) -> String {
+        guard let r = root.range(of: container, options: .regularExpression) else { return text }
+        return text.replacingOccurrences(of: container, with: NSRegularExpression.escapedTemplate(for: String(root[r])), options: .regularExpression)
+    }
+    /// What a command is compared by: not by where Henge's folder is, which changes with each update.
+    private func key(_ args: [String]) -> String {
+        var s = args.joined(separator: "\0")
+        if let t = tools?.path { s = s.replacingOccurrences(of: t, with: "$TOOLS") }
+        return s.replacingOccurrences(of: root.path, with: "$KIT").hashValueStable
+    }
+
+    /// cmake refuses a build folder made under another path, as each update of Henge leaves it: what it made of its settings goes.
+    private func dropMovedCMake() {
+        let fm = FileManager.default
+        for c in ProjectMaker.glob("build/**/CMakeCache.txt", in: root) {
+            let cache = full(c), folder = (cache as NSString).deletingLastPathComponent
+            guard let text = try? String(contentsOfFile: cache, encoding: .utf8),
+                  let line = text.split(separator: "\n").first(where: { $0.hasPrefix("CMAKE_CACHEFILE_DIR:") }),
+                  let eq = line.firstIndex(of: "="), !fm.fileExists(atPath: String(line[line.index(after: eq)...])) else { continue }
+            try? fm.removeItem(atPath: cache)
+            try? fm.removeItem(atPath: folder + "/CMakeFiles")
+        }
+    }
+
     /// The whole build; `progress` gets a line per step. Returns whether it worked and what to tell.
     func build(progress: (String) -> Void = { _ in }) -> (ok: Bool, text: String) {
         let began = Date()
@@ -127,6 +153,7 @@ final class ProjectBuilder {
         if let d = try? Data(contentsOf: stateFile), let s = try? JSONDecoder().decode(State.self, from: d) { state = s }
         defer { if let d = try? JSONEncoder().encode(state) { try? d.write(to: stateFile) } }
         var log = "", compiled = 0, failed = 0
+        if plan.commands?.isEmpty == false { dropMovedCMake() }
         for c in plan.commands ?? [] {
             progress(c)
             let r = shell?(c) ?? (code: 127, output: "no shell")
@@ -134,7 +161,7 @@ final class ProjectBuilder {
             log += Self.clip(r.output).suffix(1500)
         }
         var todo = [(Unit, String)]()
-        let keys = plan.flags.map { $0.joined(separator: "\0").hashValueStable }
+        let keys = plan.flags.map { key($0) }
         for u in plan.units {
             let now: Bool
             if !FileManager.default.fileExists(atPath: full(u.obj)) { now = true }
@@ -177,12 +204,13 @@ final class ProjectBuilder {
         if lanes > 1 && todo.count > 1 { DispatchQueue.concurrentPerform(iterations: min(lanes, todo.count)) { _ in lane() } } else { lane() }
         if failed >= 5 { log += "Stopped after \(failed) files with errors.\n" }
         if failed == 0, let s = plan.swift {
-            let key = s.args.joined(separator: "\0").hashValueStable
+            let key = self.key(s.args)
             let m = state.made[s.obj]
             if m == nil || m!.flags != key || m!.deps != s.deps || !FileManager.default.fileExists(atPath: full(s.obj)) || zip(s.deps, m!.hashes).contains(where: { hash($0) != $1 }) {
                 progress("compiling \(s.deps.count) Swift file(s)")
                 try? FileManager.default.createDirectory(atPath: (full(s.obj) as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-                let r = run(s.tool, s.args.map(expand) + ["-o", full(s.obj)], [], nil)
+                let folder = ((s.tool as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+                let r = run(s.tool, s.args.map(expand) + ["-o", full(s.obj)], ["HENGE_TOOLS=" + folder], nil)
                 if !r.output.isEmpty { log += "Swift:\n" + r.output.replacingOccurrences(of: root.path + "/", with: "") + "\n" }
                 if r.code != 0 { failed += 1; state.made[s.obj] = nil; log += "the Swift compiler ended with \(r.code)\n" }
                 else { compiled += 1; state.made[s.obj] = Made(deps: s.deps, hashes: s.deps.map { hash($0) ?? "" }, flags: key) }
@@ -190,7 +218,7 @@ final class ProjectBuilder {
         }
         func took() -> String { String(format: "%.1f s", Date().timeIntervalSince(began)) }
         if failed > 0 { return (false, "BUILD FAILED: \(failed) file(s) did not compile (\(took()))\n" + Self.clip(log)) }
-        let program = full(plan.program), linkKey = plan.link.joined(separator: " ").hashValueStable
+        let program = full(plan.program), linkKey = key(plan.link)
         if let made = plan.made {
             guard FileManager.default.fileExists(atPath: full(made)) else { return (false, "BUILD FAILED: the commands did not make \(made)\n" + Self.clip(log)) }
             try? FileManager.default.createDirectory(atPath: (program as NSString).deletingLastPathComponent, withIntermediateDirectories: true)

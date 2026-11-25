@@ -39,7 +39,12 @@ enum ProjectMaker {
         var out = [String]()
         while let n = e.nextObject() as? String {
             let p = base.isEmpty ? n : base + "/" + n
-            if (n as NSString).lastPathComponent.hasPrefix(".") || (base.isEmpty && n == "build") { e.skipDescendants(); continue }
+            if (n as NSString).lastPathComponent.hasPrefix(".") || (base.isEmpty && n == "build") {
+                // After a plain file it would skip the rest of that file's folder.
+                var d: ObjCBool = false
+                if FileManager.default.fileExists(atPath: root.appendingPathComponent(p).path, isDirectory: &d), d.boolValue { e.skipDescendants() }
+                continue
+            }
             if r.firstMatch(in: p, range: NSRange(p.startIndex..., in: p)) != nil && exists(p) { out.append(p) }
         }
         return out.sorted()
@@ -106,10 +111,12 @@ enum ProjectMaker {
         var made: ProjectBuilder.Swift?
         if !swift.isEmpty {
             let module = name.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? String($0) : "_" }.joined()
-            var a = ["-frontend", "-c"] + swift.map { "$KIT/" + $0 } + ["-module-name", module, "-target", target, "-sdk", sdk, "-swift-version", "5",
-                     "-resource-dir", t + "/lib/swift", "-enable-objc-interop", "-no-color-diagnostics", "-in-process-plugin-server-path",
+            // The loader's name for the toolchain (TL_TOOLCHAIN): the module cache is good only while these paths stay the same.
+            let fixed = "/henge/toolchain"
+            var a = ["-frontend", "-c"] + swift.map { "$KIT/" + $0 } + ["-module-name", module, "-target", target, "-sdk", fixed + "/sdk/iPhoneOS.sdk", "-swift-version", "5",
+                     "-resource-dir", fixed + "/lib/swift", "-enable-objc-interop", "-no-color-diagnostics", "-in-process-plugin-server-path",
                      t + "/lib/swift/host/libSwiftInProcPluginServer.dylib", "-plugin-path", t + "/lib/swift/host/plugins",
-                     "-module-cache-path", t + "/module-cache"]
+                     "-module-cache-path", fixed + "/module-cache"]
             // A lone main.swift runs from its top; anything else has an @main.
             if !swift.contains(where: { ($0 as NSString).lastPathComponent == "main.swift" }) { a.append("-parse-as-library") }
             var deps = swift

@@ -214,7 +214,10 @@ struct GitHub {
             guard let e = fm.enumerator(at: u, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
             for case let f as URL in e {
                 let n = f.lastPathComponent
-                if [".git", "build", "Toolchain", "toolchain", "node_modules"].contains(n) || n.hasPrefix(".henge") || n == ".DS_Store" { e.skipDescendants(); continue }
+                if [".git", "build", "Toolchain", "toolchain", "node_modules"].contains(n) || n.hasPrefix(".henge") || n == ".DS_Store" {
+                    if (try? f.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { e.skipDescendants() } // after a file it would skip the rest of its folder
+                    continue
+                }
                 if ["o", "ipa", "bin", "cue", "iso", "chd"].contains(f.pathExtension.lowercased()) { continue }
                 if (try? f.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true { files.append(String(f.resolvingSymlinksInPath().path.dropFirst(folder.path.count + 1))) }
             }
