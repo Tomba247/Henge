@@ -1416,6 +1416,7 @@ TlImage *tl_load_replaceable(const char *path, TlImage *replacing, char *err, si
         return NULL;
     }
     pthread_mutex_lock(&g_lock);
+    own_categories_gone(ns);
     TlImage *list = NULL;
     for (TlImage **at = &g_images; *at;) {
         TlImage *im = *at;

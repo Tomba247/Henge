@@ -1584,6 +1584,74 @@ static void own_selectors(TlImage *im) {
     }
 }
 
+/* What such an image's categories add to the system's classes (MoltenVK's to Metal's): methods the class lacks, or that
+   an earlier image added this way; never one of the system's own. The newest image's are used. Once its build is
+   replaced they answer nil, as the runtime cannot take a method back. */
+typedef struct { void *cls, *sel; int ns; } TlAdded;
+static TlAdded *g_added;
+static int g_nadded;
+static long added_gone(void) { return 0; }
+static void own_category_methods(TlImage *im, void *cls, const uint8_t *list) {
+    static int (*add)(void *, void *, void *, const char *);
+    static void *(*replace)(void *, void *, void *, const char *), *(*reg)(const char *), *(*get)(void *, void *);
+    if (!replace) {
+        add = dlsym(RTLD_DEFAULT, "class_addMethod"), reg = dlsym(RTLD_DEFAULT, "sel_registerName");
+        get = dlsym(RTLD_DEFAULT, "class_getInstanceMethod"), replace = dlsym(RTLD_DEFAULT, "class_replaceMethod");
+    }
+    if (!list || !cls || !add || !reg || !get || !replace) return;
+    uint32_t flags = *(const uint32_t *)list, n = *(const uint32_t *)(list + 4), size = flags & 0xfffc;
+    int small = flags >> 31;
+    for (uint32_t k = 0; k < n; k++) {
+        const uint8_t *m = list + 8 + (size_t)k * size;
+        const char *name, *types;
+        void *imp;
+        if (small) { /* offsets: to the selector's reference, the types, the code */
+            const int32_t *o = (const int32_t *)m;
+            name = *(const char *const *)(m + o[0]), types = (const char *)(m + 4 + o[1]), imp = (void *)(m + 8 + o[2]);
+        } else name = ((const char *const *)m)[0], types = ((const char *const *)m)[1], imp = ((void *const *)m)[2];
+        void *sel = reg(name);
+        int at = 0;
+        while (at < g_nadded && (g_added[at].cls != cls || g_added[at].sel != sel)) at++;
+        if (at == g_nadded) {
+            if (get(cls, sel)) continue;
+            TlAdded *more = realloc(g_added, (g_nadded + 1) * sizeof *more);
+            if (!more) return;
+            g_added = more;
+            if (!add(cls, sel, imp, types)) continue;
+            g_added[g_nadded++] = (TlAdded){cls, sel, im->ns};
+        } else {
+            replace(cls, sel, imp, types);
+            g_added[at].ns = im->ns;
+        }
+    }
+}
+static void own_categories(TlImage *im) {
+    void *(*meta)(void *) = dlsym(RTLD_DEFAULT, "object_getClass"), *(*named)(const char *) = dlsym(RTLD_DEFAULT, "objc_getClass");
+    const char *(*name)(void *) = dlsym(RTLD_DEFAULT, "class_getName");
+    if (!meta || !named || !name) return;
+    static const char *const lists[] = {"__objc_catlist", "__objc_catlist2"};
+    static const char *const segs[] = {"__DATA_CONST", "__DATA"};
+    for (int l = 0; l < 2; l++)
+        for (int g = 0; g < 2; g++) {
+            uint64_t size = 0;
+            uint8_t *sect = find_section(im, segs[g], lists[l], &size);
+            for (uint64_t off = 0; sect && off + 8 <= size; off += 8) {
+                void **cat = *(void ***)(sect + off); /* category_t: name, cls, instance methods, class methods, ... */
+                void *cls = cat ? cat[1] : NULL;
+                if (!cls || tl_image_containing(cls)) continue;
+                cls = named(name(cls)); /* realized */
+                if (!cls) continue;
+                own_category_methods(im, cls, cat[2]);
+                own_category_methods(im, meta(cls), cat[3]);
+            }
+        }
+}
+static void own_categories_gone(int ns) {
+    void *(*replace)(void *, void *, void *, const char *) = dlsym(RTLD_DEFAULT, "class_replaceMethod");
+    for (int i = 0; replace && i < g_nadded; i++)
+        if (g_added[i].ns == ns) replace(g_added[i].cls, g_added[i].sel, (void *)added_gone, "@@:");
+}
+
 /* Loads path and what it links; fixes up, registers and initializes whatever was new. Takes g_lock itself. */
 static TlImage *load_and_link(const char *path, int ns, char *err, size_t errlen) {
     pthread_mutex_lock(&g_lock);
@@ -1616,7 +1684,7 @@ static TlImage *load_and_link(const char *path, int ns, char *err, size_t errlen
     const char *paths[512];
     int nobjc = 0;
     for (int i = n - 1; i >= 0; i--) /* libraries first, as dyld hands them over */
-        if (g_no_objc[ns]) own_selectors(batch[i]);
+        if (g_no_objc[ns]) own_selectors(batch[i]), own_categories(batch[i]);
         else if (has_objc(batch[i])) mhs[nobjc] = (const void *)batch[i]->base, paths[nobjc++] = batch[i]->path;
     if (nobjc) {
         void (*map)(unsigned, const char *const *, const struct mach_header *const *) = dlsym(RTLD_DEFAULT, "_objc_map_images");

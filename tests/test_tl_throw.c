@@ -66,6 +66,13 @@ static void *tests(void *x) {
     henge_tl_tool_away(0);
     /* An app's program keeps its memory: it is not loaded over. */
     const char *env[] = {NULL};
+    for (int i = 0; i < 3; i++) { /* each run in the place of the one before: its categories' methods are the newest's */
+        nsaid = 0, said[0] = 0;
+        int rc = henge_tl_program_run(args[2], args[2], "_category_main", env, output, NULL);
+        int ok = rc == 0 && strstr(said, "category 47\n");
+        fprintf(stderr, "%s category: %d %s\n", ok ? "ok  " : "FAIL", rc, said);
+        failures += !ok;
+    }
     nsaid = 0;
     int rc = henge_tl_program_run(args[2], args[2], NULL, env, output, NULL), again = henge_tl_program_run(args[2], args[2], NULL, env, output, NULL);
     if (rc != 134 || again != -1) failures++, fprintf(stderr, "FAIL program %d, again %d: %s\n", rc, again, said);

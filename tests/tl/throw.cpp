@@ -1,6 +1,8 @@
 // For tests/test_tl_throw.c: exceptions, caught and not, on the threads a program has.
 #include <cstdio>
 #include <cstring>
+#include <dlfcn.h>
+#include <string>
 #include <stdexcept>
 #include <thread>
 #include <dispatch/dispatch.h>
@@ -8,6 +10,13 @@
 #import <Foundation/Foundation.h>
 struct Odd {};
 static void nsraise() { [NSException raise:@"HengeName" format:@"the reason"]; }
+extern "C" __attribute__((visibility("default"), used)) int category_main(int, char **v) {
+    std::string lib = std::string(v[0]) + "-category.dylib";
+    void *h = dlopen(lib.c_str(), RTLD_NOW);
+    auto f = h ? (int (*)())dlsym(h, "category_check") : nullptr;
+    printf("category %d\n", f ? f() : -1);
+    return 0;
+}
 int main(int c, char **v) {
     const char *how = c > 1 ? v[1] : "main";
     try { throw std::runtime_error("caught"); } catch (std::exception &e) { printf("%s\n", e.what()); }
