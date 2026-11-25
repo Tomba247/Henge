@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.118",
+          "date": "2026-11-25T11:09:49Z",
+          "branch": "mac-speed",
+          "localizedDescription": "What changed: Coding terminal for Claude Code on iPhone, with its toolchain; kits, install steps, settings and credits in the notes\nBranch: mac-speed \u00b7 commit b66a9dc\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-118/Henge.ipa",
+          "size": 14533988,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.115",
           "date": "2026-11-25T03:32:13Z",
           "branch": "mac-speed",
@@ -406,16 +416,6 @@
           "size": 12163640,
           "minOSVersion": "17.0",
           "branch": "claude/linux-runner-crash-flumcd"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.67",
-          "date": "2026-11-19T03:27:30Z",
-          "localizedDescription": "What changed: App build: attach the Linux machine to its release\nBranch: claude/linux-runner-crash-flumcd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-67/Henge.ipa",
-          "size": 9796691,
-          "minOSVersion": "17.0",
-          "branch": "claude/linux-runner-crash-flumcd"
         }
       ],
       "appPermissions": {
@@ -430,11 +430,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.115",
-      "versionDate": "2026-11-25T03:32:13Z",
-      "versionDescription": "What changed: Lighter macOS: also stop automatic downloads of macOS updates\nBranch: mac-speed \u00b7 commit e7ee36a\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-115/Henge.ipa",
-      "size": 14204137,
+      "buildVersion": "101.118",
+      "versionDate": "2026-11-25T11:09:49Z",
+      "versionDescription": "What changed: Coding terminal for Claude Code on iPhone, with its toolchain; kits, install steps, settings and credits in the notes\nBranch: mac-speed \u00b7 commit b66a9dc\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-118/Henge.ipa",
+      "size": 14533988,
       "minOSVersion": "17.0"
     }
   ],
