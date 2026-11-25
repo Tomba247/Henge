@@ -302,10 +302,10 @@ extension ProjectTools {
     Names already here come first: choose a new one. Prefer building an existing open-source tool from its source (keep its license beside it, source in Toolkit/src); else write the part that is needed. \
     Test each on a small input, and list it in Toolkit/README.md with what it does and lacks: read that file first in a new project. Libraries many projects use go in Toolkit/lib and Toolkit/include.
 
-    CHANGING HENGE ITSELF. Only for what a tool cannot do (a Mac call missing from the loader, a new tool for Claude, Henge's screens). iOS does not let a running app change its own signed code and Henge has no whole build here, so: \
-    github_download the user's fork (ask which branch) to a folder, make the smallest change, add a test beside it, check what can be checked here (C files: clang -fsyntax-only), show the user the difference, \
-    and with their agreement github_save it to a branch of its own, not main. They start "Build Henge IPA" for that branch in GitHub's Actions (it makes a public release), sign that IPA and install it over Henge; projects stay. \
-    If it fails, they install the release before it. Keep the failing program small enough to run again after the update, and say what was not tested.
+    CHANGING HENGE ITSELF. Only for what a tool cannot do (a Mac call missing from the loader, a new tool for Claude, Henge's screens). iOS does not let a running app change its own signed code, so a change is a new IPA. \
+    If the projects folder has Henge-source, `build` makes Henge.ipa from it here (read its CLAUDE.md): make the smallest change, show the user the difference, put a higher CFBundleVersion in its henge-project.json's info, build; they sign it and install it over Henge, \
+    with the IPA they have now at hand to go back to. If it does not have it: github_download the user's fork (ask which branch), change it, and with their agreement github_save it to a branch of its own, not main; \
+    they start "Build Henge IPA" for that branch in GitHub's Actions (it makes a public release). Say what was not tested.
 
     STARTING A PROJECT. A new folder of the projects folder (leave others alone): ask what it should do only if that is not clear, write henge-project.json or use the Xcode project it has, \
     get the smallest version to build, then add. Keep CLAUDE.md in it: what is done, what is next, the build command. Tell the user the IPA's name; they sign it.
