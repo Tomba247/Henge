@@ -2,6 +2,7 @@
 #include "tl_loader.h"
 
 #include <dlfcn.h>
+#include <stdatomic.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libkern/OSCacheControl.h>
@@ -1930,6 +1931,65 @@ static void *rt_dlsym(void *handle, const char *name) {
     return s ? s : dlsym(handle, name);
 }
 
+/* Where a crash was, in the log before the program's own handler runs: that one (Bun's) ends the app, and takes every
+   crash in the app for its own. Library+offset only, no paths. */
+static const char *crash_thread_program(void);
+static struct sigaction g_crash_own[32];
+static _Atomic int g_crash_said;
+static int crash_read(uintptr_t at, void *out, size_t n) {
+    vm_size_t got = 0;
+    return !vm_read_overwrite(mach_task_self(), at, n, (vm_address_t)out, &got) && got == n;
+}
+static int crash_at(char *t, size_t n, uintptr_t pc) {
+    TlImage *im = tl_image_containing((void *)pc);
+    Dl_info d = {0};
+    if (!im) dladdr((void *)pc, &d);
+    const char *f = im ? im->path : d.dli_fname ? d.dli_fname : "?", *s = strrchr(f, '/');
+    return snprintf(t, n, " %.40s+0x%lx", s ? s + 1 : f, (unsigned long)(pc - (im ? (uintptr_t)im->base : (uintptr_t)d.dli_fbase)));
+}
+static void crash_handler(int sig, siginfo_t *info, void *ctx) {
+    int errno_was = errno;
+    if (atomic_fetch_add(&g_crash_said, 1) < 3) {
+        ucontext_t *uc = ctx;
+        char t[2000], name[64] = "";
+        uintptr_t pc = uc->uc_mcontext->__ss.__pc, lr = uc->uc_mcontext->__ss.__lr, fp = uc->uc_mcontext->__ss.__fp, f[2];
+        pthread_getname_np(pthread_self(), name, sizeof name);
+        const char *tool = crash_thread_program(), *s = tool ? strrchr(tool, '/') : NULL;
+        int k = snprintf(t, sizeof t, "henge: term: crash: signal %d at address %p, on a thread of %.40s%s%.30s%s:", sig, info ? info->si_addr : NULL,
+                         tool ? s ? s + 1 : tool : "the terminal's program or the app", name[0] ? " named " : "", name, pthread_main_np() ? " (main)" : "");
+        k += crash_at(t + k, sizeof t - k, pc);
+        k += snprintf(t + k, sizeof t - k, " lr");
+        k += crash_at(t + k, sizeof t - k, lr & 0x7fffffffffull);
+        k += snprintf(t + k, sizeof t - k, " from");
+        for (int i = 0; i < 24 && k < (int)sizeof t - 120 && fp && !(fp & 7) && crash_read(fp, f, sizeof f) && f[1]; i++) {
+            k += crash_at(t + k, sizeof t - k, f[1] & 0x7fffffffffull);
+            if (f[0] <= fp) break;
+            fp = f[0];
+        }
+        t[k++] = '\n';
+        write(2, t, (size_t)k);
+    }
+    errno = errno_was;
+    struct sigaction own = g_crash_own[sig];
+    if (own.sa_flags & SA_SIGINFO) own.sa_sigaction(sig, info, ctx);
+    else if (own.sa_handler != SIG_DFL && own.sa_handler != SIG_IGN) own.sa_handler(sig);
+}
+static int rt_sigaction(int sig, const struct sigaction *act, struct sigaction *old) {
+    if (sig != SIGSEGV && sig != SIGBUS && sig != SIGILL) return sigaction(sig, act, old);
+    struct sigaction was, mine, own = g_crash_own[sig];
+    int hooks = act && (act->sa_handler != SIG_DFL && act->sa_handler != SIG_IGN);
+    if (hooks) {
+        mine = *act;
+        mine.sa_sigaction = crash_handler;
+        mine.sa_flags |= SA_SIGINFO;
+        g_crash_own[sig] = *act;
+    }
+    int rc = sigaction(sig, hooks ? &mine : act, &was);
+    if (rc) g_crash_own[sig] = own;
+    else if (old) *old = was.sa_sigaction == crash_handler ? own : was;
+    return rc;
+}
+
 static int rt_dladdr(const void *addr, Dl_info *info) {
     TlImage *im = tl_image_containing(addr);
     if (!im) return dladdr(addr, info);
@@ -2150,6 +2210,10 @@ static TlProc *proc_load(const char *path, int parent_ns, char *const argv[], ch
 #include <execinfo.h>
 extern const struct mach_header_64 __dso_handle;
 #include "tl_tool.h"
+static const char *crash_thread_program(void) {
+    TlToolRun *r = g_tool_key ? pthread_getspecific(g_tool_key) : NULL;
+    return r && r->exe ? r->exe->path : NULL;
+}
 
 /* The address of a symbol of the image's own table, local ones included, and the room to the next symbol (its size
    or a little more); NULL when it has none. */
@@ -3291,6 +3355,7 @@ void *tl_runtime_lookup(const char *sym) {
 #endif
         {"_dlclose", (void *)rt_dlclose},
         {"_dlsym", (void *)rt_dlsym},
+        {"_sigaction", (void *)rt_sigaction},
         {"_dladdr", (void *)rt_dladdr},
         {"_dlerror", (void *)rt_dlerror},
         {"__NSGetExecutablePath", (void *)rt_NSGetExecutablePath},
