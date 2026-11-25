@@ -115,8 +115,8 @@ test-vm-lifecycle: $(B)/test_vm_lifecycle
 $(B)/test_pvg_lifecycle: tests/test_pvg_lifecycle.m $(ENGINE) $(DEV)
 	$(CC) $(CFLAGS) -fobjc-arc $^ $(METAL_LIBS) -o $@
 
-$(B)/hvsparse: tools/hvsparse_main.c host/hvsparse.c host/hvsparse.h | $(B)
-	$(CC) $(CFLAGS) tools/hvsparse_main.c host/hvsparse.c -o $@
+$(B)/hvsparse: tools/hvsparse_main.c host/hvsparse.c host/diskgrow.c host/hvsparse.h | $(B)
+	$(CC) $(CFLAGS) -fblocks tools/hvsparse_main.c host/hvsparse.c host/diskgrow.c -lz -lcompression -o $@
 
 # Block-level tests: test_X.c plus X_programs.S, run natively and through the JIT.
 $(B)/test_devices: tests/test_devices.c tests/devices_programs.S tests/harness.S tests/harness.h $(ENGINE) $(DEV)
@@ -155,7 +155,7 @@ IB = build/ios
 ifneq ($(wildcard ios/deps-gpu/include/virgl/virglrenderer.h),)
 IOS_CFLAGS += -DHV_VIRGL -DHV_VIRGL_ANGLE -DHV_VIRGL_DLOPEN -Iios/deps-gpu/include/virgl -Iios/deps-gpu/include
 endif
-IOS_SRC = $(wildcard core/*.c) host/prof_ios.c host/fault_bench.c host/jit_region.c host/disk.c host/vm.c host/snapshot.c host/net_slirp.c host/dns_proxy.c host/share.c host/audio_mac.c host/hvsparse.c host/usb_host.c \
+IOS_SRC = $(wildcard core/*.c) host/prof_ios.c host/fault_bench.c host/jit_region.c host/disk.c host/vm.c host/snapshot.c host/net_slirp.c host/dns_proxy.c host/share.c host/audio_mac.c host/hvsparse.c host/diskgrow.c host/usb_host.c \
           $(filter-out devices/pvg_mac.m,$(wildcard devices/*.c))
 IOS_OBJ = $(patsubst %.c,$(IB)/%.o,$(IOS_SRC)) $(IB)/host/enter.o $(IB)/devices/pvg_metal.o $(IB)/devices/vgpu_metal.o
 
