@@ -19,6 +19,16 @@
       "versions": [
         {
           "version": "0.3.0",
+          "buildVersion": "101.120",
+          "date": "2026-11-25T12:09:17Z",
+          "branch": "mac-speed",
+          "localizedDescription": "What changed: Mac Apps: the terminal scrolls down again after its history was cleared; momentum, a button to the bottom, full-screen programs\nBranch: mac-speed \u00b7 commit 860ee7f\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-120/Henge.ipa",
+          "size": 14561294,
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.3.0",
           "buildVersion": "101.119",
           "date": "2026-11-25T11:46:16Z",
           "branch": "mac-speed",
@@ -406,16 +416,6 @@
           "size": 12169907,
           "minOSVersion": "17.0",
           "branch": "claude/linux-runner-crash-flumcd"
-        },
-        {
-          "version": "0.3.0",
-          "buildVersion": "101.69",
-          "date": "2026-11-19T04:12:03Z",
-          "localizedDescription": "What changed: Linux machine: how smooth the screen runs, in the perf log\nBranch: claude/linux-runner-crash-flumcd\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-          "downloadURL": "https://github.com/Tomba247/Henge/releases/download/claude/linux-runner-crash-flumcd-69/Henge.ipa",
-          "size": 12165586,
-          "minOSVersion": "17.0",
-          "branch": "claude/linux-runner-crash-flumcd"
         }
       ],
       "appPermissions": {
@@ -430,11 +430,11 @@
         }
       },
       "version": "0.3.0",
-      "buildVersion": "101.119",
-      "versionDate": "2026-11-25T11:46:16Z",
-      "versionDescription": "What changed: Mac Apps: developer tools for the terminal, shell arrays, Swift optimized, shaders copied\nBranch: mac-speed \u00b7 commit 4dd2bb4\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
-      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-119/Henge.ipa",
-      "size": 14553863,
+      "buildVersion": "101.120",
+      "versionDate": "2026-11-25T12:09:17Z",
+      "versionDescription": "What changed: Mac Apps: the terminal scrolls down again after its history was cleared; momentum, a button to the bottom, full-screen programs\nBranch: mac-speed \u00b7 commit 860ee7f\n\nUnofficial fork build. Henge is made by Leviidev (github.com/Leviidev/Henge) and its contributors, and all credit for Henge goes to them. This fork (github.com/Tomba247/Henge) only adds experimental features on top, such as the Linux machine (Ubuntu and Kali desktops). It isn't affiliated with or endorsed by the Henge project: report problems with these builds to Tomba247, not to Henge.",
+      "downloadURL": "https://github.com/Tomba247/Henge/releases/download/henge-linux-120/Henge.ipa",
+      "size": 14561294,
       "minOSVersion": "17.0"
     }
   ],
