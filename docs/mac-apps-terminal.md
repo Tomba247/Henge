@@ -11,6 +11,27 @@ edit a project, compile it, link it into an iPhone app, run it without a window 
 **Credits:** Henge, its engine and the Mac Apps loader this builds on (`tl/`) are Leviidev's and Henge's contributors'. The
 terminal and toolchain were added by Tomba247.
 
+## What it is for
+
+The usual way to make an iPhone app with Claude and no Mac is Claude with **GitHub Actions**: each try is a commit, a
+push, a wait for a cloud Mac, then reading its log or downloading an IPA to sign and install. A missing semicolon costs
+a whole round.
+
+Here the compiler is **on the phone, beside Claude**. It compiles, reads the errors, fixes them and runs code without a
+window before anything is pushed or installed. So it takes **fewer test builds than going through Claude and GitHub
+Actions**:
+
+| | Claude + GitHub Actions | This terminal |
+|---|---|---|
+| A compile error | Found after a push and a cloud build | Found on the phone, in the same conversation |
+| Build after a small change | A new cloud machine, often from nothing | Only the changed files |
+| Testing logic | A workflow run, or an installed IPA | Run on the phone's own processor, no install |
+| Actions minutes, commits just to test | Every try | None |
+| IPAs to sign and install | Often one for each try | When there is something worth looking at |
+
+You still install an IPA to check what it looks like and how it feels, and Actions is still right for releases, Xcode
+projects and anything this toolchain lacks (below). How many tests it saves depends on the project; it was not measured.
+
 ## How to use it
 
 You need an iPhone or iPad that Henge runs on with JIT, a Mac once (to make the toolchain), and your own copy of the
