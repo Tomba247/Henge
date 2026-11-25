@@ -192,7 +192,7 @@ struct SettingsView: View {
                 .onAppear { engineOptions = EngineTuning.loadOptions() }
                 Section("In the Background") {
                     Toggle("Keep Henge awake", isOn: $keepAlive)
-                    Text("While a Mac is open or macOS is installing, Henge stays awake when you leave it or the screen locks, so iOS is much less likely to close it and an install goes on. A running Mac waits, paused, until you are back. Henge plays silence to do this; other apps' audio is not interrupted.")
+                    Text("While a Mac is open, macOS is installing, or Claude works in the Mac Apps terminal, Henge stays awake when you leave it or the screen locks, so iOS is much less likely to close it, and an install or Claude's work goes on. A running Mac waits, paused, until you are back. Henge plays silence to do this; other apps' audio is not interrupted.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)

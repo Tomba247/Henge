@@ -2,16 +2,18 @@ import AVFAudio
 import Foundation
 import UIKit
 
-/// Keeps iOS from suspending Henge while a Mac is open or macOS is installing.
+/// Keeps iOS from suspending Henge while a Mac is open, macOS is installing, or the Mac Apps terminal is at work.
 ///
 /// A suspended app is the first thing iOS closes when it wants memory, and Henge holds a lot of it: leaving for a
 /// message used to cost the running Mac, and the screen locking used to end an install. An app that is playing
 /// audio is not suspended and is closed after every suspended app, so while there is something to lose Henge plays
 /// silence (the audio background mode and the playback session were there already, for the Mac's sound). It mixes
-/// with other apps' audio and stops as soon as no Mac is open and nothing installs.
+/// with other apps' audio and stops as soon as there is nothing of these left.
 ///
 /// A running Mac does not run on in the background: it waits, paused (InstantResume.rest), so a phone in a pocket
-/// stays cool and the GPU, which is not Henge's there, is left alone. An install cannot be paused and goes on.
+/// stays cool and the GPU, which is not Henge's there, is left alone. An install cannot be paused and goes on, and so
+/// does the terminal (Claude Code): suspended
+/// it would lose its connections mid-answer. (A game it runs there gets no GPU until Henge is back.)
 @MainActor
 enum KeepAlive {
     static let key = "henge.keepAlive"
@@ -24,12 +26,13 @@ enum KeepAlive {
     private static var pressure: DispatchSourceMemoryPressure?
     private static var playing = false
 
-    /// Something iOS closing Henge would lose: a Mac running, starting, stopping or paused, or an install.
+    /// Something iOS closing Henge would lose: a Mac running, starting, stopping or paused, an install, or a terminal
+    /// program at work (not one waiting for the person).
     private static var needed: Bool {
         let s = henge_vm_state()
         // Not for a Linux machine yet: it is not paused in the background (InstantResume.rest), and one running on
         // there would draw with a GPU that is not Henge's then. It is left to iOS, as before.
-        return enabled && (((s == 1 || s == 3 || s == 4) && henge_vm_is_linux() == 0) || Installer.shared.busy)
+        return enabled && (((s == 1 || s == 3 || s == 4) && henge_vm_is_linux() == 0) || Installer.shared.busy || TerminalSession.shared.working)
     }
 
     /// Once, at launch: follow what Henge is doing, and say in the log what iOS tells it about memory.

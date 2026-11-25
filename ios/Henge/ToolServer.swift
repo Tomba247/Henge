@@ -141,6 +141,12 @@ final class ToolServer {
         }
     }
 
+    private let callLock = NSLock()
+    private var callCount = 0
+    private func calls(_ by: Int) { callLock.lock(); callCount += by; callLock.unlock() }
+    /// A tool is at work for the program.
+    var busy: Bool { callLock.lock(); defer { callLock.unlock() }; return callCount > 0 }
+
     func answer(_ m: [String: Any]) -> Data? {
         guard let id = m["id"], let method = m["method"] as? String else { return nil }
         let params = m["params"] as? [String: Any] ?? [:]
@@ -158,7 +164,9 @@ final class ToolServer {
             guard let t = tools.first(where: { $0.name == params["name"] as? String }) else {
                 return try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "error": ["code": -32602, "message": "no such tool"]])
             }
+            calls(1)
             let r = t.call(params["arguments"] as? [String: Any] ?? [:])
+            calls(-1)
             result = ["content": [["type": "text", "text": r.text]], "isError": !r.ok]
         case "ping": break
         default:

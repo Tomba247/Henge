@@ -8,6 +8,8 @@ final class TerminalSession: ObservableObject {
     /// Guards `screen`: the program draws from a thread of its own.
     private let lock = NSLock()
     private var redrawAsked = false
+    private var lastOutput = -Double.infinity
+    private var ended = false
     weak var view: TerminalUIView?
     @Published var status = ""
     @Published var asked: URL?
@@ -21,6 +23,7 @@ final class TerminalSession: ObservableObject {
         screen.reply = { answers += $0 }
         screen.copied = { t in DispatchQueue.main.async { UIPasteboard.general.string = t; TerminalSession.shared.note("Copied") } }
         screen.feed(bytes)
+        lastOutput = ProcessInfo.processInfo.systemUptime
         let ask = !redrawAsked
         redrawAsked = true
         lock.unlock()
@@ -33,7 +36,17 @@ final class TerminalSession: ObservableObject {
         }
     }
 
+    /// The program is at work: it drew something a short while ago (Claude Code's progress line moves the whole time it
+    /// works, and stands still while it waits for the person), or a tool it called has not answered yet. KeepAlive asks.
+    var working: Bool {
+        lock.lock()
+        let recent = ProcessInfo.processInfo.systemUptime - lastOutput < 45, over = ended
+        lock.unlock()
+        return started && !over && (recent || server?.busy == true)
+    }
+
     private let typing = DispatchQueue(label: "terminal input")
+    fileprivate func hasEnded() { lock.lock(); ended = true; lock.unlock() }
     func send(_ s: String) {
         let bytes = Array(s.utf8)
         typing.async { bytes.withUnsafeBufferPointer { p in p.withMemoryRebound(to: CChar.self) { henge_tl_term_write($0.baseAddress, $0.count) } } }
@@ -173,6 +186,7 @@ final class TerminalSession: ObservableObject {
                 DispatchQueue.main.async { TerminalSession.shared.asked = u }
             }, { code in
                 HengeLog.log("macapps", "terminal: the program ended with \(code)")
+                TerminalSession.shared.hasEnded()
                 DispatchQueue.main.async { TerminalSession.shared.status = "Ended (\(code)). Quit Henge to run it again." }
             }, &err, err.count)
             let why = String(cString: err)
