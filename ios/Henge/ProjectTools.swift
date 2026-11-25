@@ -287,9 +287,12 @@ extension ProjectTools {
     SHELL: sh (also as bash and zsh) is a small shell: functions, case, [[ ]], $(( )), here-documents, pipes (one after the other, not at once). If $HENGE_TOOLS/bin/devtools.names \
     exists, the names in it work too (grep, sed, awk, find, diff, patch, make, tar, curl, sqlite3, jq…): Python versions with the common options, slower than the real ones.
 
-    NOT HERE: git (github_download, github_save), autoconf/configure scripts, Xcode projects, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
+    NOT HERE: git (github_download, github_save), autoconf/configure scripts, Apple's Xcode, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
     pip packages with C parts, fork(), job control in the shell, the Metal compiler. Python's subprocess works (multiprocessing pools become threads). \
     For a large Makefile write henge-project.json or a build.ninja instead.
+
+    XCODE PROJECTS. If devtools.names lists xcodebuild, Henge's own builds a simple .xcodeproj (one iPhone app; -list, -scheme, -target, -configuration): it writes henge-project.json \
+    beside it and says what it cannot do (xcodebuild -help). After editing that file by hand use `build` instead.
 
     STRONG PHONES. Metal, 120 Hz (info: "CADisableMinimumFrameDurationOnPhone": true), Core ML, Accelerate, NEON and threads are all available to an app. \
     A .metal file in "sources" is copied into the app: device.makeLibrary(source: String(contentsOf: url), options: nil) compiles it there. For more memory than iOS gives \

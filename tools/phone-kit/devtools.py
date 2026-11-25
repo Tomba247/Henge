@@ -12,7 +12,7 @@ import sys
 
 CMDS = {}
 PROG = 'devtools'
-SPAWN = {'make', 'gmake', 'xargs', 'find', 'awk', 'gawk', 'nawk'}
+SPAWN = {'make', 'gmake', 'xargs', 'find', 'awk', 'gawk', 'nawk', 'xcrun'}
 
 
 def command(*names):
@@ -8977,6 +8977,809 @@ def make(name, args):
         if say:
             put(f"{me}: Leaving directory '{os.getcwd()}'")
         os.chdir(cwd)
+
+
+# ---- xcodebuild, xcrun, xcode-select: Henge's own, for simple iPhone app projects ----
+# An Xcode project becomes a henge-project.json beside it, which Henge's builder builds (HENGE_BUILD: its port and secret).
+
+def xc_tools():
+    t = os.environ.get('HENGE_TOOLS')
+    if not t:
+        raise Fail('HENGE_TOOLS is not set: this works in Henge\'s terminal', 1)
+    return t
+
+
+def xc_sdk():
+    import json
+    sdk = xc_tools() + '/sdk/iPhoneOS.sdk'
+    try:
+        with open(sdk + '/SDKSettings.json') as f:
+            return sdk, str(json.load(f)['Version'])
+    except (OSError, ValueError, KeyError):
+        return sdk, '27.0'
+
+
+def xc_sdk_ok(name):
+    if not re.fullmatch(r'iphoneos[\d.]*|.*/iPhoneOS[\d.]*\.sdk', name):
+        raise Fail(f'SDK "{name}" is not here: only iphoneos is', 1)
+
+
+def pbx_parse(s):
+    """An old-style property list: dictionaries, lists and strings."""
+    tok = re.compile(r'\s+|//[^\n]*|/\*.*?\*/|"((?:[^"\\]|\\.)*)"|([A-Za-z0-9_$./:+~@%-]+)|([{}()=;,])|<([0-9A-Fa-f\s]*)>', re.S)
+    esc = {'n': '\n', 't': '\t', 'r': '\r', 'a': '\a', 'b': '\b', 'f': '\f', 'v': '\v'}
+    toks, i = [], 0
+    while i < len(s):
+        m = tok.match(s, i)
+        if not m:
+            raise Fail(f'the project file cannot be read at {s[i:i + 30]!r}', 1)
+        if m[1] is not None:
+            toks.append((1, re.sub(r'\\(U[0-9A-Fa-f]{4}|[0-7]{1,3}|.)', lambda k: chr(int(k[1][1:], 16)) if len(k[1]) == 5 else chr(int(k[1], 8)) if k[1][0] in '01234567' else esc.get(k[1], k[1]), m[1], flags=re.S)))
+        elif m[2] is not None:
+            toks.append((1, m[2]))
+        elif m[3]:
+            toks.append((0, m[3]))
+        elif m[4] is not None:
+            toks.append((1, m[4]))
+        i = m.end()
+    at = 0
+
+    def need(c):
+        nonlocal at
+        if toks[at] != (0, c):
+            raise Fail(f'the project file has {toks[at][1]!r} where {c!r} belongs', 1)
+        at += 1
+
+    def value():
+        nonlocal at
+        kind, t = toks[at]
+        at += 1
+        if kind:
+            return t
+        if t == '{':
+            d = {}
+            while toks[at] != (0, '}'):
+                k = value()
+                need('=')
+                d[k] = value()
+                need(';')
+            at += 1
+            return d
+        if t == '(':
+            a = []
+            while toks[at] != (0, ')'):
+                a.append(value())
+                if toks[at] == (0, ','):
+                    at += 1
+            at += 1
+            return a
+        raise Fail(f'the project file has an unexpected {t!r}', 1)
+    try:
+        return value()
+    except IndexError:
+        raise Fail('the project file ends too early', 1) from None
+
+
+def xc_words(v):
+    if isinstance(v, list):
+        return [w for x in v for w in xc_words(x)]
+    import shlex
+    try:
+        return shlex.split(v)
+    except ValueError:
+        return v.split()
+
+
+def xc_xcconfig(path, seen=()):
+    """The settings of an .xcconfig file, its includes first."""
+    out = []
+    if path in seen:
+        return out
+    for ln in text(path).splitlines():
+        m = re.match(r'\s*#include(\?)?\s*"(.*)"', ln)
+        if m:
+            p = os.path.join(os.path.dirname(path), m[2])
+            if os.path.exists(p):
+                out += xc_xcconfig(p, seen + (path,))
+            elif not m[1]:
+                raise Fail(f'{path}: {m[2]} is not there', 1)
+            continue
+        m = re.match(r'\s*([A-Za-z_]\w*(?:\[[^\]]*\])*)\s*=\s*(.*?)\s*;?\s*$', re.sub(r'//.*', '', ln))
+        if m:
+            out.append((m[1], m[2]))
+    return out
+
+
+class XcProject:
+    def __init__(self, path, config, over):
+        self.path, self.root = path, os.path.dirname(os.path.abspath(path))
+        o = pbx_parse(text(os.path.join(path, 'project.pbxproj')))
+        self.o = o.get('objects', {})
+        self.main = self.o[o['rootObject']]
+        self.notes, self.bad = [], []
+        self.where, self.parent = {}, {}
+        self.base = os.path.normpath(os.path.join(self.root, self.main.get('projectDirPath', '')))
+        self.walk(self.main['mainGroup'], self.base)
+        self.targets = [self.o[t] | {'id': t} for t in self.main['targets'] if t in self.o]
+        names = self.configs(self.main)
+        self.config = config or next((n for n in ('Release', *names) if n in names), 'Release')
+        if self.config not in names:
+            raise Fail(f'there is no configuration "{self.config}": {", ".join(names)}', 1)
+        self.over = over
+
+    def note(self, s):
+        if s not in self.notes:
+            self.notes.append(s)
+
+    def fail(self, s):
+        if s not in self.bad:
+            self.bad.append(s)
+
+    def walk(self, i, here):
+        g = self.o.get(i)
+        if not g:
+            return
+        tree, p = g.get('sourceTree', '<group>'), g.get('path', '')
+        at = {'<group>': os.path.join(here, p), 'SOURCE_ROOT': os.path.join(self.base, p), '<absolute>': p}.get(tree)
+        self.where[i] = os.path.normpath(at) if at else None
+        for c in g.get('children', []):
+            self.walk(c, at or here)
+
+    def configs(self, holder):
+        c = self.o.get(holder.get('buildConfigurationList'), {})
+        return {self.o[k]['name']: self.o[k] for k in c.get('buildConfigurations', []) if k in self.o}
+
+    def settings(self, target):
+        """The target's settings, each level over the one below it."""
+        name = target['name']
+        levels = [{'TARGET_NAME': name, 'TARGETNAME': name, 'PROJECT_NAME': os.path.splitext(os.path.basename(self.path))[0], 'SRCROOT': self.base, 'SOURCE_ROOT': self.base,
+                   'PROJECT_DIR': self.base, 'PROJECT_FILE_PATH': os.path.abspath(self.path), 'CONFIGURATION': self.config, 'PRODUCT_NAME': '$(TARGET_NAME)', 'SDKROOT': 'iphoneos', 'PLATFORM_NAME': 'iphoneos',
+                   'EXECUTABLE_NAME': '$(PRODUCT_NAME)', 'PRODUCT_MODULE_NAME': '$(PRODUCT_NAME:c99extidentifier)', 'ARCHS': 'arm64', 'CURRENT_ARCH': 'arm64',
+                   'DEVELOPMENT_LANGUAGE': self.main.get('developmentRegion', 'en'), 'PRODUCT_BUNDLE_PACKAGE_TYPE': 'APPL',
+                   'CURRENT_PROJECT_VERSION': '1', 'MARKETING_VERSION': '1.0'}]
+        for h in (self.main, target):
+            c = self.configs(h).get(self.config)
+            if not c:
+                continue
+            ref = c.get('baseConfigurationReference')
+            f = self.where.get(ref)
+            anchor = c.get('baseConfigurationReferenceAnchor')
+            if anchor and c.get('baseConfigurationReferenceRelativePath'):
+                f = os.path.join(self.where.get(anchor) or '', c['baseConfigurationReferenceRelativePath'])
+            if f:
+                levels.append(self.level(xc_xcconfig(f)))
+            levels.append(self.level(c.get('buildSettings', {}).items()))
+        levels.append(self.level(self.over.items()))
+        s = {}
+        for lv in levels:
+            for k, v in lv.items():
+                old = s.get(k, '')
+
+                def inherit(x):
+                    return re.sub(r'\$[({]inherited[)}]', lambda m: old if isinstance(old, str) else ' '.join(old), x)
+                if isinstance(v, list):
+                    n = []
+                    for x in v:
+                        if re.fullmatch(r'\$[({]inherited[)}]', x):
+                            n += old if isinstance(old, list) else xc_words(old)
+                        else:
+                            n.append(inherit(x))
+                    s[k] = n
+                else:
+                    s[k] = list(old) if isinstance(old, list) and re.fullmatch(r'\$[({]inherited[)}]', v) else inherit(v)
+        return s
+
+    def level(self, items):
+        import fnmatch
+        plain, special = {}, {}
+        for k, v in items:
+            b, _, cond = k.partition('[')
+            if not cond:
+                plain[b] = v
+            elif all(fnmatch.fnmatch({'sdk': 'iphoneos27.0', 'arch': 'arm64', 'config': self.config}.get(a, ''), p) for a, p in re.findall(r'(\w+)=([^\],]*)', cond)):
+                special[b] = v
+        return plain | special
+
+    def expand(self, v, s, deep=0):
+        if isinstance(v, list):
+            return [self.expand(x, s, deep) for x in v]
+        if deep > 20:
+            return ''
+
+        def one(m):
+            n, *mods = (m[1] or m[2]).split(':')
+            x = self.expand(s.get(n, ''), s, deep + 1)
+            x = ' '.join(x) if isinstance(x, list) else x
+            for k in mods:
+                if k.startswith('default='):
+                    x = x or k[8:]
+                elif k in ('c99extidentifier', 'identifier'):
+                    x = re.sub(r'\W', '_', x)
+                elif k == 'rfc1034identifier':
+                    x = re.sub(r'[^A-Za-z0-9.-]', '-', x)
+                elif k in ('lower', 'upper'):
+                    x = getattr(x, k)()
+            return x
+        for _ in range(5):
+            n = re.sub(r'\$\(([^()$]+)\)|\$\{([^{}$]+)\}', one, v)
+            if n == v:
+                break
+            v = n
+        return v
+
+    def rel(self, p):
+        return os.path.relpath(os.path.join(self.base, p), self.root)
+
+    def pick(self, name):
+        apps = [t for t in self.targets if t.get('productType') == 'com.apple.product-type.application']
+        if name:
+            t = next((t for t in self.targets if t['name'] == name), None)
+            if not t:
+                raise Fail(f'there is no target "{name}": {", ".join(t["name"] for t in self.targets)}', 1)
+            if t not in apps:
+                raise Fail(f'"{name}" is not an app: only iPhone apps are built here ({t.get("productType", "no product type")})', 1)
+            return t
+        if len(apps) != 1:
+            raise Fail(f'name the app with -target: {", ".join(t["name"] for t in apps) or "there is none"}', 1)
+        return apps[0]
+
+    def synced(self, target):
+        """The files of the folders Xcode 16 and later keeps in step with the disk: (path, kind)."""
+        for g in target.get('fileSystemSynchronizedGroups', []):
+            top = self.where.get(g)
+            if top is None or not os.path.isdir(top):
+                self.fail(f'the folder {self.o.get(g, {}).get("path", g)} is not there')
+                continue
+            gone, only = set(), set()
+            for e in self.o[g].get('exceptions', []):
+                e = self.o.get(e, {})
+                if e.get('target') == target['id']:
+                    gone |= set(e.get('membershipExceptions', []))
+                    if e.get('additionalCompilerFlagsByRelativePath'):
+                        self.fail('compiler flags for single files: ' + ', '.join(e['additionalCompilerFlagsByRelativePath']))
+                elif not e.get('target') and e.get('membershipExceptions'):
+                    only |= set(e['membershipExceptions'])
+            whole = set(self.o[g].get('explicitFolders', []))
+            for r, ds, fs in os.walk(top):
+                ds.sort()
+                for d in list(ds):
+                    rel = os.path.relpath(os.path.join(r, d), top)
+                    if d.startswith('.') or rel in gone:
+                        ds.remove(d)
+                    elif rel in whole or os.path.splitext(d)[1] in ('.xcassets', '.bundle', '.xcdatamodeld', '.xcframework', '.framework', '.scnassets', '.icon', '.docc', '.xcodeproj', '.playground'):
+                        ds.remove(d)
+                        yield os.path.join(r, d)
+                for f in sorted(fs):
+                    if not f.startswith('.') and os.path.relpath(os.path.join(r, f), top) not in gone:
+                        yield os.path.join(r, f)
+
+    def convert(self, target):
+        """The henge-project.json for a target."""
+        raw = self.settings(target)
+
+        def get(k, d=''):
+            v = self.expand(raw.get(k, d), raw)
+            return ' '.join(v) if isinstance(v, list) else v
+
+        def many(k):
+            out = []
+            for w in xc_words(raw.get(k, '')):
+                m = re.fullmatch(r'\$[({](\w+)[)}]', w)
+                if m and m[1] != k and isinstance(raw.get(m[1], []), list):
+                    out += many(m[1])
+                elif w:
+                    out.append(self.expand(w, raw))
+            return [w for w in out if w]
+        yes = lambda k, d='NO': get(k, d) == 'YES'
+        sdk = get('SDKROOT')
+        if sdk not in ('iphoneos', 'auto') and 'iphoneos' not in many('SUPPORTED_PLATFORMS'):
+            raise Fail(f'"{target["name"]}" is for {sdk}: only iPhone apps are built here', 1)
+        name = get('PRODUCT_NAME')
+        p = {'name': name, 'bundle_id': get('PRODUCT_BUNDLE_IDENTIFIER') or 'com.example.' + re.sub(r'[^a-z0-9]', '', name.lower()), 'version': get('MARKETING_VERSION'),
+             'min_ios': get('IPHONEOS_DEPLOYMENT_TARGET') or '17.0'}
+        src, res, fw, libs, icons, heads = [], [], [], [], [], set()
+
+        def source(f, flags=''):
+            e = os.path.splitext(f)[1].lower()
+            if [x for x in xc_words(flags) if not x.startswith('-W') and x != '-w']:
+                self.fail(f'compiler flags for single files: {os.path.basename(f)} ({flags})')
+            if not os.path.exists(f):
+                self.fail(f'{self.rel(f)} is not there')
+            elif e in ('.c', '.s', '.cpp', '.cc', '.cxx', '.c++', '.m', '.mm', '.swift', '.metal'):
+                src.append(self.rel(f))
+                if e == '.metal':
+                    self.note(f'{os.path.basename(f)} is copied as text: the app must compile it itself (no default.metallib)')
+            elif e in ('.xcdatamodeld', '.xcdatamodel', '.intentdefinition', '.mlmodel', '.mlpackage', '.y', '.l', '.rcproject', '.storyboard', '.xib'):
+                self.fail(f'{os.path.basename(f)}: {e} files cannot be compiled here')
+            elif e not in ('.h', '.hpp', '.hh', '.pch', '.md', '.docc'):
+                self.fail(f'{os.path.basename(f)}: {e} files cannot be compiled here')
+
+        def resource(f):
+            b, e = os.path.basename(f), os.path.splitext(f)[1].lower()
+            if not os.path.exists(f):
+                self.fail(f'{self.rel(f)} is not there')
+            elif e == '.xcassets':
+                self.assets(f, res, icons, get('ASSETCATALOG_COMPILER_APPICON_NAME', 'AppIcon'))
+            elif e in ('.storyboard', '.xib'):
+                if 'launch' in b.lower():
+                    self.note(f'{b} is left out: a plain launch screen is used')
+                else:
+                    self.fail(f'{b}: storyboards cannot be compiled here')
+            elif e in ('.xcdatamodeld', '.xcdatamodel', '.mlmodel', '.mlpackage', '.scnassets', '.sks', '.rcproject', '.intentdefinition'):
+                self.fail(f'{b}: {e} files cannot be compiled here')
+            elif e in ('.xcstrings', '.icon'):
+                self.note(f'{b} is left out: {e} files cannot be compiled here')
+            else:
+                d = os.path.basename(os.path.dirname(f))
+                to = d + '/' + b if d.endswith('.lproj') else b
+                res.append(self.rel(f) + ('' if to == b else ':' + to))
+
+        def framework(f, w=None):
+            b, e = os.path.splitext(os.path.basename(f))
+            if w and e in ('.a', '.dylib', '.tbd') and os.path.exists(w):
+                libs.append(self.rel(w))
+            elif e == '.framework' and (w is None or '/System/Library/' in w or not os.path.exists(w)):
+                fw.append(b)
+            elif e in ('.tbd', '.dylib') and w is None:
+                libs.append(b[3:] if b.startswith('lib') else b)
+            else:
+                self.fail(f'{os.path.basename(f)}: only system frameworks and .a libraries of the project can be linked here')
+
+        info_file = get('INFOPLIST_FILE')
+        info_file = os.path.join(self.base, info_file) if info_file else None
+        for f in self.synced(target):
+            e = os.path.splitext(f)[1].lower()
+            if e in ('.h', '.hpp', '.hh', '.inc', '.modulemap', '.pch'):
+                heads.add(os.path.dirname(f))
+            elif e in ('.c', '.s', '.cpp', '.cc', '.cxx', '.c++', '.m', '.mm', '.swift', '.metal', '.xcdatamodeld', '.intentdefinition', '.mlmodel', '.mlpackage', '.y', '.l'):
+                source(f)
+            elif e in ('.a', '.framework', '.xcframework', '.dylib', '.tbd'):
+                framework(f, f)
+            elif e in ('.entitlements', '.xcconfig', '.docc', '.xcodeproj', '.playground') or (info_file and os.path.normpath(info_file) == os.path.normpath(f)):
+                continue
+            else:
+                resource(f)
+        for ph in target.get('buildPhases', []):
+            ph = self.o.get(ph, {})
+            isa = ph.get('isa')
+            if isa == 'PBXShellScriptBuildPhase':
+                self.note(f'the script "{ph.get("name", "Run Script")}" is not run: if it makes files the app needs, run it first')
+                continue
+            if isa == 'PBXCopyFilesBuildPhase' and ph.get('files'):
+                self.note(f'"{ph.get("name", "Copy Files")}" is not done (embedded extensions and frameworks)')
+                continue
+            for b in ph.get('files', []):
+                b = self.o.get(b, {})
+                flt = b.get('platformFilters', []) + ([b['platformFilter']] if 'platformFilter' in b else [])
+                if flt and 'ios' not in flt:
+                    continue
+                if b.get('productRef'):
+                    self.fail(f'the Swift package product {self.o.get(b["productRef"], {}).get("productName", "?")}: packages are not built here (add its sources to the app)')
+                    continue
+                r = b.get('fileRef')
+                f = self.o.get(r, {})
+                each = f.get('children', []) if f.get('isa') == 'PBXVariantGroup' else [r]
+                for x in each:
+                    d, w = self.o.get(x, {}), self.where.get(x)
+                    nm = d.get('path') or d.get('name', '?')
+                    if isa == 'PBXFrameworksBuildPhase':
+                        framework(nm, w)
+                    elif w is None:
+                        if isa in ('PBXSourcesBuildPhase', 'PBXResourcesBuildPhase'):
+                            self.fail(f'{nm}: not a file of the project')
+                    elif isa == 'PBXSourcesBuildPhase':
+                        source(w, b.get('settings', {}).get('COMPILER_FLAGS', ''))
+                    elif isa == 'PBXResourcesBuildPhase':
+                        resource(w)
+        if target.get('buildRules'):
+            self.fail('build rules of its own')
+        for d in target.get('dependencies', []):
+            t = self.o.get(self.o.get(d, {}).get('target'), {})
+            if t:
+                kind = t.get('productType', '')
+                (self.note if 'extension' in kind or 'watch' in kind else self.fail)(f'the target {t.get("name")} it depends on is not built here')
+        for i, f in self.o.items():
+            if f.get('isa') == 'PBXFileReference' and self.where.get(i) and self.where[i].endswith(('.h', '.hpp', '.hh', '.inc')):
+                heads.add(os.path.dirname(self.where[i]))
+
+        # Settings
+        flags, cf, cxx, sw = [], [], [], []
+        opt = get('GCC_OPTIMIZATION_LEVEL', 's')
+        flags.append('-O' + (opt or 's'))
+        for k, opt in (('HEADER_SEARCH_PATHS', '-I'), ('USER_HEADER_SEARCH_PATHS', '-iquote'), ('SYSTEM_HEADER_SEARCH_PATHS', '-isystem')):
+            for d in many(k):
+                d = d.strip('"')
+                top = os.path.normpath(os.path.join(self.base, d[:-3] if d.endswith('/**') else d))
+                if not os.path.isdir(top):
+                    continue
+                for x in [top] + ([r for r, ds, fs in os.walk(top) if r != top] if d.endswith('/**') else []):
+                    flags += [opt + '$KIT/' + self.rel(x)] if opt != '-isystem' else [opt, '$KIT/' + self.rel(x)]
+                    if opt == '-I':
+                        sw += ['-Xcc', '-I$KIT/' + self.rel(x)]
+        for d in sorted(heads):
+            flags.append('-iquote$KIT/' + self.rel(d))
+            sw += ['-Xcc', '-iquote$KIT/' + self.rel(d)]
+        defs = many('GCC_PREPROCESSOR_DEFINITIONS')
+        flags += ['-D' + d for d in defs]
+        sw += [x for d in defs for x in ('-Xcc', '-D' + d)]
+        if get('GCC_PREFIX_HEADER'):
+            flags += ['-include', '$KIT/' + self.rel(get('GCC_PREFIX_HEADER'))]
+        flags += [x for x in many('OTHER_CFLAGS') if x not in ('-g', '-fmodules')]
+        for k, to, skip in (('GCC_C_LANGUAGE_STANDARD', cf, 'gnu17'), ('CLANG_CXX_LANGUAGE_STANDARD', cxx, 'gnu++17')):
+            v = get(k)
+            if v and v != 'compiler-default':
+                to.append('-std=' + v)
+        if 'OTHER_CPLUSPLUSFLAGS' in raw:
+            cxx += [x for x in many('OTHER_CPLUSPLUSFLAGS') if x not in many('OTHER_CFLAGS')]
+        for k, f in (('GCC_ENABLE_CPP_EXCEPTIONS', '-fno-exceptions'), ('GCC_ENABLE_CPP_RTTI', '-fno-rtti')):
+            if get(k) == 'NO':
+                cxx.append(f)
+        if get('CLANG_ENABLE_OBJC_ARC') != 'YES':
+            cf.append('-fno-objc-arc')
+            cxx.append('-fno-objc-arc')
+        if yes('CLANG_ENABLE_OBJC_WEAK'):
+            cf.append('-fobjc-weak')
+            cxx.append('-fobjc-weak')
+        if yes('CLANG_ENABLE_MODULES'):
+            cf += ['-fmodules', '-fmodules-cache-path=$KIT/build/clang-modules']
+        if any(f.endswith('.swift') for f in src):
+            so = get('SWIFT_OPTIMIZATION_LEVEL') or '-O'
+            sw.insert(0, so)
+            sw += [x for c in many('SWIFT_ACTIVE_COMPILATION_CONDITIONS') for x in ('-D', c)]
+            v = get('SWIFT_VERSION')
+            if v:
+                sw += ['-swift-version', v.split('.')[0] if v.split('.')[0] in ('4', '5', '6') else '5']
+            if get('SWIFT_DEFAULT_ACTOR_ISOLATION') == 'MainActor':
+                sw += ['-default-isolation', 'MainActor']
+            up = []
+            if yes('SWIFT_APPROACHABLE_CONCURRENCY'):
+                up += ['DisableOutwardActorInference', 'GlobalActorIsolatedTypesUsability', 'InferIsolatedConformances', 'InferSendableFromCaptures', 'NonisolatedNonsendingByDefault']
+            for k in raw:
+                if k.startswith('SWIFT_UPCOMING_FEATURE_') and yes(k):
+                    up.append(''.join(w.capitalize() for w in k[23:].split('_')))
+            six = v.startswith('6')
+            for f in dict.fromkeys(up):
+                if not (six and f in ('DisableOutwardActorInference', 'GlobalActorIsolatedTypesUsability', 'InferSendableFromCaptures', 'ConciseMagicFile', 'ForwardTrailingClosures', 'ImplicitOpenExistentials', 'DeprecateApplicationMain', 'ImportObjcForwardDeclarations', 'IsolatedDefaultValues', 'GlobalConcurrency', 'RegionBasedIsolation', 'DynamicActorIsolation', 'BareSlashRegexLiterals', 'NonfrozenEnumExhaustivity')):
+                    sw += ['-enable-upcoming-feature', f]
+            o = many('OTHER_SWIFT_FLAGS')
+            while o:
+                x = o.pop(0)
+                if x == '-Xfrontend' and o:
+                    sw.append(o.pop(0))
+                elif x in ('-Xcc', '-D', '-enable-experimental-feature', '-enable-upcoming-feature', '-package-name') and o:
+                    sw += [x, o.pop(0)]
+                elif x.startswith('-D'):
+                    sw += ['-D', x[2:]]
+                else:
+                    self.note(f'the Swift flag {x} is left out')
+            if get('SWIFT_OBJC_BRIDGING_HEADER'):
+                p['bridging_header'] = self.rel(get('SWIFT_OBJC_BRIDGING_HEADER'))
+            mod = re.sub(r'[^A-Za-z0-9]', '_', name)
+            if get('PRODUCT_MODULE_NAME') != mod:
+                self.note(f'the Swift module is called {mod}')
+            for f in src:
+                if f.endswith(('.m', '.mm')) and re.search(r'#\s*import\s*["<][^">]*-Swift\.h[">]', text(os.path.join(self.root, f))):
+                    self.fail(f'{f} imports the header Swift makes (-Swift.h), which is not made here')
+        lf = many('OTHER_LDFLAGS')
+        link = []
+        while lf:
+            x = lf.pop(0)
+            if x in ('-framework', '-weak_framework') and lf:
+                fw.append(lf.pop(0))
+            elif x.startswith('-l'):
+                libs.append(x[2:])
+            elif x in ('-ObjC', '-all_load', '-dead_strip'):
+                link += [x] if x == '-all_load' else []
+            elif x.startswith('-Wl,'):
+                link += x[4:].split(',')
+            else:
+                self.note(f'the linker flag {x} is left out')
+        for d in many('LIBRARY_SEARCH_PATHS'):
+            d = os.path.join(self.base, d.strip('"'))
+            if os.path.isdir(d):
+                link.append('-L$KIT/' + self.rel(d))
+        p['sources'] = list(dict.fromkeys(src))
+        if not src:
+            self.fail('no source files')
+        if any(f.endswith(('.m', '.mm', '.swift')) for f in src):
+            fw += ['Foundation', 'UIKit', 'CoreGraphics']
+        p['flags'], p['c_flags'], p['cxx_flags'], p['swift_flags'] = flags, cf, cxx, sw if any(f.endswith('.swift') for f in src) else []
+        p['frameworks'], p['libraries'], p['link'] = list(dict.fromkeys(fw)), list(dict.fromkeys(libs)), link
+        p['resources'] = list(dict.fromkeys(res))
+        if icons:
+            p['icon'] = icons[0]
+        p['info'] = self.info(info_file, get, raw, yes('GENERATE_INFOPLIST_FILE'))
+        return {k: v for k, v in p.items() if v not in ([], {}, '')}
+
+    def assets(self, top, res, icons, icon):
+        """What can be had of an asset catalog without compiling it: the icon and the pictures."""
+        import json
+
+        def load(d):
+            try:
+                with open(d + '/Contents.json') as f:
+                    return json.load(f)
+            except (OSError, ValueError):
+                return {}
+        for r, ds, fs in os.walk(top):
+            ds.sort()
+            e = os.path.splitext(r)[1]
+            n = os.path.basename(r)[:-len(e)] if e else ''
+            if e == '.appiconset' and n == icon:
+                pics = [f for f in fs if f.lower().endswith('.png')]
+                if pics:
+                    icons.append(self.rel(os.path.join(r, max(pics, key=lambda f: os.path.getsize(os.path.join(r, f))))))
+            elif e == '.imageset':
+                got = False
+                for i in load(r).get('images', []):
+                    f = i.get('filename')
+                    if not f or i.get('idiom', 'universal') not in ('universal', 'iphone') or not os.path.exists(os.path.join(r, f)):
+                        continue
+                    x = os.path.splitext(f)[1].lower()
+                    if x not in ('.png', '.jpg', '.jpeg') or i.get('appearances'):
+                        self.note(f'the picture {n} is left out or only in part: {f} (dark versions, PDF and SVG need the asset compiler)')
+                        continue
+                    sc = i.get('scale', '1x')
+                    res.append(self.rel(os.path.join(r, f)) + ':' + n + ('' if sc == '1x' else '@' + sc) + x)
+                    got = True
+            elif e in ('.colorset', '.symbolset', '.dataset', '.spriteatlas', '.cubetextureset') and (e != '.colorset' or load(r).get('colors', [{}])[0].get('color')):
+                self.note(f'{os.path.basename(r)} is left out: it needs the asset compiler')
+
+    def info(self, path, get, raw, generate):
+        import datetime
+        import plistlib
+        d = {}
+        if path:
+            try:
+                with open(path, 'rb') as f:
+                    d = plistlib.load(f)
+            except FileNotFoundError:
+                self.fail(f'{self.rel(path)} is not there')
+            except Exception as e:
+                self.fail(f'{self.rel(path)} cannot be read: {e}')
+        for k in list(raw) if generate else []:
+            if not k.startswith('INFOPLIST_KEY_'):
+                continue
+            n, v = k[14:], get(k)
+            if n in ('UIApplicationSceneManifest_Generation', 'UIApplicationSupportsIndirectInputEvents_Generation'):
+                if n.startswith('UIApplicationScene') and v == 'YES':
+                    d.setdefault('UIApplicationSceneManifest', {'UIApplicationSupportsMultipleScenes': True, 'UISceneConfigurations': {}})
+                continue
+            if n == 'UILaunchScreen_Generation':
+                d.setdefault('UILaunchScreen', {})
+                continue
+            n = re.sub(r'_iPhone$', '~iphone', re.sub(r'_iPad$', '~ipad', n))
+            if n.startswith(('UISupportedInterfaceOrientations', 'UIBackgroundModes', 'UIRequiredDeviceCapabilities')):
+                v = v.split()
+            elif v in ('YES', 'NO'):
+                v = v == 'YES'
+            d[n] = v
+
+        def clean(v):
+            if isinstance(v, str):
+                return self.expand(v, raw)
+            if isinstance(v, list):
+                return [clean(x) for x in v]
+            if isinstance(v, dict):
+                return {self.expand(k, raw): clean(x) for k, x in v.items()}
+            if isinstance(v, (bytes, datetime.datetime)):
+                self.fail('Info.plist holds data or a date')
+            return v
+        d = clean(d)
+        if d.pop('UIMainStoryboardFile', None) or 'UISceneStoryboardFile' in repr(d):
+            self.fail('its windows come from a storyboard, which cannot be compiled here')
+        if d.pop('UILaunchStoryboardName', None):
+            d.setdefault('UILaunchScreen', {})
+        d.pop('CFBundleIconName', None)
+        for k in ('CFBundleExecutable', 'CFBundlePackageType', 'CFBundleInfoDictionaryVersion'):
+            d.pop(k, None)
+        v = get('CURRENT_PROJECT_VERSION')
+        d.setdefault('CFBundleVersion', v or '1')
+        fam = [int(x) for x in re.findall(r'\d+', get('TARGETED_DEVICE_FAMILY', '1')) if x in '12']
+        d.setdefault('UIDeviceFamily', fam or [1])
+        return {k: v for k, v in d.items() if v != ''}
+
+
+def xc_build(folder):
+    """Ask Henge's builder (its tool server) for a build of a folder. Returns (worked, text)."""
+    import http.client
+    import json
+    port, _, secret = os.environ.get('HENGE_BUILD', '').partition(' ')
+    if not secret:
+        raise Fail('Henge\'s builder is not there: this works in Henge\'s terminal with Claude', 1)
+    c = http.client.HTTPConnection('127.0.0.1', int(port))
+    try:
+        c.request('POST', '/mcp', json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'build', 'arguments': {'folder': folder}}}),
+                  {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + secret})
+        r = json.loads(c.getresponse().read())
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        raise Fail(f'Henge\'s builder did not answer: {e}', 1) from None
+    finally:
+        c.close()
+    r = r.get('result', {})
+    return not r.get('isError', True), ''.join(x.get('text', '') for x in r.get('content', []))
+
+
+XC_HELP = '''usage: xcodebuild [-project X.xcodeproj] [-target NAME | -scheme NAME] [-configuration NAME] [build | clean] [SETTING=VALUE...]
+       xcodebuild -list | -showBuildSettings | -showsdks | -version
+Henge's own, not Apple's. It writes henge-project.json beside the Xcode project and builds that: one iPhone app of Swift,
+C, C++ and Objective-C sources, as an unsigned IPA. Not here: the simulator, tests, archives, signing, Swift packages,
+storyboards, Core Data models, other targets, build scripts. Of an asset catalog it uses the icon and the plain pictures.'''
+
+
+@command('xcodebuild')
+def xcodebuild(name, args):
+    import glob
+    import hashlib
+    import json
+    o, over, acts, args = {}, {}, [], list(args)
+    takes = ('project', 'target', 'scheme', 'configuration', 'sdk', 'destination', 'workspace', 'arch', 'derivedDataPath', 'jobs', 'resultBundlePath', 'archivePath', 'clonedSourcePackagesDirPath')
+    while args:
+        a = args.pop(0)
+        if a.startswith('-') and a[1:] in takes:
+            if not args:
+                raise Fail(f'{a} needs a value', 64)
+            o[a[1:]] = args.pop(0)
+        elif a in ('-list', '-showBuildSettings', '-showsdks', '-version', '-help', '-json', '-quiet', '-verbose', '-alltargets', '-allowProvisioningUpdates', '-skipMacroValidation', '-skipPackagePluginValidation', '-hideShellScriptEnvironment'):
+            o[a[1:]] = True
+        elif re.match(r'[A-Za-z_]\w*(\[[^\]]*\])*=', a):
+            k, _, v = a.partition('=')
+            over[k] = v
+        elif a in ('build', 'clean'):
+            acts.append(a)
+        else:
+            raise Fail(f'{a} is not supported here. xcodebuild -help lists what is', 64)
+    if 'help' in o:
+        put(XC_HELP)
+        return 0
+    if 'json' in o:
+        raise Fail('-json is not supported here', 64)
+    if 'version' in o:
+        put('Xcode ' + xc_sdk()[1] + '\nBuild version Henge (not Apple\'s xcodebuild)')
+        return 0
+    if 'showsdks' in o:
+        v = xc_sdk()[1]
+        put(f'iOS SDKs:\n\tiOS {v}\t-sdk iphoneos{v}')
+        return 0
+    if 'sdk' in o:
+        xc_sdk_ok(o['sdk'])
+    if 'imulator' in o.get('destination', '') or 'macOS' in o.get('destination', ''):
+        raise Fail('there is no simulator or macOS here: use -destination generic/platform=iOS or none', 1)
+    if o.get('arch', 'arm64') != 'arm64':
+        raise Fail('only arm64 is built here', 1)
+    if 'derivedDataPath' in o:
+        err('-derivedDataPath is not used: the build is beside the project')
+    path = o.get('project')
+    if 'workspace' in o:
+        refs = re.findall(r'location\s*=\s*"(?:group|container):([^"]+\.xcodeproj)"', text(os.path.join(o['workspace'], 'contents.xcworkspacedata')))
+        if any('Pods' in r for r in refs):
+            raise Fail('CocoaPods are not built here', 1)
+        if len(refs) != 1:
+            raise Fail('a workspace of one project is needed: ' + ', '.join(refs), 1)
+        path = os.path.join(os.path.dirname(os.path.abspath(o['workspace'])), refs[0])
+    if not path:
+        found = sorted(glob.glob('*.xcodeproj'))
+        if len(found) != 1:
+            raise Fail('name the project with -project: ' + (', '.join(found) or 'there is none in this folder'), 66)
+        path = found[0]
+    path = path.rstrip('/')
+    if not os.path.exists(path + '/project.pbxproj'):
+        raise Fail(f'{path} is not an Xcode project', 66)
+    x = XcProject(path, o.get('configuration'), over)
+    if 'list' in o:
+        put(f'Information about project "{os.path.splitext(os.path.basename(path))[0]}":\n    Targets:')
+        for t in x.targets:
+            put('        ' + t['name'])
+        put('\n    Build Configurations:')
+        for c in x.configs(x.main):
+            put('        ' + c)
+        return 0
+    want = o.get('target')
+    if 'scheme' in o and not want:
+        want = o['scheme']
+        for f in sorted(glob.glob(glob.escape(path) + '/**/' + glob.escape(want) + '.xcscheme', recursive=True)):
+            s = text(f)
+            m = re.search(r'<LaunchAction.*?BlueprintName\s*=\s*"([^"]+)"', s, re.S) or re.search(r'BlueprintName\s*=\s*"([^"]+)"', s)
+            if m:
+                import html
+                want = html.unescape(m[1])
+                break
+    t = x.pick(want)
+    if 'showBuildSettings' in o:
+        s = x.settings(t)
+        put(f'Build settings for action build and target {t["name"]}:')
+        for k in sorted(s):
+            v = x.expand(s[k], s)
+            put(f'    {k} = {" ".join(v) if isinstance(v, list) else v}')
+        return 0
+    if 'clean' in acts:
+        import shutil
+        for d in ('build/obj', 'build/clang-modules', f'build/{x.expand("$(PRODUCT_NAME)", x.settings(t))}.app'):
+            shutil.rmtree(os.path.join(x.root, d), ignore_errors=True)
+        put('** CLEAN SUCCEEDED **')
+        if 'build' not in acts:
+            return 0
+    p = x.convert(t)
+    for n in x.notes:
+        err('note: ' + n)
+    if x.bad:
+        for n in x.bad:
+            err('error: ' + n)
+        err('\n** BUILD FAILED **\nThis project needs more than Henge\'s xcodebuild has. A henge-project.json written by hand (project_help) may do.')
+        return 65
+    f, mark = os.path.join(x.root, 'henge-project.json'), os.path.join(x.root, '.henge-xcode')
+    body = json.dumps(p, indent=1, ensure_ascii=False) + '\n'
+    if os.path.exists(f):
+        with open(f, 'rb') as h:
+            now = hashlib.sha256(h.read()).hexdigest()
+        if not os.path.exists(mark) or text(mark).strip() != now:
+            raise Fail('henge-project.json was written or changed by hand, so it is left as it is: build with the build tool, or move it away first', 1)
+    with open(f, 'w') as h:
+        h.write(body)
+    with open(mark, 'w') as h:
+        h.write(hashlib.sha256(body.encode()).hexdigest() + '\n')
+    if 'quiet' not in o:
+        put(f'=== BUILD TARGET {t["name"]} WITH CONFIGURATION {x.config} ===')
+    State.out.flush()
+    ok, said = xc_build(x.root)
+    put(said.rstrip())
+    put('\n** BUILD SUCCEEDED **' if ok else '\n** BUILD FAILED **')
+    return 0 if ok else 65
+
+
+@command('xcrun')
+def xcrun(name, args):
+    import shutil
+    args, find = list(args), False
+    while args and args[0].startswith('-'):
+        a = args.pop(0)
+        a = a if a.startswith('--') or len(a) == 2 else '-' + a
+        if a in ('--sdk', '--toolchain'):
+            if not args:
+                raise Fail(f'{a} needs a value', 64)
+            v = args.pop(0)
+            if a == '--sdk':
+                xc_sdk_ok(v)
+        elif a in ('-f', '--find'):
+            find = True
+        elif a in ('-r', '--run', '-n', '--no-cache', '-k', '--kill-cache', '-v', '--verbose', '-l', '--log'):
+            pass
+        elif a == '--show-sdk-path':
+            put(xc_sdk()[0])
+            return 0
+        elif a in ('--show-sdk-version', '--show-sdk-platform-version'):
+            put(xc_sdk()[1])
+            return 0
+        elif a == '--version':
+            put("xcrun of Henge (not Apple's)")
+            return 0
+        else:
+            raise Fail(f'{a} is not supported here', 64)
+    if not args:
+        raise Fail('usage: xcrun [--sdk iphoneos] [--find] TOOL [ARGUMENTS], or --show-sdk-path, --show-sdk-version', 64)
+    p = os.path.join(xc_tools(), 'bin', args[0])
+    if not os.path.exists(p):
+        p = None if '/' in args[0] else shutil.which(args[0])
+    if find:
+        if not p and args[0] not in CMDS:
+            raise Fail(f'unable to find utility "{args[0]}", not a developer tool here', 72)
+        put(p or os.path.join(xc_tools(), 'bin', args[0]))
+        return 0
+    if not p and args[0] not in CMDS:
+        raise Fail(f'unable to find utility "{args[0]}", not a developer tool here', 72)
+    os.environ['SDKROOT'] = xc_sdk()[0]
+    return call([p or args[0]] + args[1:])[0]
+
+
+@command('xcode-select')
+def xcode_select(name, args):
+    if args in (['-p'], ['--print-path'], ['-print-path']):
+        put(xc_tools())
+    elif args in (['-v'], ['--version']):
+        put("xcode-select of Henge (not Apple's)")
+    else:
+        raise Fail('only -p works here: the tools are Henge\'s Toolchain', 1)
+    return 0
 
 
 # ---- main ----

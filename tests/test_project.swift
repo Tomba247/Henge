@@ -34,6 +34,7 @@ func tools(_ log: @escaping (String) -> Void) -> [ToolServer.Tool] {
 if let a = ProcessInfo.processInfo.environment["TEST_API"] { GitHub.api = a }
 let server = ToolServer(tools: tools { FileHandle.standardError.write(Data("tools: \($0)\n".utf8)) })
 guard server.start() else { exit(2) }
+server.export()
 if a[2] != "build" { server.writeConfig(to: URL(fileURLWithPath: a[2])) }
 var err = [CChar](repeating: 0, count: 512)
 var args: [UnsafePointer<CChar>?] = a[5...].map { UnsafePointer(strdup($0)) } + [nil]

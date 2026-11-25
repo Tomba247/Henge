@@ -163,6 +163,7 @@ final class TerminalSession: ObservableObject {
                 HengeLog.log("macapps", "terminal: \($0)")
             })
             if s.start() {
+                env.append(s.export())
                 let config = Self.home.appendingPathComponent("henge-tools.json")
                 s.writeConfig(to: config, github: GitHubToken.read())
                 args += ["--mcp-config", config.path]

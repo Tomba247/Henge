@@ -13,6 +13,9 @@ final class ToolServer {
     let secret = UUID().uuidString
     private(set) var port: UInt16 = 0
     private var listener: Int32 = -1
+    /// For Henge's own programs that call these tools (devtools.py's xcodebuild).
+    /// Set for what Henge starts, and returned for the terminal's program to hand on.
+    @discardableResult func export() -> String { setenv("HENGE_BUILD", "\(port) \(secret)", 1); return "HENGE_BUILD=\(port) \(secret)" }
 
     init(tools: [Tool]) { self.tools = tools }
 
@@ -203,8 +206,12 @@ enum ProjectTools {
         return [
             .init(name: "build", about: "Compile what changed in the project, link it and pack the unsigned iPhone app (IPA). Returns the compiler's errors.",
                   inputs: [("project", "string", "The project folder's name; not needed when there is only one")]) { a in
-                one.lock(); defer { one.unlock() }
-                guard let p = pick(a, in: folder) else { return (false, missing(folder)) }
+                // xcodebuild (devtools.py) names the folder. One of a project's own commands would wait for its own build.
+                if a["folder"] == nil { one.lock() } else if !one.lock(before: Date().addingTimeInterval(600)) { return (false, "Another build is running.") }
+                defer { one.unlock() }
+                let named = (a["folder"] as? String).flatMap { inside($0.hasPrefix("/private/") && !folder.path.hasPrefix("/private/") ? String($0.dropFirst(8)) : $0, folder) }
+                if a["folder"] != nil && named == nil { return (false, "The project must be inside the projects folder.") }
+                guard let p = named.map({ ProjectBuilder.isProject($0) ? $0 : nil }) ?? pick(a, in: folder) else { return (false, missing(folder)) }
                 if !runner.end() { return (false, "The program that runs does not end. Quit Henge and open it again.") }
                 let b = ProjectBuilder(root: p, run: run)
                 b.tools = tools
@@ -216,7 +223,7 @@ enum ProjectTools {
                 return r
             },
             .init(name: "project_help", about: "How to make a project (an iPhone app or a program) here: the format of henge-project.json, what is in the toolchain, what works and what does not. Read it before starting or porting a project.", inputs: []) { _ in (true, help) },
-            .init(name: "run_command", about: "Run a shell command line (a small POSIX-like shell: pipes, && || ;, redirection, if/for/while, $(...)) in a folder of the projects. Has clang, clang++, ld, ar, cmake, ninja, python3, the built-in cp mv rm mkdir ls cat head tail wc echo test, and any program built here (./build/x). No git, make, sed, awk, grep: use python3 and the other tools. Returns its output and exit code; the whole output is in .henge-output.txt.",
+            .init(name: "run_command", about: "Run a shell command line (a small POSIX-like shell: pipes, && || ;, redirection, if/for/while, $(...)) in a folder of the projects. Has clang, clang++, ld, ar, cmake, ninja, python3, the built-in cp mv rm mkdir ls cat head tail wc echo test, and any program built here (./build/x). Also the names in $HENGE_TOOLS/bin/devtools.names (grep, sed, awk, find, make, tar, curl, xcodebuild, xcrun and more: Henge's own, with the common options). No git. Returns its output and exit code; the whole output is in .henge-output.txt.",
                   inputs: [("command", "string", "The command line"), ("folder", "string", "Folder, relative to the projects folder; it is made if not there"),
                            ("timeout_seconds", "integer", "Most time it may take (default 600)")]) { a in
                 guard let c = a["command"] as? String, let d = inside(a["folder"] as? String ?? "", folder) else { return (false, "A command and a folder inside the projects folder are needed.") }
