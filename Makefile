@@ -224,7 +224,7 @@ $(B)/test_tl_term: tests/test_tl_term.c ios/Henge/Native/henge-tl-term.c ios/Hen
 	  -x objective-c -fobjc-arc tl/loader/tl_bundle.m tl/loader/tl_stubs.m -framework Foundation -lc++ -lz -lbz2 -lcompression -o $@
 $(B)/test_tl_throw: tests/test_tl_throw.c tests/tl/throw.cpp tests/tl/exit3.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(TL_SRC) tl/loader/tl_tool.h host/jit_region.c $(B)/tl_cout.o | $(B)
 	$(CC) -target arm64-apple-macos13 -O1 tests/tl/exit3.c -o $(B)/tl-exit3
-	c++ -std=c++17 -fblocks -target arm64-apple-macos13 tests/tl/throw.cpp -o $(B)/tl-throw
+	c++ -x objective-c++ -std=c++17 -fblocks -target arm64-apple-macos13 tests/tl/throw.cpp -framework Foundation -o $(B)/tl-throw
 	$(CC) $(CFLAGS) -fblocks -Iios/Henge/Native tests/test_tl_throw.c ios/Henge/Native/henge-tl-term.c ios/Henge/Native/henge-tl.c $(filter-out %.m %.cpp,$(TL_SRC)) $(B)/tl_cout.o host/jit_region.c \
 	  -x objective-c -fobjc-arc tl/loader/tl_bundle.m tl/loader/tl_stubs.m -framework Foundation -lc++ -lz -lbz2 -lcompression -o $@
 test-tl-throw: $(B)/test_tl_throw

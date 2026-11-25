@@ -130,3 +130,20 @@ int tl_plist_job(const char *path, char **argv, int max) {
         return n;
     }
 }
+
+/* The exception being handled, if it is an Objective-C one: what it says, and where it was raised. */
+extern void objc_exception_rethrow(void);
+int tl_tool_uncaught_objc(char *out, size_t n, void **at, int *nat);
+int tl_tool_uncaught_objc(char *out, size_t n, void **at, int *nat) {
+    int max = *nat;
+    *nat = 0;
+    @try { objc_exception_rethrow(); }
+    @catch (NSException *e) {
+        snprintf(out, n, "%s: %s", e.name.UTF8String ?: "NSException", e.reason.UTF8String ?: "");
+        for (NSNumber *a in e.callStackReturnAddresses) if (*nat < max) at[(*nat)++] = (void *)a.unsignedLongValue;
+        return 1;
+    }
+    @catch (id e) { snprintf(out, n, "an Objective-C object of %s", object_getClassName(e)); return 1; }
+    @catch (...) { return 0; }
+    return 0;
+}

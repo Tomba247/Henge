@@ -1,5 +1,8 @@
 /* std::cout, cerr, clog and cin for the tools of tl_tool.h, for each namespace its own: the system's write to the app's
    standard files. What is written goes to the run of the thread that writes it. */
+#include <cxxabi.h>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <typeinfo>
@@ -52,21 +55,32 @@ extern "C" void *tl_tool_stream(int ns, const char *sym) {
     return out ? (void *)&sets[ns]->cout : err ? (void *)&sets[ns]->cerr : log ? (void *)&sets[ns]->clog : (void *)&sets[ns]->cin;
 }
 /* What nobody caught: only called while the program is being terminated. */
-extern "C" void tl_tool_uncaught(char *out, size_t n) {
+extern "C" int tl_tool_uncaught_objc(char *out, size_t n, void **at, int *nat);
+extern "C" void tl_tool_uncaught(char *out, size_t n, void **at, int *nat) {
+    int max = *nat;
+    *nat = 0;
     out[0] = 0;
     if (!std::current_exception()) return;
     try { throw; }
     catch (const std::exception &e) { strlcpy(out, e.what(), n); }
     catch (const char *s) { strlcpy(out, s, n); }
     catch (const std::string &s) { strlcpy(out, s.c_str(), n); }
-    catch (...) { strlcpy(out, "not a std::exception", n); }
+    catch (...) {
+        *nat = max;
+        if (tl_tool_uncaught_objc(out, n, at, nat)) return;
+        *nat = 0;
+        const std::type_info *t = abi::__cxa_current_exception_type();
+        char *name = t ? abi::__cxa_demangle(t->name(), nullptr, nullptr, nullptr) : nullptr;
+        snprintf(out, n, "not a std::exception%s%s", t ? ", of type " : "", name ? name : t ? t->name() : "");
+        free(name);
+    }
 }
 extern "C" void *tl_tool_set_terminate(void (*fn)()) { return (void *)std::set_terminate(fn); }
 
 /* Calls fn; whether an exception came out of it, and what it was. */
 extern "C" int tl_tool_guard(void (*fn)(void *), void *arg, char *out, size_t n) {
     try { fn(arg); return 0; }
-    catch (...) { tl_tool_uncaught(out, n); return 1; }
+    catch (...) { void *at[1]; int nat = 0; tl_tool_uncaught(out, n, at, &nat); return 1; }
 }
 
 /* As they are at a program's start. */

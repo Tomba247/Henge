@@ -251,7 +251,7 @@ static void tool_abort(void) {
 /* An exception nobody caught ends the program it was in, not the app. The system keeps one handler for all: the
    terminal's program sets its own (Bun's ends the app), which still gets what is not a tool's. */
 int tl_tool_away; /* Henge is in the background: said with what ended a program */
-void tl_tool_uncaught(char *out, size_t n);
+void tl_tool_uncaught(char *out, size_t n, void **at, int *nat);
 int tl_tool_guard(void (*fn)(void *), void *arg, char *out, size_t n);
 void *tl_tool_set_terminate(void (*fn)(void));
 static void (*volatile g_app_terminate)(void);
@@ -286,6 +286,23 @@ static void tool_say_uncaught(TlToolRun *r, const char *what) {
     tl_log("%s: %.*s", r->exe->path, n - 1, why);
     tool_text_to(r, 2, why, (size_t)n);
 }
+/* Where the exception came from, as library+offset: what a report needs, without any path. */
+static void tool_say_stack(TlToolRun *r, const char *what, void **at, int n) {
+    char t[2400];
+    int k = snprintf(t, sizeof t, "%s:", what);
+    for (int i = 0; i < n && i < 40 && k < (int)sizeof t - 200; i++) {
+        TlImage *im = tl_image_containing(at[i]);
+        Dl_info d = {0};
+        if (!im) dladdr(at[i], &d);
+        const char *f = im ? im->path : d.dli_fname ? d.dli_fname : "?", *s = strrchr(f, '/');
+        const void *base = im ? (const void *)im->base : d.dli_fbase;
+        k += snprintf(t + k, sizeof t - k, " %.40s+0x%lx", s ? s + 1 : f, (unsigned long)((uintptr_t)at[i] - (uintptr_t)base));
+        if (!im && d.dli_sname) k += snprintf(t + k, sizeof t - k, "(%.60s)", d.dli_sname);
+    }
+    tl_log("%s", t);
+    tool_text_to(r, 2, t, (size_t)k);
+    tool_text_to(r, 2, "\n", 1);
+}
 static void tool_terminate(void) {
     TlToolRun *r = pthread_getspecific(g_tool_key);
     if (!r && !tool_call_stack_run(&r)) { /* not a tool's */
@@ -293,8 +310,12 @@ static void tool_terminate(void) {
         abort();
     }
     char what[400];
-    tl_tool_uncaught(what, sizeof what);
+    void *thrown[40], *here[40];
+    int nthrown = 40;
+    tl_tool_uncaught(what, sizeof what, thrown, &nthrown);
     tool_say_uncaught(r, what);
+    tool_say_stack(r, pthread_equal(pthread_self(), r->thread) ? "ended on its first thread" : pthread_main_np() ? "ended on the app's main thread" : "ended on another thread", here, backtrace(here, 40));
+    if (nthrown > 0) tool_say_stack(r, "raised at", thrown, nthrown);
     if (pthread_main_np()) { /* the app's: it can neither stay here nor end (blocks on it are guarded, tool_as) */
         if (g_app_terminate) g_app_terminate();
         abort();

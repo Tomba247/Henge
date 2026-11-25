@@ -48,6 +48,14 @@ static void *tests(void *x) {
     for (int i = 0; i < 180; i++) /* its memory is used again: 180 copies would not fit the region */
         run("main", 134, "not caught: from main");
     run("noexcept", 134, "not caught");
+    run("odd", 134, "of type Odd");
+    run("objc", 134, "HengeName: the reason");
+    run("objc", 134, "raised at: CoreFoundation");
+    run("objc", 134, " tl-throw+0x");
+    run("objcthread", 134, "ended on another thread");
+    run("objcall", 0, "got all\nend");
+    run("objcthreadall", 0, "got all\nend");
+    run("rethrow", 134, "HengeName: the reason");
     run("thread", 134, "not caught: from a thread");
     run("queue", 134, "not caught: from the main queue");
     dispatch_async(dispatch_get_main_queue(), ^{ atomic_store(&main_alive, 1); });
