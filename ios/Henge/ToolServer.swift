@@ -198,7 +198,7 @@ enum ProjectTools {
     }
 
     static func make(folder: URL, home: URL, token: @escaping () -> String?, run: @escaping ProjectBuilder.RunTool,
-                     program: @escaping ProgramRunner.Start, stop: @escaping () -> Void, stopTools: @escaping (String) -> Void, shared: URL? = nil, log: @escaping (String) -> Void) -> [ToolServer.Tool] {
+                     program: @escaping ProgramRunner.Start, stop: @escaping () -> Void, stopTools: @escaping (String) -> Void, shared: URL? = nil, logs: URL? = nil, crashed: Bool = false, log: @escaping (String) -> Void) -> [ToolServer.Tool] {
         let one = NSLock()
         let tools = folder.appendingPathComponent("Toolchain")
         let runner = ProgramRunner(start: program, stop: stop, tools: tools)
@@ -222,8 +222,13 @@ enum ProjectTools {
                 log(r.text.components(separatedBy: "\n")[0])
                 return r
             },
+            .init(name: "henge_log", about: (crashed ? "HENGE CRASHED IN THE RUN BEFORE THIS ONE: read it with which \"crash\" and tell the user what it says. " : "") + "Henge's own log: of this run (now), of the run before (previous), or the newest crash with where it was (crash).",
+                  inputs: [("which", "string", "now, previous or crash"), ("lines", "integer", "Last lines to give (default 200)")]) { a in
+                guard let logs else { return (false, "There are no logs here.") }
+                return RunLogs.read(a["which"] as? String ?? "now", a["lines"] as? Int ?? 200, logs: logs, projects: folder)
+            },
             .init(name: "project_help", about: "How to make a project (an iPhone app or a program) here: the format of henge-project.json, what is in the toolchain, what works and what does not. Read it before starting or porting a project.", inputs: []) { _ in (true, help) },
-            .init(name: "run_command", about: "Run a shell command line (a small POSIX-like shell: pipes, && || ;, redirection, if/for/while, $(...)) in a folder of the projects. Has clang, clang++, ld, ar, cmake, ninja, python3, the built-in cp mv rm mkdir ls cat head tail wc echo test, and any program built here (./build/x). Also the names in $HENGE_TOOLS/bin/devtools.names (grep, sed, awk, find, make, tar, curl, git, xcodebuild, xcrun and more: Henge's own, with the common options). Returns its output and exit code; the whole output is in .henge-output.txt.",
+            .init(name: "run_command", about: "Run a shell command line (a small POSIX-like shell: pipes, && || ;, redirection, if/for/while, $(...)) in a folder of the projects. Has clang, clang++, ld, ar, cmake, ninja, python3, the built-in cp mv rm mkdir ls cat head tail wc echo test, and any program built here (./build/x). Also the names in $HENGE_TOOLS/bin/devtools.names (grep, sed, awk, find, make, tar, curl, git, xcodebuild, xcrun, swift, swiftc, codesign, plutil, otool and more: Henge's own, with the common options). Returns its output and exit code; the whole output is in .henge-output.txt.",
                   inputs: [("command", "string", "The command line"), ("folder", "string", "Folder, relative to the projects folder; it is made if not there"),
                            ("timeout_seconds", "integer", "Most time it may take (default 600)")]) { a in
                 guard let c = a["command"] as? String, let d = inside(a["folder"] as? String ?? "", folder) else { return (false, "A command and a folder inside the projects folder are needed.") }

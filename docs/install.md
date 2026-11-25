@@ -3,11 +3,17 @@
 **You need** an iPhone or iPad with an A14 or M1 chip or newer and iOS or iPadOS 17 or later, a way to sideload, and JIT.
 These builds are tried on an iPhone 18 Pro Max with iOS 27.0.1.
 
+**Before you start:** this is an unofficial, experimental build, not from Henge's developer. Keep the IPA you use now, in
+case you want to go back, and copy anything you care about out of Files › On My iPhone › Henge.
+
 1. Download **Henge.ipa** from Downloads (**Henge.tipa** for TrollStore).
 2. Install it with SideStore, AltStore, Feather, FlareStore or another sideloader. To get updates in one of them, add the
    source `https://raw.githubusercontent.com/Tomba247/Henge/source/source.json`.
    Installing over an earlier build of this fork keeps your machines, programs and settings. Do not delete the old app
    first: that deletes them.
+   In the sideloader: add or open the IPA, choose your certificate or sign in as it asks, install, and then, if iOS says so,
+   trust the certificate in Settings › General › VPN & Device Management and turn on Settings › Privacy & Security ›
+   Developer Mode.
 3. If your certificate has it, sign with the **increased memory limit** entitlement.
 4. Open Henge, go to Settings, and **set up JIT** (StikDebug, TrollStore, or the helper built into Henge on iOS 26 or
    later). Henge's first screen says **JIT on** when it works. This is needed each time Henge is opened.
@@ -16,6 +22,16 @@ These builds are tried on an iPhone 18 Pro Max with iOS 27.0.1.
    - **Linux**: see "Running a Linux machine" below.
    - **Claude Code and the toolchain**: turn on Settings › **Mac apps without macOS**, then follow the steps in "A coding
      terminal" below.
+
+**If it goes wrong**
+
+| What you see | What to do |
+|---|---|
+| It does not install | Same bundle id and same certificate as the Henge you have; otherwise your sideloader says why |
+| **JIT off** | Set JIT up again (step 4). The built-in helper needs iOS 26 or later and its pairing; StikDebug works too |
+| It closes at once | Install the IPA you had before over it. Do not delete Henge: that deletes your machines and projects |
+| It closes while a program runs | Open the terminal again and ask for the crash log (below), or send Files › Henge › henge.log |
+| Low memory | Close other apps; sign with the increased memory limit; run one thing per launch |
 
 ## Recommended settings
 

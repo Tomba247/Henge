@@ -258,6 +258,59 @@ struct GitHub {
     }
 }
 
+/// Henge's logs for the program in the terminal: what ended the run before this one, and this run's. Without the app's
+/// folders' paths and without where the log is sent.
+enum RunLogs {
+    static func clean(_ s: String) -> String {
+        s.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.contains("[log-upload]") && !$0.contains("workers.dev") }.joined(separator: "\n")
+            .replacingOccurrences(of: "(/private)?/var/mobile/Containers/(Data|Shared|Bundle)/[A-Za-z]+/[0-9A-Fa-f-]{36}", with: "~", options: .regularExpression)
+    }
+    static func tail(_ f: URL, _ lines: Int) -> String {
+        guard let h = try? FileHandle(forReadingFrom: f) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        try? h.seek(toOffset: size > 400_000 ? size - 400_000 : 0)
+        let t = String(decoding: (try? h.readToEnd()) ?? Data(), as: UTF8.self)
+        return clean(t.split(separator: "\n", omittingEmptySubsequences: false).suffix(lines).joined(separator: "\n"))
+    }
+    /// At a launch: what the run before noted of a crash becomes a file in projects/henge-logs (the ten newest are kept).
+    /// Returns whether there was one.
+    static func collect(_ logs: URL, into projects: URL) -> Bool {
+        let fm = FileManager.default, noted = logs.appendingPathComponent("henge-crash.log"), prev = logs.appendingPathComponent("henge-native-prev.log")
+        let to = projects.appendingPathComponent("henge-logs")
+        let line = tail(noted, 20).trimmingCharacters(in: .whitespacesAndNewlines), last = tail(prev, 300)
+        try? fm.createDirectory(at: to, withIntermediateDirectories: true)
+        try? last.write(to: to.appendingPathComponent("previous-run.txt"), atomically: true, encoding: .utf8)
+        guard !line.isEmpty || last.contains("Bun has crashed") else { return false }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let when = (try? fm.attributesOfItem(atPath: (line.isEmpty ? prev : noted).path))?[.modificationDate] as? Date ?? Date()
+        let t = "A crash of Henge at \(f.string(from: when)) (found by build \(build))\n\n" + (line.isEmpty ? "No line of where it was.\n" : line + "\n") + "\nThe end of that run's log:\n" + last
+        try? t.write(to: to.appendingPathComponent("crash-\(f.string(from: when)).txt"), atomically: true, encoding: .utf8)
+        try? Data().write(to: noted)
+        for old in crashes(to).dropFirst(10) { try? fm.removeItem(at: old) }
+        return true
+    }
+    static func crashes(_ folder: URL) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).filter { $0.lastPathComponent.hasPrefix("crash-") }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+    static func read(_ which: String, _ lines: Int, logs: URL, projects: URL) -> (Bool, String) {
+        let to = projects.appendingPathComponent("henge-logs"), n = min(max(lines, 1), 2000)
+        switch which {
+        case "now", "": return (true, tail(logs.appendingPathComponent("henge.log"), n))
+        case "previous": return (true, tail(to.appendingPathComponent("previous-run.txt"), n))
+        case "crash":
+            let c = crashes(to)
+            guard let f = c.first, let t = try? String(contentsOf: f, encoding: .utf8) else { return (true, "No crash is noted.") }
+            let l = t.split(separator: "\n", omittingEmptySubsequences: false)
+            return (true, "henge-logs/\(f.lastPathComponent) (\(c.count) kept)\n" + (l.count <= n + 4 ? l[...] : l.prefix(4) + l.suffix(n)).joined(separator: "\n"))
+        default: return (false, "which: now, previous or crash.")
+        }
+    }
+}
+
 extension ProjectTools {
     static let help = """
     PROJECTS. Each is a folder of the projects folder with a henge-project.json. `build` turns it into an unsigned iPhone app, <name>.ipa, \
@@ -306,6 +359,14 @@ extension ProjectTools {
     If the projects folder has Henge-source, `build` makes Henge.ipa from it here (read its CLAUDE.md): make the smallest change, show the user the difference, put a higher CFBundleVersion in its henge-project.json's info, build; they sign it and install it over Henge, \
     with the IPA they have now at hand to go back to. If it does not have it: github_download the user's fork (ask which branch), change it, and with their agreement github_save it to a branch of its own, not main; \
     they start "Build Henge IPA" for that branch in GitHub's Actions (it makes a public release). Say what was not tested.
+
+    XCODE'S OTHER TOOLS. If devtools.names lists codesign, Henge's own also are: swiftc and swift FILE.swift or -e CODE (compiled, then run here), plutil, PlistBuddy, codesign (ad hoc only, with --entitlements; also of a whole .ipa: \
+    codesign -f -s - --entitlements X.plist App.ipa), otool, size, strings, dwarfdump --uuid, vtool -show-build, xcstringstool compile, agvtool, sw_vers; xcodebuild compiles string catalogs. An option they lack is an error, and simctl, actool, ibtool, \
+    metal, xctest and others say what to do instead.
+
+    AFTER A CRASH. A bad memory access anywhere closes Henge, and the terminal's program (Bun) then says it crashed itself: that is often not so. henge_log with which "crash" has the line "crash: signal…" of where it was: \
+    the program its thread belongs to and the calls as library+offset (find a function with llvm-objdump or nm of the built program; its offsets are from the file's start). "its stack is full" means a stack overflow. \
+    If nothing is noted the run was ended without a signal (too much memory, or the user closed it): see which "previous". Those files are in the projects' henge-logs.
 
     STARTING A PROJECT. A new folder of the projects folder (leave others alone): ask what it should do only if that is not clear, write henge-project.json or use the Xcode project it has, \
     get the smallest version to build, then add. Keep CLAUDE.md in it: what is done, what is next, the build command. Tell the user the IPA's name; they sign it.

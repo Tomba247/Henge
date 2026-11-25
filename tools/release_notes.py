@@ -17,6 +17,7 @@ UPSTREAM = "https://github.com/Leviidev/Henge"
 FILES = {
     "Henge.ipa": ("The app", "Install it with SideStore, AltStore, Feather or another sideloader."),
     "Henge.tipa": ("The app, for TrollStore", "The same app, packaged for TrollStore."),
+    "Henge-source.zip": ("Henge's source, for building Henge on the phone", "Optional, for the coding terminal. Unpack it into Files › Henge › Projects. It needs the toolchain, which you make yourself; none of Apple's files are in it."),
     "Henge-Ubuntu-GNOME.zip": ("Ubuntu 24.04 · GNOME", "Ubuntu's own desktop and dock, Firefox, Google Chrome and a YouTube app."),
     "Henge-Ubuntu-Xfce.zip": ("Ubuntu 24.04 · Xfce", "A lighter desktop with Firefox and a YouTube app."),
     "Henge-Kali.zip": ("Kali Linux · Xfce", "Kali rolling with Kali's own Xfce desktop, Firefox ESR, Chromium and Kali's top 10 tools."),
@@ -87,6 +88,7 @@ def main():
         "### Please",
         f"- **Want Henge itself?** Get it from [the official project]({UPSTREAM}), and support Leviidev there.",
         f"- **Found a bug in these builds?** Tell [{repo.split('/')[0]}](https://github.com/{repo}), **not** the Henge project. These builds may break things the official app doesn't.",
+        "- **Experimental:** expect things to break. Keep the IPA you have now, and back up what you care about, before installing.",
         "- Henge's license and copyright stay as they are. This fork keeps them unchanged.",
         "",
         f"**Version:** {version}  ",

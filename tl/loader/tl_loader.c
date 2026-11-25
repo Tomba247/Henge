@@ -1934,6 +1934,10 @@ static void *rt_dlsym(void *handle, const char *name) {
 /* Where a crash was, in the log before the program's own handler runs: that one (Bun's) ends the app, and takes every
    crash in the app for its own. Library+offset only, no paths. */
 static const char *crash_thread_program(void);
+static int g_crash_fd = -1;
+void tl_crash_log(const char *path) { /* a file of crashes only, kept for the next launch */
+    if (g_crash_fd < 0) g_crash_fd = open(path, O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0644);
+}
 static struct sigaction g_crash_own[32];
 static _Atomic int g_crash_said;
 static int crash_read(uintptr_t at, void *out, size_t n) {
@@ -1957,6 +1961,8 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
         const char *tool = crash_thread_program(), *s = tool ? strrchr(tool, '/') : NULL;
         int k = snprintf(t, sizeof t, "henge: term: crash: signal %d at address %p, on a thread of %.40s%s%.30s%s:", sig, info ? info->si_addr : NULL,
                          tool ? s ? s + 1 : tool : "the terminal's program or the app", name[0] ? " named " : "", name, pthread_main_np() ? " (main)" : "");
+        uintptr_t low = (uintptr_t)pthread_get_stackaddr_np(pthread_self()) - pthread_get_stacksize_np(pthread_self()), bad = info ? (uintptr_t)info->si_addr : 0;
+        if (bad < low + 256 && bad + (64 << 10) > low) k += snprintf(t + k, sizeof t - k, " its stack (%zu KB) is full:", pthread_get_stacksize_np(pthread_self()) >> 10);
         k += crash_at(t + k, sizeof t - k, pc);
         k += snprintf(t + k, sizeof t - k, " lr");
         k += crash_at(t + k, sizeof t - k, lr & 0x7fffffffffull);
@@ -1968,6 +1974,7 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
         }
         t[k++] = '\n';
         write(2, t, (size_t)k);
+        if (g_crash_fd >= 0) write(g_crash_fd, t, (size_t)k);
     }
     errno = errno_was;
     struct sigaction own = g_crash_own[sig];

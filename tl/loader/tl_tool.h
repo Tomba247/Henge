@@ -366,7 +366,11 @@ static int tool_pthread_create(pthread_t *out, const pthread_attr_t *a, void *(*
     TlToolRun *r = &g_tool;
     *t = (TlToolStart){fn, arg, r};
     r->live++;
-    int rc = pthread_create(out, a, tool_thread_start, t);
+    pthread_attr_t big; /* the system's 512 KB for a thread that asks for nothing is little for translated code */
+    int own = !a && !pthread_attr_init(&big);
+    if (own) pthread_attr_setstacksize(&big, 4 << 20);
+    int rc = pthread_create(out, own ? &big : a, tool_thread_start, t);
+    if (own) pthread_attr_destroy(&big);
     if (rc) { r->live--; free(t); }
     return rc;
 }

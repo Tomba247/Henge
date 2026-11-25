@@ -56,7 +56,8 @@ jobs:
         working-directory: Henge
         run: |
           BASE=$(plutil -extract CFBundleVersion raw ios/Henge/Info.plist)
-          plutil -replace CFBundleVersion -string "${BASE%%.*}.${GITHUB_RUN_NUMBER}" ios/Henge/Info.plist
+          # 100 over the run: above the builds made on a Mac or on the phone in between, which have the next numbers.
+          plutil -replace CFBundleVersion -string "${BASE%%.*}.$((GITHUB_RUN_NUMBER + 100))" ios/Henge/Info.plist
           echo "build $(plutil -extract CFBundleShortVersionString raw ios/Henge/Info.plist) ($(plutil -extract CFBundleVersion raw ios/Henge/Info.plist))"
 
       # fetch_deps.sh copies prebuilt pieces out of a BUILT Husk checkout:
@@ -153,6 +154,24 @@ jobs:
           path: /Users/runner/Desktop/Henge.ipa
           if-no-files-found: error
 
+      # Henge as a project of its own terminal (tools/phone-kit/self): its source and the libraries this build made.
+      - name: Source kit for building Henge on the phone
+        continue-on-error: true
+        working-directory: Henge
+        run: |
+          mkdir -p /tmp/self
+          python3 tools/phone-kit/self/make_self.py /Users/runner/Desktop/Henge.ipa /tmp/self
+          (cd /tmp/self && zip -qry /Users/runner/Desktop/Henge-source.zip Henge-source)
+          ls -l /Users/runner/Desktop/Henge-source.zip
+
+      - name: Upload the source kit
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Henge-source-${{ github.sha }}
+          path: /Users/runner/Desktop/Henge-source.zip
+          if-no-files-found: warn
+
       - name: Symbol map for the engine profiler
         working-directory: Henge
         run: |
@@ -222,6 +241,13 @@ jobs:
             commit -qam "Add $GITHUB_REF_NAME $VERSION ($BUILD)"
           git push -q origin source
           echo "source: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/source/source.json"
+
+      - name: Attach the source kit to the release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ ! -f /Users/runner/Desktop/Henge-source.zip ] || gh release upload "henge-linux-${GITHUB_RUN_NUMBER}" /Users/runner/Desktop/Henge-source.zip --repo "$GITHUB_REPOSITORY"
 
       # The Linux machines (docs/linux-machine.md) beside the app, each a folder the app brings in: Henge-Ubuntu-GNOME.zip,
       # Henge-Kali.zip (Xfce) and Henge-Kali-GNOME.zip, from the same Linux machine build. Only on branches with those builds; release files

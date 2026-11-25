@@ -12,7 +12,7 @@ import sys
 
 CMDS = {}
 PROG = 'devtools'
-SPAWN = {'make', 'gmake', 'xargs', 'find', 'awk', 'gawk', 'nawk', 'xcrun'}
+SPAWN = {'make', 'gmake', 'xargs', 'find', 'awk', 'gawk', 'nawk', 'xcrun', 'swift', 'swiftc'}
 
 
 def command(*names):
@@ -9334,7 +9334,10 @@ class XcProject:
                     self.fail(f'{b}: storyboards cannot be compiled here')
             elif e in ('.xcdatamodeld', '.xcdatamodel', '.mlmodel', '.mlpackage', '.scnassets', '.sks', '.rcproject', '.intentdefinition'):
                 self.fail(f'{b}: {e} files cannot be compiled here')
-            elif e in ('.xcstrings', '.icon'):
+            elif e == '.xcstrings':
+                for q in xcs_compile(f, os.path.join(self.root, 'build', 'xcstrings')):
+                    res.append(self.rel(q) + ':' + os.path.basename(os.path.dirname(q)) + '/' + os.path.basename(q))
+            elif e == '.icon':
                 self.note(f'{b} is left out: {e} files cannot be compiled here')
             else:
                 d = os.path.basename(os.path.dirname(f))
@@ -10354,6 +10357,1010 @@ def xcode_select(name, args):
     else:
         raise Fail('only -p works here: the tools are Henge\'s Toolchain', 1)
     return 0
+
+
+# ---- plutil, PlistBuddy, codesign, otool and other tools of Xcode's: Henge's own ----
+
+def xt_opts(args, flags, takes):
+    """(options, rest) of getopt-like arguments; an option that is not known is an error."""
+    o, r, args = {}, [], list(args)
+    while args:
+        a = args.pop(0)
+        if a == '--':
+            return o, r + args
+        if a in flags:
+            o[a] = True
+        elif a in takes:
+            if not args:
+                raise Fail(f'{a} needs a value', 64)
+            o[a] = args.pop(0)
+        elif a.startswith('-') and a != '-':
+            raise Fail(f'{a} is not supported here', 64)
+        else:
+            r.append(a)
+    return o, r
+
+
+def pl_load(path):
+    import json
+    import plistlib
+    b = data(path)
+    try:
+        return plistlib.loads(b)
+    except Exception as e:  # noqa: BLE001 (plistlib raises many kinds)
+        try:
+            return json.loads(b)
+        except ValueError:
+            t = dec(b).lstrip('\ufeff')
+            if t.lstrip()[:1] in ('{', '(', '"', '/') and not t.lstrip().startswith('{"'):
+                try:
+                    return pbx_parse(t if t.lstrip()[:1] in '{(' or not re.match(r'\s*("|/\*)', t) else '{' + t + '}')
+                except Exception:  # noqa: BLE001
+                    pass
+            raise Fail(f'{path}: not a property list ({e})', 1) from None
+
+
+def pl_bytes(v, fmt):
+    import json
+    import plistlib
+    try:
+        if fmt == 'json':
+            return json.dumps(v, separators=(',', ':'), ensure_ascii=False).encode()
+        return plistlib.dumps(v, fmt=plistlib.FMT_BINARY if fmt == 'binary1' else plistlib.FMT_XML, sort_keys=True)
+    except TypeError as e:
+        raise Fail(f'it cannot be written as {fmt}: {e}', 1) from None
+
+
+def pl_write(path, b):
+    if path == '-':
+        outb(b)
+        return
+    with open(path, 'wb') as f:
+        f.write(b)
+
+
+def pl_show(v, ind=0):
+    import datetime
+    p = '  ' * ind
+    q = lambda s: '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
+    if isinstance(v, dict):
+        return '{\n' + ''.join(f'{p}  {q(k)} => {pl_show(v[k], ind + 1)}\n' for k in sorted(v)) + p + '}'
+    if isinstance(v, list):
+        return '[\n' + ''.join(f'{p}  {i} => {pl_show(x, ind + 1)}\n' for i, x in enumerate(v)) + p + ']'
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if isinstance(v, bytes):
+        return f'{{length = {len(v)}, bytes = 0x{v.hex()}}}'
+    if isinstance(v, datetime.datetime):
+        return v.strftime('%Y-%m-%d %H:%M:%S +0000')
+    return q(v) if isinstance(v, str) else str(v)
+
+
+def pl_path(p):
+    return [x.replace('\0', '.') for x in p.replace('\\.', '\0').split('.')]
+
+
+def pl_at(v, keys):
+    for k in keys:
+        try:
+            v = v[int(k)] if isinstance(v, list) else v[k]
+        except (KeyError, ValueError, IndexError, TypeError):
+            raise Fail('Could not extract value, error: No value at that key path or invalid key path: ' + '.'.join(keys), 1) from None
+    return v
+
+
+def pl_value(kind, s):
+    import base64
+    import datetime
+    import json
+    try:
+        if kind in ('-bool', 'bool'):
+            return s.lower() in ('yes', 'true', '1')
+        if kind in ('-integer', 'integer'):
+            return int(s)
+        if kind in ('-float', 'float', 'real'):
+            return float(s)
+        if kind in ('-data', 'data'):
+            return base64.b64decode(s)
+        if kind in ('-date', 'date'):
+            return datetime.datetime.strptime(s, '%Y-%m-%dT%H:%M:%SZ')
+        if kind in ('-json', '-xml'):
+            import plistlib
+            return json.loads(s) if kind == '-json' else plistlib.loads(s.encode())
+    except ValueError as e:
+        raise Fail(f'{s}: {e}', 1) from None
+    return s
+
+
+@command('plutil')
+def plutil(name, args):
+    a = list(args)
+    act = a.pop(0) if a and a[0].startswith('-') else '-lint'
+    if act in ('-help', '-h', '--help'):
+        put('usage: plutil [-lint | -p | -convert FORMAT | -extract KEYPATH FORMAT | -type KEYPATH | -insert | -replace KEYPATH -TYPE VALUE | -remove KEYPATH | -create FORMAT] [-o OUT] [-r] [-n] [-s] FILE...\nFORMAT: xml1, binary1, json, raw (extract). TYPE: bool integer float string data date json xml array dictionary')
+        return 0
+    key = fmt = kind = val = None
+    if act in ('-convert', '-create'):
+        fmt = a.pop(0) if a else None
+    elif act in ('-extract',):
+        key, fmt = (a.pop(0), a.pop(0)) if len(a) > 1 else (None, None)
+    elif act in ('-type', '-remove'):
+        key = a.pop(0) if a else None
+    elif act in ('-insert', '-replace'):
+        key, kind = (a.pop(0), a.pop(0)) if len(a) > 1 else (None, None)
+        if kind not in ('-array', '-dictionary'):
+            val = a.pop(0) if a else None
+    elif act not in ('-lint', '-p'):
+        raise Fail(f'{act} is not supported here', 64)
+    if act in ('-convert', '-create', '-extract') and fmt not in ('xml1', 'binary1', 'json', 'raw'):
+        raise Fail(f'unknown format: {fmt}', 1)
+    o, files = xt_opts(a, ('-s', '-r', '-n', '-append'), ('-o', '-e', '-expect'))
+    if not files:
+        raise Fail('No files specified.', 1)
+    rc = 0
+    for f in files:
+        if act == '-create':
+            pl_write(o.get('-o', f), pl_bytes({}, fmt))
+            continue
+        try:
+            v = pl_load(f)
+        except (Fail, OSError) as e:
+            rc = 1
+            put(str(e) if isinstance(e, Fail) else f'{f}: file does not exist or is not readable or is not a regular file')
+            continue
+        if act == '-lint':
+            if '-s' not in o:
+                put(f'{f}: OK')
+        elif act == '-p':
+            put(pl_show(v))
+        elif act == '-convert':
+            b = pl_bytes(v, fmt)
+            if fmt == 'json' and '-r' in o:
+                import json
+                b = json.dumps(v, indent=2, sort_keys=True, ensure_ascii=False).replace('": ', '" : ').encode()
+            pl_write(o['-o'] if '-o' in o else (os.path.splitext(f)[0] + '.' + o['-e'] if '-e' in o else f), b)
+        elif act in ('-extract', '-type'):
+            x = pl_at(v, pl_path(key))
+            kinds = {dict: 'dictionary', list: 'array', bool: 'bool', int: 'integer', float: 'float', str: 'string', bytes: 'data'}
+            if act == '-type':
+                put(kinds.get(type(x), 'date'))
+            elif fmt == 'raw':
+                import base64
+                put(str(len(x)) if isinstance(x, list) else '\n'.join(sorted(x)) if isinstance(x, dict) else 'true' if x is True else 'false' if x is False else
+                    base64.b64encode(x).decode() if isinstance(x, bytes) else x.strftime('%Y-%m-%dT%H:%M:%SZ') if hasattr(x, 'strftime') else f'{x:f}' if isinstance(x, float) else x)
+            else:
+                pl_write(o.get('-o', f), pl_bytes(x, fmt))
+        else:
+            ks = pl_path(key)
+            at = pl_at(v, ks[:-1]) if act != '-replace' or len(ks) > 1 else v
+            k = ks[-1]
+            x = [] if kind == '-array' else {} if kind == '-dictionary' else pl_value(kind, val)
+            if isinstance(at, list):
+                try:
+                    i = int(k)
+                    if act == '-remove':
+                        del at[i]
+                    elif act == '-insert':
+                        at.insert(i, x)
+                    else:
+                        at[i] = x
+                except (ValueError, IndexError):
+                    raise Fail(f'invalid key path: {key}', 1) from None
+            elif act == '-remove':
+                if k not in at:
+                    raise Fail(f'Could not modify plist, error: No value to remove at key path {key}', 1)
+                del at[k]
+            elif act == '-insert' and '-append' in o and isinstance(at.get(k), list):
+                at[k].append(x)
+            elif act == '-insert' and k in at:
+                raise Fail(f'Could not modify plist, error: Value already exists at key path {key}', 1)
+            else:
+                at[k] = x
+            b = data(f)
+            pl_write(o.get('-o', f), pl_bytes(v, 'binary1' if b[:6] == b'bplist' else 'json' if b.lstrip()[:1] == b'{' else 'xml1'))
+    return rc
+
+
+@command('PlistBuddy')
+def plistbuddy(name, args):
+    import shlex
+    o, r = xt_opts(args, ('-x', '-h'), ()) if '-c' not in args else ({}, [])
+    cmds, args = [], list(args)
+    while '-c' in args:
+        i = args.index('-c')
+        cmds.append(args[i + 1])
+        del args[i:i + 2]
+    o, r = xt_opts(args, ('-x', '-h'), ())
+    if len(r) != 1 or not cmds:
+        raise Fail('usage: PlistBuddy -c COMMAND [-c COMMAND...] FILE.plist   (Print, Add, Set, Delete, Clear, Merge, Copy; interactive use is not here)', 1)
+    f = r[0]
+    v, changed, rc = (pl_load(f) if os.path.exists(f) else {}), False, 0
+
+    def keys(p):
+        return [x.replace('\0', ':') for x in p.replace('\\:', '\0').split(':') if x]
+
+    def get(p):
+        x = v
+        for k in keys(p):
+            try:
+                x = x[int(k)] if isinstance(x, list) else x[k]
+            except (KeyError, ValueError, IndexError, TypeError):
+                raise Fail(f'"{p}", Does Not Exist', 1) from None
+        return x
+
+    def show(x, n=0):
+        s = '    ' * n
+        if isinstance(x, dict):
+            return 'Dict {\n' + ''.join(f'{s}    {k} = {show(y, n + 1)}\n' for k, y in x.items()) + s + '}'
+        if isinstance(x, list):
+            return 'Array {\n' + ''.join(f'{s}    {show(y, n + 1)}\n' for y in x) + s + '}'
+        return 'true' if x is True else 'false' if x is False else f'{x:f}' if isinstance(x, float) else dec(x) if isinstance(x, bytes) else str(x)
+    for c in cmds:
+        w = shlex.split(c)
+        verb = w[0].lower() if w else ''
+        p = w[1] if len(w) > 1 else ''
+        try:
+            if verb == 'print':
+                x = get(p)
+                if '-x' in o:
+                    outb(pl_bytes(x, 'xml1'))
+                else:
+                    put(show(x))
+                continue
+            if verb == 'save' or verb == 'exit':
+                continue
+            if verb not in ('add', 'set', 'delete', 'clear', 'copy', 'merge'):
+                raise Fail('Unrecognized Command', 1)
+            if verb == 'clear':
+                v = {} if p.lower() in ('', 'dict') else []
+            elif verb == 'merge':
+                import copy
+                get(w[2] if len(w) > 2 else '').update({k: x for k, x in copy.deepcopy(pl_load(p)).items() if k not in get(w[2] if len(w) > 2 else '')})
+            else:
+                ks = keys(w[2] if verb == 'copy' else p)
+                at = v
+                for i, k in enumerate(ks[:-1]):
+                    if isinstance(at, list):
+                        at = at[int(k)]
+                    else:
+                        if k not in at and verb == 'add':
+                            at[k] = {}
+                        at = at[k]
+                k = ks[-1]
+                if verb == 'delete':
+                    get(p)
+                    del at[int(k) if isinstance(at, list) else k]
+                elif verb == 'set':
+                    old, s = get(p), ' '.join(w[2:])
+                    at[int(k) if isinstance(at, list) else k] = pl_value({bool: 'bool', int: 'integer', float: 'real', bytes: 'string'}.get(type(old), 'string'), s)
+                else:
+                    if verb == 'copy':
+                        import copy
+                        x = copy.deepcopy(get(p))
+                    else:
+                        t = w[2].lower()
+                        x = [] if t == 'array' else {} if t == 'dict' else pl_value(t, ' '.join(w[3:]) or ('0' if t in ('integer', 'real') else ''))
+                    if isinstance(at, list):
+                        at.insert(int(k) if k.isdigit() else len(at), x)
+                    elif k in at:
+                        raise Fail(f'"{p}" Entry Already Exists', 1)
+                    else:
+                        at[k] = x
+            changed = True
+        except (Fail, KeyError, IndexError, ValueError, TypeError) as e:
+            s = {'print': 'Print: Entry, ', 'set': 'Set: Entry, ', 'delete': 'Delete: Entry, ', 'add': 'Add: ', 'copy': 'Copy: Entry, '}.get(verb, '')
+            State.out.flush()
+            sys.stderr.write(s + (str(e) if isinstance(e, Fail) else f'"{p}", Does Not Exist') + '\n')
+            rc = 1
+    if changed:
+        pl_write(f, pl_bytes(v, 'binary1' if os.path.exists(f) and data(f)[:6] == b'bplist' else 'xml1'))
+    return rc
+
+
+class MachO:
+    """A thin arm64 Mach-O, or that part of a fat one."""
+    def __init__(self, path, b=None):
+        import struct
+        self.path, b = path, b if b is not None else data(path)
+        self.fat = b[:4] in (b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf')
+        if self.fat:
+            if b[3] != 0xbe:
+                raise Fail(f'{path}: 64-bit fat files are not supported here', 1)
+            for i in range(struct.unpack('>I', b[4:8])[0]):
+                cpu, _, off, size, _ = struct.unpack('>5I', b[8 + i * 20:28 + i * 20])
+                if cpu == 0x100000c:
+                    b = b[off:off + size]
+                    break
+            else:
+                raise Fail(f'{path}: no arm64 in it', 1)
+        if b[:4] != b'\xcf\xfa\xed\xfe':
+            raise Fail(f'{path}: is not an object file', 1)
+        self.b = b
+        self.cpu, self.sub, self.type, n, self.cmdsize, self.flags = struct.unpack('<6I', b[4:28])
+        self.cmds, at = [], 32
+        for _ in range(n):
+            c, size = struct.unpack('<II', b[at:at + 8])
+            if size < 8 or at + size > len(b):
+                raise Fail(f'{path}: a load command is out of bounds', 1)
+            self.cmds.append((c, at, b[at:at + size]))
+            at += size
+
+    def segments(self):
+        import struct
+        for c, at, x in self.cmds:
+            if c == 0x19:
+                vmaddr, vmsize, off, size, mx, ini, n, fl = struct.unpack('<4Q4I', x[24:72])
+                secs = []
+                for i in range(n):
+                    s = x[72 + i * 80:152 + i * 80]
+                    secs.append((s[:16].rstrip(b'\0').decode(), s[16:32].rstrip(b'\0').decode(), *struct.unpack('<2Q8I', s[32:80])))
+                yield x[8:24].rstrip(b'\0').decode(), at, vmaddr, vmsize, off, size, secs
+
+    def lc(self, *which):
+        return next(((c, at, x) for c, at, x in self.cmds if c & 0x7fffffff in which), None)
+
+    def signature(self):
+        import struct
+        c = self.lc(0x1d)
+        if not c:
+            return None
+        off, size = struct.unpack('<II', c[2][8:16])
+        s = self.b[off:off + size]
+        if len(s) < 12 or s[:4] != b'\xfa\xde\x0c\xc0':
+            return None
+        n = struct.unpack('>I', s[8:12])[0]
+        r = {}
+        for i in range(n):
+            t, o = struct.unpack('>II', s[12 + i * 8:20 + i * 8])
+            r[t] = s[o:o + struct.unpack('>I', s[o + 4:o + 8])[0]]
+        return r
+
+
+def der(tag, b):
+    n = len(b)
+    if n < 128:
+        return bytes([tag, n]) + b
+    l = n.to_bytes((n.bit_length() + 7) // 8, 'big')
+    return bytes([tag, 0x80 | len(l)]) + l + b
+
+
+def der_value(v):
+    if isinstance(v, bool):
+        return der(1, b'\xff' if v else b'\0')
+    if isinstance(v, int):
+        return der(2, v.to_bytes(v.bit_length() // 8 + 1, 'big', signed=True))
+    if isinstance(v, str):
+        return der(0xc, v.encode())
+    if isinstance(v, list):
+        return der(0x30, b''.join(der_value(x) for x in v))
+    if isinstance(v, dict):
+        return der(0xb0, b''.join(der(0x30, der(0xc, k.encode()) + der_value(v[k])) for k in sorted(v, key=lambda k: k.encode())))
+    raise Fail(f'entitlements cannot hold {type(v).__name__}', 1)
+
+
+def cs_blob(magic, b):
+    import struct
+    return struct.pack('>II', magic, len(b) + 8) + b
+
+
+def cs_sign(path, ident, ents=None, info=None, resources=None, flags=0):
+    """An ad hoc signature in a thin Mach-O, as codesign -s - makes it. Returns the new file's CDHash."""
+    import hashlib
+    import plistlib
+    import struct
+    m = MachO(path)
+    if m.fat:
+        raise Fail(f'{path}: only arm64 files are signed here: lipo -thin arm64 first', 1)
+    b, c = bytearray(m.b), m.lc(0x1d)
+    link = next((s for s in m.segments() if s[0] == '__LINKEDIT'), None)
+    if not link:
+        raise Fail(f'{path}: no __LINKEDIT', 1)
+    text_seg = next((s for s in m.segments() if s[0] == '__TEXT'), None)
+    if c:
+        limit = struct.unpack('<I', c[2][8:12])[0]
+        at = c[1]
+        del b[limit:]
+    else:
+        limit = (len(b) + 15) & ~15
+        b += b'\0' * (limit - len(b))
+        at = 32 + m.cmdsize
+        first = min([s[4] for seg in m.segments() for s in seg[6] if s[4]], default=len(b))
+        if at + 16 > first:
+            raise Fail(f'{path}: no room in its header for a signature', 1)
+        b[16:24] = struct.pack('<II', len(m.cmds) + 1, m.cmdsize + 16)
+    exe = m.type == 2
+    parts = {}
+    if info is not None:
+        parts[1] = hashlib.sha256(info).digest()
+    req = cs_blob(0xfade0c01, struct.pack('>I', 0))
+    parts[2] = hashlib.sha256(req).digest()
+    if resources is not None:
+        parts[3] = hashlib.sha256(resources).digest()
+    blobs = [(2, req)]
+    seg = 1 if exe else 0
+    if ents is not None and exe:
+        x = cs_blob(0xfade7171, plistlib.dumps(ents, sort_keys=True))
+        d = cs_blob(0xfade7172, der(0x70, der(2, b'\x01') + der_value(ents)))
+        parts[5], parts[7] = hashlib.sha256(x).digest(), hashlib.sha256(d).digest()
+        blobs += [(5, x), (7, d)]
+        if ents.get('get-task-allow') is True:
+            seg |= 0x10
+    pages, special = (limit + 4095) // 4096, max(parts)
+    idb = ident.encode() + b'\0'
+    cdlen = 88 + len(idb) + 32 * (special + pages)
+    total = 12 + 8 * (len(blobs) + 2) + cdlen + sum(len(x) for _, x in blobs) + 8
+    size = (total + 15) & ~15
+    b[at:at + 16] = struct.pack('<4I', 0x1d, 16, limit, size)
+    end = limit + size - link[4]
+    b[link[1] + 32:link[1] + 40] = struct.pack('<Q', max((end + 16383) & ~16383, 16384))
+    b[link[1] + 48:link[1] + 56] = struct.pack('<Q', end)
+    hs = b''.join(parts.get(i, bytes(32)) for i in range(special, 0, -1)) + b''.join(hashlib.sha256(b[i * 4096:min((i + 1) * 4096, limit)]).digest() for i in range(pages))
+    cd = struct.pack('>9I4B4I4Q', 0xfade0c02, cdlen, 0x20400, flags | 2, 88 + len(idb) + 32 * special, 88, special, pages, limit, 32, 2, 0, 12, 0, 0, 0, 0, 0,
+                     text_seg[4] if text_seg else 0, text_seg[5] if text_seg else 0, seg) + idb + hs
+    blobs = [(0, cd)] + blobs + [(0x10000, cs_blob(0xfade0b01, b''))]
+    o, index, body = 12 + 8 * len(blobs), b'', b''
+    for t, x in blobs:
+        index += struct.pack('>II', t, o + len(body))
+        body += x
+    b += cs_blob(0xfade0cc0, struct.pack('>I', len(blobs)) + index + body).ljust(size, b'\0')
+    mode = os.stat(path).st_mode
+    tmp = path + '.signing'
+    with open(tmp, 'wb') as f:
+        f.write(b)
+    os.chmod(tmp, mode & 0o7777)
+    os.replace(tmp, path)
+    return hashlib.sha256(cd).digest()[:20]
+
+
+CS_RULES = {'^.*': True, '^.*\\.lproj/': {'optional': True, 'weight': 1000.0}, '^.*\\.lproj/locversion.plist$': {'omit': True, 'weight': 1100.0},
+            '^Base\\.lproj/': {'weight': 1010.0}, '^version.plist$': True}
+CS_RULES2 = {'.*\\.dSYM($|/)': {'weight': 11.0}, '^(.*/)?\\.DS_Store$': {'omit': True, 'weight': 2000.0}, '^.*': True,
+             '^.*\\.lproj/': {'optional': True, 'weight': 1000.0}, '^.*\\.lproj/locversion.plist$': {'omit': True, 'weight': 1100.0},
+             '^Base\\.lproj/': {'weight': 1010.0}, '^Info\\.plist$': {'omit': True, 'weight': 20.0}, '^PkgInfo$': {'omit': True, 'weight': 20.0},
+             '^embedded\\.provisionprofile$': {'weight': 20.0}, '^version\\.plist$': {'weight': 20.0}}
+
+
+def cs_bundle(d, ents=None, ident=None, flags=0):
+    """Signs an iPhone app, extension or framework and what it holds, inside out."""
+    import hashlib
+    import plistlib
+    info_path = os.path.join(d, 'Info.plist')
+    if not os.path.isfile(info_path):
+        raise Fail(f'{d}: bundle format unrecognized, invalid, or unsuitable (no Info.plist)', 1)
+    info = data(info_path)
+    p = pl_load(info_path)
+    exe = p.get('CFBundleExecutable')
+    if not exe or not os.path.isfile(os.path.join(d, exe)):
+        raise Fail(f'{d}: its program is not there', 1)
+    for sub in ('Frameworks', 'PlugIns', 'Extensions', 'Watch'):
+        s = os.path.join(d, sub)
+        for n in sorted(os.listdir(s)) if os.path.isdir(s) else ():
+            f = os.path.join(s, n)
+            if os.path.isdir(f) and n.endswith(('.framework', '.appex', '.app')):
+                old = None
+                if n.endswith(('.appex', '.app')):  # its own entitlements stay
+                    sig = MachO(os.path.join(f, pl_load(f + '/Info.plist')['CFBundleExecutable'])).signature() or {}
+                    old = plistlib.loads(sig[5][8:]) if 5 in sig else None
+                cs_bundle(f, old)
+            elif n.endswith('.dylib'):
+                cs_sign(f, os.path.splitext(n)[0])
+    files, files2, skip = {}, {}, {exe}
+    for r, ds, fs in os.walk(d):
+        rel = os.path.relpath(r, d)
+        rel = '' if rel == '.' else rel + '/'
+        if rel == '':
+            ds[:] = [x for x in ds if x != '_CodeSignature']
+        ds.sort()
+        for n in sorted(fs):
+            f = rel + n
+            if f in skip or os.path.islink(os.path.join(r, n)):
+                continue
+            b = data(os.path.join(r, n))
+            loc = bool(re.match(r'.*\.lproj/', f)) and not re.match(r'Base\.lproj/', f)
+            one = {'hash': hashlib.sha1(b).digest(), 'optional': True} if loc else hashlib.sha1(b).digest()
+            if n != '.DS_Store':
+                files[f] = one
+                if f not in ('Info.plist', 'PkgInfo'):
+                    files2[f] = {'hash2': hashlib.sha256(b).digest(), **({'optional': True} if loc else {})}
+    res = plistlib.dumps({'files': files, 'files2': files2, 'rules': CS_RULES, 'rules2': CS_RULES2}, sort_keys=True)
+    os.makedirs(d + '/_CodeSignature', exist_ok=True)
+    with open(d + '/_CodeSignature/CodeResources', 'wb') as f:
+        f.write(res)
+    return cs_sign(os.path.join(d, exe), ident or p.get('CFBundleIdentifier') or exe, ents, info, res, flags)
+
+
+def cs_main(path):
+    return os.path.join(path, pl_load(os.path.join(path, 'Info.plist'))['CFBundleExecutable']) if os.path.isdir(path) else path
+
+
+@command('codesign')
+def codesign(name, args):
+    import hashlib
+    import plistlib
+    import struct
+    a = []
+    for x in args:  # -dvvv, -fs -
+        m = re.fullmatch(r'-([dfv]+)(s?)', x)
+        if m:
+            a += ['-' + c for c in m[1]] + (['-s'] if m[2] else [])
+        elif x.startswith('--') and '=' in x:
+            a += x.split('=', 1)
+        else:
+            a.append(x)
+    o, r = xt_opts(a, ('-d', '-f', '-v', '--force', '--display', '--verify', '--deep', '--strict', '--generate-entitlement-der', '--xml', '--der', '--remove-signature', '--verbose', '--no-strict'),
+                ('-s', '--sign', '-i', '--identifier', '--entitlements', '--timestamp', '-o', '--options', '--preserve-metadata'))
+    if not r:
+        raise Fail('usage: codesign -s - [-f] [--entitlements FILE] [-i IDENTIFIER] PATH | -d [--entitlements -] PATH | --verify PATH\nHenge\'s own: ad hoc signatures only, of arm64 programs, apps, frameworks and IPAs (the signing app signs again with the user\'s certificate).', 2)
+    who = o.get('-s', o.get('--sign'))
+    rc = 0
+    for p in r:
+        p = p.rstrip('/')
+        if not os.path.exists(p):
+            raise Fail(f'{p}: No such file or directory', 1)
+        if who is not None:
+            if who != '-':
+                raise Fail(f'{who}: no identity found (here only -s -, ad hoc: the user\'s signing app holds the certificate)', 1)
+            ents = pl_load(o['--entitlements']) if '--entitlements' in o else None
+            if ents is not None and not isinstance(ents, dict):
+                raise Fail('entitlements must be a dictionary', 1)
+            ident = o.get('-i', o.get('--identifier'))
+            if p.endswith('.ipa'):
+                cs_ipa(p, ents, ident)
+                continue
+            old = MachO(cs_main(p)).signature()
+            if old and not ('-f' in o or '--force' in o):
+                err(f'{p}: is already signed')
+                rc = 1
+                continue
+            if 'entitlements' in o.get('--preserve-metadata', '') and ents is None and old and 5 in old:
+                ents = plistlib.loads(old[5][8:])
+            if os.path.isdir(p):
+                cs_bundle(p, ents, ident)
+            else:
+                cs_sign(p, ident or os.path.splitext(os.path.basename(p))[0], ents)
+            if old:
+                err(f'{p}: replacing existing signature', p) if False else sys.stderr.write(f'{p}: replacing existing signature\n')
+            continue
+        m = MachO(cs_main(p))
+        s = m.signature()
+        if not s or 0 not in s:
+            sys.stderr.write(f'{p}: code object is not signed at all\n')
+            rc = 1
+            continue
+        cd = s[0]
+        _, _, ver, fl, ho, io, ns, nc, limit, hsz, ht, _, pg = struct.unpack('>9I4B', cd[:40])
+        ident = cd[io:cd.index(b'\0', io)].decode()
+        if '-d' in o or '--display' in o:
+            State.out.flush()
+            if '--entitlements' in o:
+                if 5 in s:
+                    if o['--entitlements'].lstrip(':') in ('-', ''):
+                        outb(s[5][8:].rstrip() + b'\n')
+                    else:
+                        pl_write(o['--entitlements'].lstrip(':'), s[5][8:])
+            sys.stderr.write(f'Executable={os.path.abspath(cs_main(p))}\n')
+            if '-v' in o or '--verbose' in o:
+                h = (hashlib.sha256 if ht == 2 else hashlib.sha1)(cd).hexdigest()[:40]
+                sys.stderr.write(f'Identifier={ident}\nFormat={"app bundle with " if os.path.isdir(p) else ""}Mach-O thin (arm64)\nCodeDirectory v={ver:x} size={len(cd)} flags=0x{fl:x}'
+                                 f'({"adhoc" if fl & 2 else "none"}) hashes={nc}+{ns}\nCDHash={h}\nSignature={"adhoc" if fl & 2 else "size=" + str(len(s.get(0x10000, b"")))}\nTeamIdentifier=not set\n')
+            continue
+        bad = ht != 2 and 'its hashes are not SHA-256' or None
+        if not bad:
+            for i in range(nc):
+                if hashlib.sha256(m.b[i << pg:min((i + 1) << pg, limit)]).digest() != cd[ho + i * hsz:ho + (i + 1) * hsz]:
+                    bad = 'invalid signature (code or signature have been modified)'
+                    break
+        slots = {2: s.get(2), 5: s.get(5), 7: s.get(7)}
+        if os.path.isdir(p):
+            slots[1], cr = data(p + '/Info.plist'), p + '/_CodeSignature/CodeResources'
+            slots[3] = data(cr) if os.path.exists(cr) else b''
+        for k, x in slots.items():
+            if not bad and x is not None and k <= ns and cd[ho - k * hsz:ho - (k - 1) * hsz] != hashlib.sha256(x).digest():
+                bad = {1: 'invalid Info.plist (plist or signature have been modified)', 3: 'invalid resource directory (directory or signature have been modified)'}.get(k, 'invalid signature')
+        if not bad and os.path.isdir(p) and slots.get(3):
+            sealed = plistlib.loads(slots[3]).get('files2', {})
+            for f, x in sealed.items():
+                if isinstance(x, dict) and 'hash2' in x:
+                    q = os.path.join(p, f)
+                    if (not os.path.exists(q) and not x.get('optional')) or (os.path.exists(q) and hashlib.sha256(data(q)).digest() != x['hash2']):
+                        bad = f'a sealed resource is missing or invalid\nfile {"modified" if os.path.exists(q) else "missing"}: {q}'
+                        break
+        if bad:
+            sys.stderr.write(f'{p}: {bad}\n')
+            rc = 1
+        elif '-v' in o or '--verbose' in o:
+            sys.stderr.write(f'{p}: valid on disk\n{p}: satisfies its Designated Requirement\n')
+    return rc
+
+
+def cs_ipa(path, ents, ident):
+    import shutil
+    import tempfile
+    import zipfile
+    d = tempfile.mkdtemp(prefix='.henge-sign', dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            if any(n.startswith('/') or '..' in n.split('/') for n in names):
+                raise Fail(f'{path}: a name in it is outside the IPA', 1)
+            z.extractall(d)
+            modes = {i.filename: i.external_attr >> 16 for i in z.infolist()}
+        apps = [n for n in os.listdir(d + '/Payload') if n.endswith('.app')] if os.path.isdir(d + '/Payload') else []
+        if len(apps) != 1:
+            raise Fail(f'{path}: not one app in it', 1)
+        for n, mode in modes.items():
+            if mode & 0o777 and os.path.isfile(os.path.join(d, n)):
+                os.chmod(os.path.join(d, n), mode & 0o777)
+        cs_bundle(d + '/Payload/' + apps[0], ents, ident)
+        tmp = path + '.signing'
+        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+            for r, ds, fs in os.walk(d):
+                ds.sort()
+                for n in sorted(fs):
+                    z.write(os.path.join(r, n), os.path.relpath(os.path.join(r, n), d))
+        os.replace(tmp, path)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def ver32(v):
+    return f'{v >> 16}.{v >> 8 & 255}' + (f'.{v & 255}' if v & 255 else '')
+
+
+@command('otool')
+def otool(name, args):
+    import struct
+    import subprocess
+    a = []
+    for x in args:
+        a += ['-' + c for c in x[1:]] if re.fullmatch(r'-[LDhltvVXf]+', x) else [x]
+    o, r = xt_opts(a, ('-L', '-D', '-h', '-l', '-t', '-v', '-V', '-X', '-f'), ('-arch',))
+    if not r or not {'-L', '-D', '-h', '-l', '-t'} & set(o):
+        raise Fail('usage: otool [-L] [-D] [-h] [-l] [-tV] FILE...', 1)
+    for f in r:
+        m = MachO(f)
+        s = lambda x, at: x[struct.unpack('<I', x[at:at + 4])[0]:].split(b'\0')[0].decode()
+        if '-X' not in o:
+            put(f + ':')
+        if '-h' in o:
+            put('Mach header\n      magic  cputype cpusubtype  caps    filetype ncmds sizeofcmds      flags')
+            put(f' 0xfeedfacf {m.cpu:8} {m.sub & 0xffffff:10}  0x{m.sub >> 24:02x} {m.type:11} {len(m.cmds):5} {m.cmdsize:10} 0x{m.flags:08x}')
+        if '-L' in o or '-D' in o:
+            for c, at, x in m.cmds:
+                k = c & 0x7fffffff
+                if k == 0xd and '-D' in o and '-L' not in o:
+                    put(s(x, 8))
+                elif '-L' in o and k in (0xc, 0xd, 0x18, 0x1f, 0x20, 0x23):
+                    cur, com = struct.unpack('<II', x[16:24])
+                    full = lambda v: f'{v >> 16}.{v >> 8 & 255}.{v & 255}'
+                    put(f'\t{s(x, 8)} (compatibility version {full(com)}, current version {full(cur)}' + {0x18: ', weak', 0x1f: ', reexport', 0x23: ', upward'}.get(k, '') + ')')
+        if '-l' in o:
+            names = {0x19: 'LC_SEGMENT_64', 2: 'LC_SYMTAB', 0xb: 'LC_DYSYMTAB', 0xc: 'LC_LOAD_DYLIB', 0xd: 'LC_ID_DYLIB', 0xe: 'LC_LOAD_DYLINKER', 0x1b: 'LC_UUID', 0x1c: 'LC_RPATH', 0x1d: 'LC_CODE_SIGNATURE',
+                     0x26: 'LC_FUNCTION_STARTS', 0x28: 'LC_MAIN', 0x29: 'LC_DATA_IN_CODE', 0x2a: 'LC_SOURCE_VERSION', 0x2c: 'LC_ENCRYPTION_INFO_64', 0x32: 'LC_BUILD_VERSION', 0x33: 'LC_DYLD_EXPORTS_TRIE',
+                     0x34: 'LC_DYLD_CHAINED_FIXUPS', 0x18: 'LC_LOAD_WEAK_DYLIB', 0x1f: 'LC_REEXPORT_DYLIB', 0x22: 'LC_DYLD_INFO_ONLY', 0x25: 'LC_VERSION_MIN_IPHONEOS', 0x2d: 'LC_LINKER_OPTION'}
+            segs = {at: (n, va, vs, fo, fs, se) for n, at, va, vs, fo, fs, se in m.segments()}
+            for i, (c, at, x) in enumerate(m.cmds):
+                k = c & 0x7fffffff
+                put(f'Load command {i}\n      cmd {names.get(k, "?(0x%x)" % c)}\n  cmdsize {len(x)}')
+                if at in segs:
+                    n, va, vs, fo, fs, se = segs[at]
+                    put(f'  segname {n}\n   vmaddr 0x{va:016x}\n   vmsize 0x{vs:016x}\n  fileoff {fo}\n filesize {fs}\n   nsects {len(se)}')
+                    for t in se:
+                        put(f'Section\n  sectname {t[0]}\n   segname {t[1]}\n      addr 0x{t[2]:016x}\n      size 0x{t[3]:016x}\n    offset {t[4]}')
+                elif k in (0xc, 0xd, 0x18, 0x1f):
+                    put(f'         name {s(x, 8)} (offset 24)')
+                elif k == 0x1c:
+                    put(f'         path {s(x, 8)} (offset 12)')
+                elif k == 0x1b:
+                    h = x[8:24].hex().upper()
+                    put(f'    uuid {h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}')
+                elif k == 0x32:
+                    pl, mn, sd = struct.unpack('<3I', x[8:20])
+                    put(f' platform {pl}\n    minos {ver32(mn)}\n      sdk {ver32(sd)}')
+                elif k in (0x1d, 0x26, 0x29, 0x33, 0x34):
+                    of, sz = struct.unpack('<II', x[8:16])
+                    put(f'  dataoff {of}\n datasize {sz}')
+                elif k == 0x28:
+                    e, st = struct.unpack('<QQ', x[8:24])
+                    put(f'  entryoff {e}\n stacksize {st}')
+        if '-t' in o:
+            State.out.flush()
+            subprocess.run([xc_tools() + '/bin/llvm-objdump', '--macho', '-d', f])
+    return 0
+
+
+@command('size')
+def xt_size(name, args):
+    o, r = xt_opts(args, ('-m', '-l', '-x'), ('-arch',))
+    if '-m' not in o:
+        put('__TEXT\t__DATA\t__OBJC\tothers\tdec\thex')
+    for f in r or ['a.out']:
+        t = {}
+        for n, at, va, vs, fo, fs, se in MachO(f).segments():
+            t[n or '__TEXT'] = t.get(n, 0) + vs
+            if '-m' in o:
+                put(f'Segment {n}: {vs}')
+                for x in se:
+                    put(f'\tSection {x[0]}: {x[3]}')
+        if '-m' in o:
+            put(f'total {sum(t.values())}')
+        else:
+            a, b = t.pop('__TEXT', 0), t.pop('__DATA', 0)
+            put(f'{a}\t{b}\t0\t{sum(t.values())}\t{a + b + sum(t.values())}\t{a + b + sum(t.values()):x}' + (f'\t{f}' if len(r) > 1 else ''))
+    return 0
+
+
+@command('strings')
+def xt_strings(name, args):
+    a = []
+    for x in args:
+        a += ['-n', x[1:]] if re.fullmatch(r'-\d+', x) else [x]
+    o, r = xt_opts(a, ('-a', '-', '-o'), ('-n', '-arch', '-t'))
+    n = integer(o.get('-n', '4'))
+    for f in r or ['-']:
+        for m in re.finditer(rb'[\t\x20-\x7e]{%d,}' % n, data(f)):
+            outb((b'%d ' % m.start() if '-o' in o else b'%x ' % m.start() if o.get('-t') == 'x' else b'') + m[0] + b'\n')
+    return 0
+
+
+@command('dwarfdump')
+def dwarfdump(name, args):
+    o, r = xt_opts(args, ('-u', '--uuid'), ())
+    if not o or not r:
+        raise Fail('only --uuid FILE... is here', 1)
+    for f in r:
+        c = MachO(f).lc(0x1b)
+        if c:
+            h = c[2][8:24].hex().upper()
+            put(f'UUID: {h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]} (arm64) {f}')
+    return 0
+
+
+@command('vtool')
+def vtool(name, args):
+    import struct
+    o, r = xt_opts(args, ('-show', '-show-build'), ('-arch',))
+    if not o or not r:
+        raise Fail('only -show and -show-build are here', 1)
+    for f in r:
+        put(f'{f}:')
+        c = MachO(f).lc(0x32)
+        if c:
+            pl, mn, sd = struct.unpack('<3I', c[2][8:20])
+            put(f'Load command {[x[1] for x in MachO(f).cmds].index(c[1])}\n      cmd LC_BUILD_VERSION\n  cmdsize {len(c[2])}\n platform { {1: "MACOS", 2: "IOS", 6: "MACCATALYST", 7: "IOSSIMULATOR"}.get(pl, pl)}\n    minos {ver32(mn)}\n      sdk {ver32(sd)}')
+    return 0
+
+
+@command('xcstringstool')
+def xcstringstool(name, args):
+    a = list(args)
+    if not a or a.pop(0) != 'compile':
+        raise Fail('usage: xcstringstool compile --output-directory DIR FILE.xcstrings...', 64)
+    o, r = xt_opts(a, (), ('--output-directory', '-o', '--language', '-l'))
+    d = o.get('--output-directory', o.get('-o'))
+    if not d or not r:
+        raise Fail('usage: xcstringstool compile --output-directory DIR FILE.xcstrings...', 64)
+    for f in r:
+        for p in xcs_compile(f, d, o.get('--language', o.get('-l'))):
+            put(p)
+    return 0
+
+
+def xcs_compile(path, d, only=None):
+    """A string catalog as .lproj/NAME.strings and .stringsdict. Returns the files."""
+    import json
+    import plistlib
+    try:
+        c = json.loads(text(path))
+    except ValueError as e:
+        raise Fail(f'{path}: not a string catalog ({e})', 1) from None
+    base, langs, made = os.path.splitext(os.path.basename(path))[0], {}, []
+    src = c.get('sourceLanguage', 'en')
+    for key, e in c.get('strings', {}).items():
+        ls = e.get('localizations', {})
+        if src not in ls and e.get('shouldTranslate', True) is not None:
+            langs.setdefault(src, ({}, {}))
+        for lang, l in ls.items():
+            plain, plural = langs.setdefault(lang, ({}, {}))
+            if 'stringUnit' in l:
+                plain[key] = l['stringUnit'].get('value', '')
+            v = l.get('variations', {})
+            subs = l.get('substitutions', {})
+            if 'plural' in v or subs:
+                g = {}
+                if 'plural' in v:
+                    forms = {q: x['stringUnit']['value'] for q, x in v['plural'].items()}
+                    spec = next((m[1] for m in re.finditer(r'%(?:\d+\$)?((?:l{0,2})[diu]|@|l?f)', ' '.join(forms.values()) + ' ' + key)), 'lld')
+                    g = {'NSStringLocalizedFormatKey': '%#@value@', 'value': {'NSStringFormatSpecTypeKey': 'NSStringPluralRuleType', 'NSStringFormatValueTypeKey': spec, **forms}}
+                else:
+                    g['NSStringLocalizedFormatKey'] = plain.pop(key, key)
+                    for n, s in subs.items():
+                        forms = {q: x['stringUnit']['value'].replace('%arg', '%' + s.get('formatSpecifier', 'lld')) for q, x in s.get('variations', {}).get('plural', {}).items()}
+                        g[n] = {'NSStringFormatSpecTypeKey': 'NSStringPluralRuleType', 'NSStringFormatValueTypeKey': s.get('formatSpecifier', 'lld'), **forms}
+                plural[key] = g
+            if 'device' in v:
+                x = {q: y['stringUnit']['value'] for q, y in v['device'].items() if 'stringUnit' in y}
+                if x:
+                    plural[key] = {'NSStringDeviceSpecificRuleType': x}
+    for lang, (plain, plural) in langs.items():
+        if only and lang != only:
+            continue
+        to = os.path.join(d, lang + '.lproj')
+        os.makedirs(to, exist_ok=True)
+        for ext, x in (('.strings', plain), ('.stringsdict', plural)):
+            if x or (ext == '.strings' and lang == src and not plural):
+                with open(os.path.join(to, base + ext), 'wb') as f:
+                    f.write(plistlib.dumps(x, sort_keys=True))
+                made.append(os.path.join(to, base + ext))
+    return made
+
+
+@command('agvtool')
+def agvtool(name, args):
+    import glob
+    a = [x for x in args if x not in ('-all', '-terse', '-terse1', '-noscm')]
+    files = sorted(glob.glob('*.xcodeproj/project.pbxproj'))
+    if len(files) != 1:
+        raise Fail('one .xcodeproj must be in this folder', 1)
+    s = text(files[0])
+    key = 'MARKETING_VERSION' if a and 'marketing' in a[0] else 'CURRENT_PROJECT_VERSION'
+    now = re.search(key + r' = "?([^";]+)"?;', s)
+    if not now:
+        raise Fail(f'the project has no {key}', 3)
+    if a[:1] in (['what-version'], ['vers'], ['what-marketing-version'], ['mvers']):
+        put(now[1])
+        return 0
+    if a[:1] in (['next-version'], ['bump']):
+        new = re.sub(r'(\d+)$', lambda m: str(int(m[1]) + 1), now[1])
+    elif a[:1] in (['new-version'], ['new-marketing-version']) and len(a) > 1:
+        new = a[1]
+    else:
+        raise Fail('usage: agvtool what-version | next-version [-all] | new-version [-all] N | what-marketing-version | new-marketing-version N', 1)
+    s = re.sub(key + r' = "?[^";]+"?;', f'{key} = {new};' if re.fullmatch(r'[\w.]+', new) else f'{key} = "{new}";', s)
+    with open(files[0], 'w') as f:
+        f.write(s)
+    put(new)
+    return 0
+
+
+@command('sw_vers')
+def sw_vers(name, args):
+    import platform
+    v = xc_sdk()[1]
+    for a in args:
+        if a in ('-productVersion', '--productVersion'):
+            put(v)
+        elif a in ('-productName', '--productName'):
+            put('iOS')
+        elif a in ('-buildVersion', '--buildVersion'):
+            put(platform.version().split(':')[0].replace(' ', '') or 'unknown')
+        else:
+            raise Fail(f'{a} is not supported here', 64)
+    if not args:
+        put(f'ProductName:\t\tiOS\nProductVersion:\t\t{v}')
+    return 0
+
+
+def xc_absent(name, args):
+    raise Fail({'simctl': 'there is no simulator here: run the program with the run_program tool', 'devicectl': 'the user installs the IPA with their signing app',
+                'actool': 'asset catalogs are not compiled here (no Assets.car): xcodebuild copies their pictures', 'ibtool': 'storyboards and xibs are not compiled here',
+                'metal': 'there is no Metal compiler here: the app compiles .metal source itself (device.makeLibrary(source:options:))', 'metallib': 'there is no Metal compiler here',
+                'altool': 'nothing is uploaded from here', 'notarytool': 'nothing is uploaded from here', 'xctest': 'XCTest is not here: write a small test program',
+                'momc': 'Core Data models are not compiled here: build the NSManagedObjectModel in code', 'coremlc': 'compile the model in the app: MLModel.compileModel(at:)',
+                'xcresulttool': 'there are no result bundles here'}[name] + f' ({name} is not among Henge\'s tools)', 69)
+
+
+for _n in ('simctl', 'devicectl', 'actool', 'ibtool', 'metal', 'metallib', 'altool', 'notarytool', 'xctest', 'momc', 'coremlc', 'xcresulttool'):
+    CMDS[_n] = xc_absent
+
+
+@command('swiftc')
+def swiftc(name, args):
+    """Swift sources to a program, object file or check, with the toolchain's frontend and linker."""
+    import subprocess
+    import tempfile
+    tools, a = xc_tools(), list(args)
+    if a[:1] in (['--version'], ['-version']):
+        State.out.flush()
+        return subprocess.run([tools + '/bin/swift-frontend', '-frontend', '-version'] if False else [tools + '/bin/swift-frontend', '--version']).returncode
+    src, front, link, to, mode, module, plain = [], [], [], None, 'exe', None, False
+    while a:
+        x = a.pop(0)
+        if x in ('-o', '-module-name', '-target', '-sdk', '-D', '-I', '-L', '-F', '-framework', '-Xlinker', '-Xcc', '-import-objc-header', '-swift-version', '-emit-module-path', '-j', '-module-cache-path'):
+            if not a:
+                raise Fail(f'{x} needs a value', 1)
+            v = a.pop(0)
+            if x == '-o':
+                to = v
+            elif x == '-module-name':
+                module = v
+            elif x in ('-D', '-Xcc', '-import-objc-header', '-swift-version', '-emit-module-path'):
+                front += [x, v]
+            elif x in ('-I', '-F'):
+                front += [x, v]
+                link += [x + v] if x == '-F' else []
+            elif x == '-L':
+                link += ['-L' + v]
+            elif x == '-framework':
+                link += [x, v]
+            elif x == '-Xlinker':
+                link.append(v)
+        elif x in ('-c', '-emit-object'):
+            mode = 'obj'
+        elif x == '-typecheck':
+            mode = 'check'
+        elif x in ('-emit-executable', '-g', '-static-stdlib', '-num-threads'):
+            pass
+        elif x.startswith(('-O', '-D', '-I')) or x in ('-parse-as-library', '-enable-testing', '-suppress-warnings', '-warnings-as-errors', '-whole-module-optimization', '-wmo'):
+            plain = plain or x == '-parse-as-library'
+            front += [] if x in ('-wmo', '-whole-module-optimization') else [x]
+        elif x.startswith('-l') or x.startswith('-L'):
+            link.append(x)
+        elif x.startswith('-'):
+            raise Fail(f'{x} is not supported here', 1)
+        elif x.endswith('.swift'):
+            src.append(os.path.abspath(x))
+        else:
+            link.append(x)
+    if not src:
+        raise Fail('no input files', 1)
+    first = os.path.splitext(os.path.basename(src[0]))[0]
+    module = module or re.sub(r'\W', '_', os.path.splitext(os.path.basename(to))[0] if to and mode == 'exe' else 'main')
+    if not plain and len(src) == 1 and re.search(r'^\s*@main\b', text(src[0]), re.M):
+        front.append('-parse-as-library')
+    with tempfile.TemporaryDirectory(prefix='henge-swift') as d:
+        obj = (to or first + '.o') if mode == 'obj' else d + '/all.o'
+        top = next((f for f in src if os.path.basename(f) == 'main.swift'), src[0] if len(src) == 1 else None)
+        if mode == 'exe' and top and '-parse-as-library' not in front:  # Swift's own list of arguments is the app's
+            with open(d + '/main.swift', 'w') as f:
+                f.write(f'CommandLine.arguments = _hengeArguments()\n#sourceLocation(file: "{top}", line: 1)\n' + re.sub(r'\A#!', '//', text(top)))
+            with open(d + '/henge-arguments.swift', 'w') as f:
+                f.write('@_silgen_name("_NSGetArgc") private func argc() -> UnsafeMutablePointer<Int32>\n'
+                        '@_silgen_name("_NSGetArgv") private func argv() -> UnsafeMutablePointer<UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>>\n'
+                        'func _hengeArguments() -> [String] { (0..<Int(argc().pointee)).compactMap { i in argv().pointee[i].map { String(cString: $0) } } }\n')
+            src = [d + '/main.swift' if f == top else f for f in src] + [d + '/henge-arguments.swift']
+        fx = '/henge/toolchain'
+        cmd = [tools + '/bin/swift-frontend', '-frontend', '-typecheck' if mode == 'check' else '-c'] + src + ['-module-name', module, '-target', 'arm64-apple-ios17.0', '-sdk', fx + '/sdk/iPhoneOS.sdk',
+              '-resource-dir', fx + '/lib/swift', '-enable-objc-interop', '-no-color-diagnostics', '-in-process-plugin-server-path', fx + '/lib/swift/host/libSwiftInProcPluginServer.dylib',
+              '-plugin-path', fx + '/lib/swift/host/plugins', '-module-cache-path', fx + '/module-cache'] + (front if '-swift-version' in front else ['-swift-version', '5'] + front) + ([] if mode == 'check' else ['-o', obj])
+        State.out.flush()
+        rc = subprocess.run(cmd).returncode
+        if rc or mode != 'exe':
+            return rc
+        res, sdk = sorted(os.listdir(tools + '/lib/clang'))[-1], tools + '/sdk/iPhoneOS.sdk'
+        return subprocess.run([tools + '/bin/ld', '-syslibroot', sdk, '-arch', 'arm64', '-platform_version', 'ios', '17.0', xc_sdk()[1], '-e', '_main', '-dead_strip', '-adhoc_codesign', '-w',
+                               '-L' + sdk + '/usr/lib/swift', '-L' + tools + '/lib/swift/iphoneos', '-rpath', '/usr/lib/swift', '-o', to or first, obj] + link +
+                              ['-lobjc', '-lSystem', '-framework', 'Foundation', tools + f'/lib/clang/{res}/lib/darwin/libclang_rt.ios.a']).returncode
+
+
+@command('swift')
+def xt_swift(name, args):
+    import subprocess
+    import tempfile
+    a = list(args)
+    if not a or a[0] in ('--help', '-h', 'help'):
+        put('usage: swift FILE.swift [ARGUMENTS] | swift -e CODE | swift --version   (it is compiled, then run here)\nFor a package: an app that uses it is built by xcodebuild or build. No REPL, swift build or swift test.')
+        return 0 if a else 64
+    if a[0] in ('--version', '-version'):
+        return swiftc('swiftc', a)
+    if a[0] in ('build', 'run', 'test', 'package', 'repl'):
+        raise Fail(f'swift {a[0]} is not here: compile with swiftc, or make a henge-project.json with "kind": "tool"', 64)
+    with tempfile.TemporaryDirectory(prefix='henge-swift') as d:
+        if a[0] == '-e' and len(a) > 1:
+            f = d + '/main.swift'
+            with open(f, 'w') as h:
+                h.write(a[1] + '\n')
+            rest = a[2:]
+        else:
+            f, rest = a[0], a[1:]
+            if f.startswith('-'):
+                raise Fail(f'{f} is not supported here', 64)
+            if f == '-':
+                with open(d + '/main.swift', 'wb') as h:
+                    h.write(data('-'))
+                f = d + '/main.swift'
+        rc = swiftc('swiftc', [f, '-o', d + '/script', '-suppress-warnings'])
+        return rc or subprocess.run([d + '/script'] + rest).returncode
 
 
 # ---- git: Henge's own, with git's own formats: clone, submodules, and the everyday local commands ----

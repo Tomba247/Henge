@@ -45,7 +45,7 @@ Python is there as well. Screens and touch still need the installed app.
 | Code for another processor (`--target=armv4t-none-eabi`) | Compiles; there is no linker for it |
 | Mac source to iPhone: shared SwiftUI, SwiftData, Charts and Objective-C++ | IPA built |
 
-The made apps themselves were not installed or tested on an iPhone. For ROM tools and ports, use your own copy of a game.
+Most of the made apps were not installed or tested on an iPhone. For ROM tools and ports, use your own copy of a game.
 
 You still install an IPA to check what it looks like and how it feels, and Actions is still right for releases, Xcode
 projects and anything this toolchain lacks (below). How many tests it saves depends on the project; it was not measured.
@@ -224,27 +224,116 @@ must be inside Projects. The optional GitHub token is kept in the iPhone's Keych
 a config file only Henge's own process can read. What the toolchain runs is native code in Henge's process and is **not
 sandboxed from Henge**: run only source you trust, and look before allowing a coding program to run a command.
 
+## Developer tools: what is here, and what is missing
+
+The compiler, linker and SDK are in the **toolchain you make yourself**. The rest comes in the IPA and is put into the
+toolchain when the terminal opens. They are Henge's own programs, with the common options; an option they lack is an
+error. They are not Apple's and not the originals.
+
+| For | Here | Missing or limited |
+|---|---|---|
+| Compiling | `clang`, `clang++`, `swiftc`, `swift FILE`, `swift -e`, `swift-frontend`, assembler, for arm64 iOS | The simulator, macOS, watchOS; `swift build`, `swift test`, the REPL; other processors have no linker |
+| Linking, libraries | `ld`, `ar`, `libtool`, `ranlib`, `lipo`, `install_name_tool` | `strip`, `dsymutil` |
+| Building | `xcodebuild`, `xcrun`, `xcode-select`, `cmake`, `ninja`, `make`, `henge-project.json` | `autoconf`/configure, Bazel, CocoaPods, Fastlane |
+| Xcode projects | One iPhone app with its static libraries, frameworks, Swift packages of plain source, string catalogs, plain pictures and icon | Storyboards, xibs, colours and data of asset catalogs (no `actool`), Core Data models, app extensions, build scripts, package plugins and binaries, archives, tests |
+| Metal | `.metal` source compiled by the app on the device | `metal`, `metallib` |
+| Signing | `codesign -s -`: ad hoc, with entitlements, of programs, apps, frameworks and whole IPAs; `-d`, `--verify` | Certificates and provisioning: your sideloader does that |
+| Looking inside | `otool`, `nm`, `objdump`, `size`, `strings`, `dwarfdump --uuid`, `vtool -show-build` | `lldb`, Instruments, `sample`, `leaks` |
+| Property lists, text | `plutil`, `PlistBuddy`, `xcstringstool`, `agvtool`, `sw_vers` | `genstrings`, `ibtool`, `sips`, `iconutil` |
+| Version control | `git`: clone, submodules, status, diff, log, commit and other local commands | `git push`, `merge`, `pull`, `rebase`, LFS: `github_save` sends files, when GitHub is connected |
+| Shell | `sh` and about 90 names: `grep`, `rg`, `sed`, `awk`, `find`, `diff`, `patch`, `tar`, `zip`, `curl`, `jq`, `sqlite3`… | Job control; a pipe's parts run one after the other |
+| Scripting | Python 3 with its standard library | pip packages with C parts, Node, Ruby, Rust, Go, Java |
+| Packages | `brew` says whether a tool is here | Installing with `brew`, `apt`, `npm` |
+| Testing | `run_program` (no window), `program_command`, `framecheck` (flicker in a run of frames) | The iOS simulator, XCTest, Swift Testing; touch, sound and looks need the installed app |
+| After a crash | `henge_log` and Projects/henge-logs | A debugger |
+
+`project_help` in the terminal is the full reference, written for the coding program.
+
+## Toolkits: adding the tools a project needs
+
+Ask the coding program: "this project needs X, build what you need". It makes the tool in **Projects/Toolkit**:
+
+- **Toolkit/bin/NAME** is a command in every project: a Python or shell script, or a program built on the phone.
+- It **stays when Henge is updated** (Toolchain/bin does not).
+- Source goes in Toolkit/src with its licence, shared libraries in Toolkit/lib and headers in Toolkit/include, and
+  Toolkit/README.md lists what there is.
+- Names that are already here come first, so a tool needs a new name.
+
+No toolkits, games or other people's projects are in this repository or its releases.
+
+## Changing Henge itself
+
+iOS does not let a running app change its own signed code, so a change to Henge is always a new IPA to sign and install.
+
+**On the phone.** Unpack **Henge-source.zip** into Files › Henge › Projects and ask for a change there. `build` makes
+`Henge.ipa`: the C parts by Ninja, then the Swift. The icons, the JIT helper, the GPU libraries, the terminal's own tools
+and some libraries are taken ready-made. Its CLAUDE.md has the rules. Keep the IPA that works: close Henge and open it
+again after building it, as the build uses most of the memory set aside for programs.
+
+**With GitHub Actions**, when the phone's way does not work, or from any computer:
+
+1. Fork the repository (or use your own fork) and choose the branch, here `mac-speed`.
+2. Change files on github.com, with `github_save` from the terminal, or with git.
+3. Actions › **Build Henge IPA** › Run workflow › choose the branch; set "Linux machine build" to `none` unless you want
+   one attached. No Mac or Apple account is needed.
+4. It makes a release with Henge.ipa, Henge.tipa and Henge-source.zip. Its build number is the run's number plus 100.
+5. Sign and install it over the Henge you have.
+
+## Crash logs
+
+A bad memory access anywhere in the app closes Henge, and the terminal's program may say that it was the one that
+crashed. Henge first notes whose thread it was and the calls (library and offset), and whether its stack was full. At the
+next start this is a file in **Projects/henge-logs**, and the coding program is told to read it (`henge_log`): `crash`,
+`previous` run, or `now`. App folder paths and the log's upload address are left out of it.
+
+## Numbers
+
+Single runs, not averages; yours will differ. "iPhone" is an iPhone 18 Pro Max with iOS 27.0.1; its figures were reported
+by the coding program on it or are in its log. "Mac" is an Apple silicon Mac running the same toolchain in the same loader.
+
+| What | iPhone | Mac |
+|---|---|---|
+| Henge itself, from nothing (79 C steps, then the Swift) | 37.7 s | 24.3 s |
+| Henge again, one Swift file changed | not measured | 14.2 s |
+| Henge again, one C header changed | not measured | 0.9 s |
+| A small Xcode project with `xcodebuild`, first time | 17.9 s | not measured |
+| The same with nothing changed | 0.0 s | not measured |
+| A sample app from nothing (an earlier build) | 28.7 s | not measured |
+| `framecheck` on 48 frames of 426x224 | under 1 s | not measured |
+| Henge.ipa built this way | 34.8 MB | 34.8 MB |
+
+| Memory | Figure |
+|---|---|
+| Set aside for program code at launch, iPhone | 1536 MB |
+| Of that used by Claude Code | 348 MB |
+| After building Henge | 1197 MB |
+| iOS's limit for Henge, with the entitlement | 6652 MB |
+| Left with the terminal open in the background | 4784 MB |
+| Peak of the whole process building Henge, Mac | about 3.3 GB |
+
+There is no comparison with Xcode or with GitHub Actions here: it was not measured.
+
 ## What is tested, and what is not
 
 | | State |
 |---|---|
-| Terminal, sign-in and saved sign-in | Used on an iPhone 18 Pro Max, iOS 27.0.1 |
-| clang 21, the shell, Python 3.15 | Reported working on that iPhone by the coding program in it |
-| A sample app built to an IPA | Reported on that iPhone: first build 28.7 s |
-| `run_program` | It ran and ended with 0 on that iPhone with nothing in its output. Swift's `print` went elsewhere: fixed, checked on a Mac |
-| Claude Code's Bash tool, the developer tools, `python3 -I` | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |
-| The tool server after iOS closed it in the background | Checked on a Mac by closing its port; not checked on an iPhone |
-| Swift, CMake, Ninja | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |
-| `download`, `github_download`, `github_save` | **Not tried against GitHub yet** |
-| Mac apps that ran before (the rest of Mac Apps) | Still work, as used on that iPhone |
+| Terminal, sign-in and saved sign-in, Claude Code's Bash tool | Used on an iPhone 18 Pro Max, iOS 27.0.1 |
+| `xcodebuild` of a small app, installed and opened | That iPhone |
+| `git` clone, `framecheck` | That iPhone |
+| Henge built on the phone, signed, installed, opened, JIT on | That iPhone, once |
+| Methods that a library adds to Metal's classes (Vulkan through MoltenVK in `run_program`) | That iPhone |
+| `swiftc`, `swift`, `codesign`, `plutil`, `PlistBuddy`, `otool`, `size`, `xcstringstool` | On a Mac, several compared with Apple's; **not tried on an iPhone** |
+| Toolkit folder, `henge_log`, the crash note, larger thread stacks | On a Mac; **not tried on an iPhone** |
+| `download`, `github_download`, `github_save` | Little tried |
 | Other iPhones, iPads, older iOS | **Not tried** |
 
 Known gaps:
 
-- No `git`, `autoconf` or configure scripts; no Xcode projects, storyboards, asset catalogs or CocoaPods; no Python
-  packages with C parts; no `fork`. Python's process pools become threads. The shell has no job control.
-- Programs here share about 1 GB in all. One that crashes takes Henge with it.
-- `python3`, `clang` and the rest have no window: graphics are checked by having the program write a picture.
+- **A crash seen on an iPhone while a program ran is not located yet.** This build gives a program's threads larger stacks,
+  a possible cause that is not proven, and notes where the next one happens.
+- In the background iOS gives no GPU: a program that draws then fails. Keep Henge on screen.
+- Programs here share the memory above. One that crashes takes Henge with it.
+- Code that is run is not sandboxed from Henge: run only what you trust.
 
 ## Trying the code
 

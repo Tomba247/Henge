@@ -64,6 +64,8 @@ void henge_tl_program_stop(void);
 void henge_tl_tool_stop(const char *cwd);
 /* Whether Henge is in the background: said with the exception that ended a program. */
 void henge_tl_tool_away(int away);
+/* Where a crash is noted for the next launch (one line each, over what is there). */
+void henge_tl_crash_log(const char *path);
 
 /* ---- Mac apps with windows (experimental; henge-tl-app.m): an AppKit app runs on the main thread against Henge's
    AppKit, one per launch, and no Mac can start after it. ---- */

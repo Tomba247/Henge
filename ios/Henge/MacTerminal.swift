@@ -161,7 +161,10 @@ final class TerminalSession: ObservableObject {
             args += ["--add-dir", Sharing.folder.path]
             let chats = ProjectMaker.moveChats(home: Self.home, here: Self.projects.path)
             if chats > 0 { HengeLog.log("macapps", "terminal: \(chats) chat(s) of an earlier install are in /resume again") }
-            let s = ToolServer(tools: ProjectTools.make(folder: Self.projects, home: Self.home, token: { GitHubToken.read() }, run: Self.runTool, program: Self.runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }, shared: Sharing.folder) {
+            let logs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let crashed = RunLogs.collect(logs, into: Self.projects)
+            if crashed { HengeLog.log("macapps", "terminal: the run before crashed: noted in Projects/henge-logs") }
+            let s = ToolServer(tools: ProjectTools.make(folder: Self.projects, home: Self.home, token: { GitHubToken.read() }, run: Self.runTool, program: Self.runProgram, stop: { henge_tl_program_stop() }, stopTools: { henge_tl_tool_stop($0) }, shared: Sharing.folder, logs: logs, crashed: crashed) {
                 HengeLog.log("macapps", "terminal: \($0)")
             })
             if s.start() {
@@ -193,6 +196,7 @@ final class TerminalSession: ObservableObject {
             var folders: [UnsafePointer<CChar>?] = [UnsafePointer(strdup(tools.appendingPathComponent("bin").path)), nil]
             var toolEnv: [UnsafePointer<CChar>?] = ProjectMaker.environment(tools: tools, home: Self.home.path).map { UnsafePointer(strdup($0)) } + [nil]
             henge_tl_tool_setup(&folders, 3, &toolEnv)
+            henge_tl_crash_log(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("henge-crash.log").path)
             let rc = henge_tl_term_start(path, &a, &e, dir, Int32(cols), Int32(rows), { bytes, n in
                 guard let bytes else { return }
                 TerminalSession.shared.output(Array(UnsafeRawBufferPointer(start: bytes, count: n)))
