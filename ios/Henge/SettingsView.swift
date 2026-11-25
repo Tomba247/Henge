@@ -217,6 +217,17 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Desk.card)
+                Section("Credits") {
+                    LabeledContent("Henge and its engine", value: "Leviidev")
+                    Text("Henge, its engine and running macOS on iPhone are the work of Leviidev and Henge's contributors.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    LabeledContent("Linux machines, coding terminal", value: "Tomba247")
+                    Text("This is an unofficial fork of Henge. Tomba247 added the Linux machines and the terminal and toolchain for Claude Code.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Link("Henge by Leviidev", destination: URL(string: "https://github.com/Leviidev/Henge")!)
+                    Link("This fork", destination: URL(string: "https://github.com/Tomba247/Henge")!)
+                }
+                .listRowBackground(Desk.card)
                 Section("Log") {
                     ShareLink(item: HengeLog.logFileURL) { Label("Share henge.log", systemImage: "square.and.arrow.up") }
                 }

@@ -30,9 +30,9 @@ def size(n):
     return f"{n / 2**30:.1f} GB" if n >= 2**30 else f"{n / 2**20:.0f} MB"
 
 
-def details(repo):
-    """docs/mac-apps-terminal.md in the notes: its headings one level down, its first line the section's name."""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "mac-apps-terminal.md")
+def details(name):
+    """A file of docs/ in the notes: its headings one level down, its first line the section's name."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", name)
     if not os.path.exists(path):
         return []
     out, code = [], False  # a release's notes show every line end: a paragraph's lines are joined
@@ -79,6 +79,11 @@ def main():
         "### What this fork adds",
         f"On top of Henge's engine, this fork adds a **Linux machine**: real Ubuntu and Kali desktops running on the iPhone, with the phone's GPU for 3D, and a **coding terminal**: a command-line coding program, a compiler and your project in one app on the iPhone, with no macOS. Those, with some input, sound and backup changes, are what's new here. Everything else is Henge. It was written with [Claude Code](https://claude.com/claude-code) (an AI coding assistant) in [{repo}](https://github.com/{repo}). It's offered back to the Henge developer, to use or ignore as they see fit.",
         "",
+        "### Credits",
+        f"- **[Leviidev]({UPSTREAM})**, with Henge's contributors: **Henge and all of its engine**, running macOS on iPhone, and the Mac Apps loader.",
+        f"- **[{repo.split('/')[0]}](https://github.com/{repo.split('/')[0]})**: this fork's **Linux machines** and its **Claude Code terminal and toolchain**.",
+        "- Changes merged from other people's forks keep their authors in the git history.",
+        "",
         "### Please",
         f"- **Want Henge itself?** Get it from [the official project]({UPSTREAM}), and support Leviidev there.",
         f"- **Found a bug in these builds?** Tell [{repo.split('/')[0]}](https://github.com/{repo}), **not** the Henge project. These builds may break things the official app doesn't.",
@@ -97,7 +102,9 @@ def main():
         out.append(f"| [`{f}`](https://github.com/{repo}/releases/download/{tag}/{f}) | {size(assets[f])} | **{title}.** {what} |")
     out += [
         "",
-        *details(repo),
+        *details("install.md"),
+        *details("mac-apps-terminal.md"),
+        *details("macos-improvements.md"),
         "## Running a Linux machine",
         "",
         "1. Install **Henge.ipa** (or **Henge.tipa** with TrollStore). If you already have it, installing over it keeps your machines.",

@@ -8,7 +8,8 @@ edit a project, compile it, link it into an iPhone app, run it without a window 
 - **Off by default**: Henge › Settings › **Mac apps without macOS**.
 - **Nothing in `core/`**: the engine, the virtual Mac and Linux machines run as before.
 
-Henge is Leviidev's. The Mac Apps loader this builds on (`tl/`) is part of Henge and is theirs too.
+**Credits:** Henge, its engine and the Mac Apps loader this builds on (`tl/`) are Leviidev's and Henge's contributors'. The
+terminal and toolchain were added by Tomba247.
 
 ## How to use it
 
@@ -21,8 +22,9 @@ program you want in the terminal.
    No release of this fork contains them.
 2. **Put it on the phone**: the folder goes in Files › On My iPhone › Henge › **Projects** › **Toolchain**.
 3. **Turn on** Settings › **Mac apps without macOS**.
-4. **Bring in the program** (Mac Apps): an `.app`, or a `.dmg`, also one left in Files › Henge › Mac Apps. For Claude
-   Code, its macOS arm64 program inside an `.app` folder. It is not included and is under its own licence.
+4. **Bring in the program** (Mac Apps): a program, an `.app`, or a `.dmg`, also one left in Files › Henge › Mac Apps. For Claude
+   Code, its macOS arm64 program file by itself (the `claude` in Anthropic's macOS download). It is not included: it is
+   Anthropic's, under its own licence.
 5. **Open in a Terminal.** Sign in the way the program asks; that is between you and it.
 6. Ask for something: "make an app that…", "build this and fix the errors". The result is an **unsigned `.ipa`** in the
    project's folder, to sign with whatever you sign Henge with.
@@ -99,7 +101,7 @@ A compiler expects a new process each time: it registers its options once, frees
 
 At launch Henge holds about 60 GB of an iPhone app's 64 GB of address space, for Mac apps whose allocators need a big
 range. The terminal does not use it, and with it held there may be no room for a compiler. It is given back at the
-first tool run, and the log says whether there was room before and after.
+first tool run. On an iPhone 18 Pro Max the log said there was no room for 512 MB before that, and room after.
 
 ### Projects (`ProjectMaker.swift`, `ProjectBuilder.swift`)
 
@@ -117,8 +119,44 @@ A project is a folder with a `henge-project.json`, which the coding program writ
 C, C++, Objective-C(++), assembly and Swift (with SwiftUI and macros). Builds are incremental by content hash and by the
 compiler's dependency output. A project with its own build system gives `commands` instead
 (`cmake -S . -B build/cm`, `ninja -C build/cm`) and names the program they make. `"kind": "tool"` makes a program to run
-here. `make_kit.py` turns a large CMake project already built on a Mac into a ready-made kit with its objects, so the
-phone compiles only what changes.
+here. A very large project can come as a kit instead (below).
+
+### Kits: a big project that is already mostly built
+
+A phone can compile a small app from nothing in under a minute. A project of hundreds of files would take far longer,
+and much of it never changes. A **kit** is such a project with the slow part already done on a Mac:
+
+| In a kit | What it is |
+|---|---|
+| `source/` | The sources the build used, and every header they read |
+| `build/` | The compiled objects and libraries from the Mac |
+| `app/` | What goes in the app besides its program: pictures, data, `Info.plist` |
+| `toolchain/` `sdk/` | The `clang`, `ld` and iPhone SDK it was built with |
+| `henge-build.json` | Each source with its object and flags, what it depends on, and how to link, pack and run it |
+
+`henge-build.json` holds a hash of every file an object was made from. On the phone, `build` compares them: if you
+change one source, **only that one is compiled** (a header: the sources that read it), then everything is linked and
+packed into a new IPA. Nothing is compiled when nothing changed. Moving the folder is fine, as paths are relative to it.
+
+How to make one, on a Mac:
+
+1. Build the project for the iPhone the usual way with CMake and Ninja.
+2. `python3 tools/phone-kit/make_kit.py SOURCE BUILD TARGET APP KIT` (the source folder, the build folder, Ninja's
+   target, the `.app` in the build folder, and the folder to make).
+   - `--prebuilt TEXT` leaves out sources whose path has TEXT, such as a huge generated folder; their objects are used.
+   - `--run FILE` says how the program runs without a window, so that the coding program can test it.
+3. Zip it, send it to the phone, and put the folder in Files › Henge › **Projects**.
+
+| | Project (`henge-project.json`) | Kit (`henge-build.json`) |
+|---|---|---|
+| Made by | The coding program, on the phone | `make_kit.py`, on a Mac |
+| Needs a Mac | Only for the Toolchain, once | Yes, to make the kit |
+| First build | Everything is compiled | Only what you changed |
+| New source files | Yes | No: make the kit again |
+| For | New apps, small and middle-sized projects | Large existing projects |
+
+A kit holds Apple's compiler and SDK, and your project's code: for your own use, like the toolchain. No kits are in this
+repository or its releases.
 
 ### The tools a coding program gets (`ToolServer.swift`)
 
@@ -147,6 +185,7 @@ sandboxed from Henge**: run only source you trust, and look before allowing a co
 | `run_program` | It ran and ended with 0 on that iPhone; the output file was empty (not explained yet) |
 | Swift, CMake, Ninja | On a Mac, in the same loader under iOS's rules; not checked on an iPhone |
 | `download`, `github_download`, `github_save` | **Not tried against GitHub yet** |
+| Mac apps that ran before (the rest of Mac Apps) | Still work, as used on that iPhone |
 | Other iPhones, iPads, older iOS | **Not tried** |
 
 Known gaps:
