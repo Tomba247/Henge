@@ -170,6 +170,11 @@ static Toks lex(const char *p) {
         }
         const char *e = word_end(p);
         if (in && t.n && !strcmp(t.t[t.n - 1].s, "=~")) for (e = p; *e && !strchr(" \t\r\n", *e);) { if (*e == '\\' && e[1]) e += 2; else if (*e == '\'' || *e == '"') e = skip_quote(e); else e++; }
+        if (*e == '(' && e > p + 1 && e[-1] == '=') { /* name=( ... ) */
+            const char *q = p;
+            while (q < e && (isalnum((unsigned char)*q) || *q == '_')) q++;
+            if (q > p && (q == e - 1 || (q == e - 2 && *q == '+'))) e = skip_sub(e + 1);
+        }
         if (e == p) e++;
         add_tok(&t, strndup(p, (size_t)(e - p)), 0);
         p = e;
@@ -351,7 +356,7 @@ static const char *dollar(const char *p, Words *w, Ex *x, int quoted, int split)
         free(cmd), free(b.p);
         return e;
     }
-    char name[256] = "", *alt = NULL;
+    char name[256] = "", *alt = NULL, *sub = NULL;
     int kind = 0, colon = 0, twice = 0, length = 0;
     if (*p == '{') {
         const char *e = skip_brace(p + 1) - 1;
@@ -361,6 +366,12 @@ static const char *dollar(const char *p, Words *w, Ex *x, int quoted, int split)
         if (*p == '#' && p + 1 < e && p[1] != '}') { length = 1; p++; }
         for (; p < e && (isalnum((unsigned char)*p) || *p == '_' || (!n && strchr("?#@*!$", *p))) && n < 255;) { name[n++] = *p++; if (strchr("?#@*!$", name[0])) break; }
         name[n] = 0;
+        if (p < e && *p == '[') {
+            const char *c = p;
+            while (c < e && *c != ']') c++;
+            sub = strndup(p + 1, (size_t)(c - p - 1));
+            p = c < e ? c + 1 : e;
+        }
         if (p < e) {
             if (*p == ':' ) { colon = 1; p++; if (!strchr("-=+?", *p)) kind = ':'; else kind = *p++; }
             else kind = *p++;
@@ -384,13 +395,41 @@ static const char *dollar(const char *p, Words *w, Ex *x, int quoted, int split)
         free(alt);
         return p;
     }
-    const char *v = !strcmp(name, "@") || !strcmp(name, "*") ? (npos > 1 ? pos[1] : NULL) : var(name, num);
+    const char *arr = strcmp(name, "@") && strcmp(name, "*") ? var(name, num) : NULL;
+    if (sub || (arr && (*arr == 31 || *arr == 30))) {
+        int all = sub && (!strcmp(sub, "@") || !strcmp(sub, "*")), n = 0;
+        char *own = strdup(arr ? arr : ""), *q = own;
+        Words el = {0};
+        if (*own == 31) { for (q++;; ) { char *c = strchr(q, 31); if (c) *c = 0; add_word(&el, q); if (!c) break; q = c + 1; } }
+        else if (arr && *own != 30) add_word(&el, own);
+        if (all && length) { snprintf(num, sizeof num, "%d", el.n); value(w, x, num, quoted, split); return p; }
+        if (all) {
+            int from = 0, many = el.n;
+            if (kind == ':' && alt) { char *two = strchr(alt, ':'); if (two) { *two++ = 0; many = (int)arith_text(two); } from = (int)arith_text(alt); if (from < 0) from = el.n + from; }
+            for (int i = from; i < el.n && many > 0; i++, many--, n++) {
+                if (n) { if (quoted && *sub == '*') lit(x, ' ', 1); else flush(w, x); }
+                value(w, x, el.v[i], quoted, split);
+            }
+            if (!n && kind == '-') { char *d = expand1(alt); value(w, x, d, quoted, split); }
+            return p;
+        }
+        long at = sub ? arith_text(sub) : 0;
+        if (at < 0) at = el.n + at;
+        arr = at >= 0 && at < el.n ? el.v[at] : NULL;
+        if (length) { snprintf(num, sizeof num, "%zu", strlen(arr ? arr : "")); value(w, x, num, quoted, split); return p; }
+    }
+    const char *v = !strcmp(name, "@") || !strcmp(name, "*") ? (npos > 1 ? pos[1] : NULL) : arr;
     if (length) { char t[32]; snprintf(t, sizeof t, "%zu", !strcmp(name, "@") || !strcmp(name, "*") ? (size_t)(npos > 0 ? npos - 1 : 0) : strlen(v ? v : "")); value(w, x, t, quoted, split); free(alt); return p; }
     int set = v && (*v || !colon);
     if (kind == '-' || kind == '=') {
         if (!set) { v = expand1(alt); if (kind == '=') setenv(name, v, 1); }
     } else if (kind == '+') v = set ? expand1(alt) : "";
     else if (kind == '?' && !set) { say(2, "sh: %s: %s\n", name, *alt ? alt : "not set"); last = 1; quitting = 1; }
+    else if ((kind == '^' || kind == ',') && v) {
+        char *u = strdup(v);
+        for (char *q = u; *q; q++) { *q = (char)(kind == '^' ? toupper((unsigned char)*q) : tolower((unsigned char)*q)); if (!*alt) break; }
+        v = u;
+    }
     else if (kind == ':' && v) {
         char *two = strchr(alt, ':');
         if (two) *two++ = 0;
@@ -904,7 +943,44 @@ static int is(Toks *t, const char *s) { return t->at < t->n && !strcmp(t->t[t->a
 static int is_assign(const char *s) {
     if (!isalpha((unsigned char)*s) && *s != '_') return 0;
     while (isalnum((unsigned char)*s) || *s == '_') s++;
+    if (*s == '[') { while (*s && *s != ']') s++; if (*s) s++; }
+    if (*s == '+') s++;
     return *s == '=';
+}
+/* name=word, name+=word, name=(words), name[i]=word, in the form name=value. An array is its elements, each after a \x1f. */
+static char *assign(const char *s) {
+    size_t n = 0;
+    while (isalnum((unsigned char)s[n]) || s[n] == '_') n++;
+    char *name = strndup(s, n), *out = NULL;
+    const char *e = strchr(s, '='), *was = getenv(name);
+    int add = e[-1] == '+';
+    Buf b = {0};
+    put(&b, "", 0);
+    if (s[n] == '[') {
+        char *sub = strndup(s + n + 1, strcspn(s + n + 1, "]")), *v = expand1(e + 1);
+        long at = arith_text(sub), i = 0;
+        const char *q = was && *was == 31 ? was : "";
+        for (; *q || i <= at; i++) {
+            size_t k = *q ? strcspn(q + 1, "\x1f") : 0;
+            putc1(&b, 31);
+            if (i == at) { if (add) put(&b, q + 1, k); put(&b, v, strlen(v)); } else if (*q) put(&b, q + 1, k);
+            if (*q) q += k + 1;
+        }
+    } else if (e[1] == '(') {
+        char *in = strndup(e + 2, strlen(e + 2) - 1);
+        Toks t = lex(in);
+        Words w = {0};
+        for (int i = 0; i < t.n; i++) if (!t.t[i].op) expand(t.t[i].s, &w, 1);
+        if (add && was && *was == 31) put(&b, was, strlen(was));
+        if (!w.n && !b.n) putc1(&b, 30); /* none */
+        for (int i = 0; i < w.n; i++) { putc1(&b, 31); put(&b, w.v[i], strlen(w.v[i])); }
+    } else {
+        char *v = expand1(e + 1);
+        if (add && was) put(&b, was, strlen(was));
+        put(&b, v, strlen(v));
+    }
+    asprintf(&out, "%s=%s", name, b.p);
+    return out;
 }
 static int list(Toks *t, Io io, int go, const char *const *ends);
 static int redirect(Toks *t, Io *io, int go, int *opened, int *nopened) { /* 1 took one, -1 failed */
@@ -1059,6 +1135,10 @@ static int command(Toks *t, Io io, int go) {
         const char *name = t->at < t->n ? t->t[t->at++].s : "";
         if (is(t, "(")) t->at += 2;
         skip_nl(t);
+        /* A coding program's own stand-ins for these start a copy of itself, which is refused: the toolchain's are used. */
+        static const char *const own[] = {"grep", "find", "rg", "ugrep", "bfs", NULL};
+        char where[PATH_MAX];
+        for (int i = 0; own[i] && go; i++) if (!strcmp(own[i], name) && tool_path(name, where, sizeof where) == 2) { command(t, io, 0); return 0; }
         if (go) {
             Fn *f = calloc(1, sizeof *f);
             f->name = strdup(name), f->t = malloc(sizeof *t), *f->t = *t, f->at = t->at, f->next = fns, fns = f;
@@ -1110,7 +1190,8 @@ static int command(Toks *t, Io io, int go) {
         if (t->t[t->at].op) break;
         const char *s = t->t[t->at++].s;
         if (!go) continue;
-        if (!w.n && is_assign(s)) { const char *e = strchr(s, '='); char *v = expand1(e + 1), *pair; asprintf(&pair, "%.*s=%s", (int)(e - s), s, v); add_word(&set, pair); }
+        if (!w.n && is_assign(s)) add_word(&set, assign(s));
+        else if (w.n && is_assign(s) && (strstr(s, "=(") || strstr(s, "+=")) && (!strcmp(w.v[0], "local") || !strcmp(w.v[0], "declare") || !strcmp(w.v[0], "typeset") || !strcmp(w.v[0], "export") || !strcmp(w.v[0], "readonly"))) add_word(&w, assign(s));
         else if (w.n && !strcmp(w.v[0], "[[") && strcmp(s, "]]")) { /* neither split nor matched against files */
             const char *before = w.v[w.n - 1];
             add_word(&w, !strcmp(before, "==") || !strcmp(before, "=") || !strcmp(before, "!=") ? expand_pattern(s) : expand1(s));

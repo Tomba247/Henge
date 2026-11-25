@@ -266,7 +266,7 @@ extension ProjectTools {
       "sources": ["src/**/*.c", "src/*.cpp", "ios/*.swift"],      C, C++, Objective-C(++), assembly, Swift
       "exclude": ["src/test/**"],
       "include": ["include"], "defines": ["FOO=1"],
-      "flags": ["-O2"], "c_flags": ["-std=c11"], "cxx_flags": ["-std=c++20"], "swift_flags": [], "bridging_header": "ios/Bridge.h",
+      "flags": ["-O2"] (Swift: "-O"), "c_flags": ["-std=c11"], "cxx_flags": ["-std=c++20"], "swift_flags": [], "bridging_header": "ios/Bridge.h",
       "frameworks": ["UIKit", "Metal"], "libraries": ["z", "deps/libfoo.a"], "link": [extra ld arguments], "dylibs": ["x.dylib"],
       "resources": ["assets", "data.bin:game/data.bin"],          copied into the app (source:destination)
       "icon": "icon.png", "info": {extra Info.plist keys},
@@ -285,8 +285,21 @@ extension ProjectTools {
     exists, the names in it work too (grep, sed, awk, find, diff, patch, make, tar, curl, sqlite3, jq…): Python versions with the common options, slower than the real ones.
 
     NOT HERE: git (github_download, github_save), autoconf/configure scripts, Xcode projects, storyboards, asset catalogs (load PNGs instead), CocoaPods, \
-    pip packages with C parts, fork(), arrays and job control in the shell. Python's subprocess works (multiprocessing pools become threads). \
+    pip packages with C parts, fork(), job control in the shell, the Metal compiler. Python's subprocess works (multiprocessing pools become threads). \
     For a large Makefile write henge-project.json or a build.ninja instead.
+
+    STRONG PHONES. Metal, 120 Hz (info: "CADisableMinimumFrameDurationOnPhone": true), Core ML, Accelerate, NEON and threads are all available to an app. \
+    A .metal file in "sources" is copied into the app: device.makeLibrary(source: String(contentsOf: url), options: nil) compiles it there. For more memory than iOS gives \
+    by default an app needs an entitlement that its signing must allow. Test kernels here first as a "tool" with its own timing: it runs on the same processor.
+
+    MAC SOURCE TO IPHONE. From source only. Keep the model, engine and SwiftUI views; put AppKit code behind #if canImport(AppKit) and write its UIKit or SwiftUI half: \
+    NSView/UIView (y is flipped), NSColor/UIColor, NSOpenPanel/fileImporter, NSDocument/FileDocument, menus/toolbar or commands, hover and right-click/long press, \
+    windows/NavigationStack. OpenGL: use Metal. No Process, no JIT or dlopen of downloaded code, files only in the app's folders. Its package dependencies: download each and add its sources. \
+    An import may bring a name of its own (RealityKit has a Scene): write SwiftUI.Scene.
+
+    ROM TOOLS (randomizers, patchers, editors). Work on the user's own dump, never one found online. Write to a new file; make an IPS or BPS patch, so that what is shared holds none of the game. \
+    Check the dump's hash and header first, fix checksums after, take a seed so a result can be made again, and test logic here (every item reachable, pointers inside the file). \
+    clang compiles and assembles for other processors (--target=armv4t-none-eabi -mthumb) but there is no linker for them: place code with a small python3 script.
 
     PORTING A DECOMP. 1 github_download it. 2 Read its README, build files and asset steps; say what the user must supply (their own copy of the game; never look for one online). \
     3 Find what it needs from its platform (graphics, sound, input, files, 32-bit assumptions) and whether someone's PC port exists to start from. 4 Build the portable part as a "tool" first, \

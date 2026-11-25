@@ -29,6 +29,20 @@ Actions**:
 | Actions minutes, commits just to test | Every try | None |
 | IPAs to sign and install | Often one for each try | When there is something worth looking at |
 
+### What a strong phone is good for here
+
+| Tried on a Mac, in the same loader | Result |
+|---|---|
+| Metal app with a shader file (compiled on the device by the app), SwiftUI, 120 Hz view | IPA built |
+| Emulator-style C++20 core on four threads | Built and run here |
+| AI-style kernels: Accelerate and NEON, 700 MB of data | Built and run here |
+| Randomizer for a made-up ROM: shuffled table, fixed checksum, IPS patch, and its app | Run here; IPA built |
+| A 40-file C project with generated data, by `make` and by CMake and Ninja | Built and run here |
+| Code for another processor (`--target=armv4t-none-eabi`) | Compiles; there is no linker for it |
+| Mac source to iPhone: shared SwiftUI, SwiftData, Charts and Objective-C++ | IPA built |
+
+The made apps themselves were not installed or tested on an iPhone. For ROM tools and ports, use your own copy of a game.
+
 You still install an IPA to check what it looks like and how it feels, and Actions is still right for releases, Xcode
 projects and anything this toolchain lacks (below). How many tests it saves depends on the project; it was not measured.
 
@@ -224,7 +238,7 @@ sandboxed from Henge**: run only source you trust, and look before allowing a co
 Known gaps:
 
 - No `git`, `autoconf` or configure scripts; no Xcode projects, storyboards, asset catalogs or CocoaPods; no Python
-  packages with C parts; no `fork`. Python's process pools become threads. The shell has no arrays or job control.
+  packages with C parts; no `fork`. Python's process pools become threads. The shell has no job control.
 - Programs here share about 1 GB in all. One that crashes takes Henge with it.
 - `python3`, `clang` and the rest have no window: graphics are checked by having the program write a picture.
 

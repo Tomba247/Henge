@@ -405,6 +405,7 @@ void tl_tool_stream_write(int fd, const char *p, size_t n) { tool_text_to(&g_too
 long tl_tool_stream_read(char *p, size_t n) { return (long)tool_read(0, p, n); }
 static int tool_in_read_first(void *c, char *p, int n) { (void)c; return (int)tl_tool_stream_read(p, (size_t)n); }
 static int tool_getchar(void) { char c; return tl_tool_stream_read(&c, 1) == 1 ? (unsigned char)c : EOF; }
+static int tool_fileno(FILE *f) { return f == g_tool_in ? 0 : fileno(f); }
 static int tool_isatty(int fd) {
     if (fd >= 0 && fd <= 2) { errno = ENOTTY; return 0; }
     return isatty(fd);
@@ -998,7 +999,7 @@ static void *tool_lookup(const char *sym, int ns) {
         {"_vm_deallocate", (void *)tool_vm_deallocate}, {"_open", (void *)tool_open}, {"_close", (void *)tool_close},
         {"_getenv", (void *)tool_getenv}, {"_setenv", (void *)tool_setenv}, {"_unsetenv", (void *)tool_unsetenv}, {"_putenv", (void *)tool_putenv},
         {"__NSGetEnviron", (void *)tool_NSGetEnviron}, {"__NSGetArgc", (void *)tool_NSGetArgc}, {"__NSGetArgv", (void *)tool_NSGetArgv},
-        {"_read", (void *)tool_read}, {"_read$NOCANCEL", (void *)tool_read}, {"_fstat", (void *)tool_fstat}, {"_isatty", (void *)tool_isatty},
+        {"_read", (void *)tool_read}, {"_read$NOCANCEL", (void *)tool_read}, {"_fstat", (void *)tool_fstat}, {"_isatty", (void *)tool_isatty}, {"_fileno", (void *)tool_fileno},
         {"_lseek", (void *)tool_lseek}, {"_ioctl", (void *)tool_ioctl},
         {"_posix_spawn", (void *)tool_posix_spawn}, {"_posix_spawnp", (void *)tool_posix_spawn},
         {"_posix_spawn_file_actions_init", (void *)tool_fa_init}, {"_posix_spawn_file_actions_destroy", (void *)tool_fa_destroy},

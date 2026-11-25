@@ -89,5 +89,6 @@ cp -L $BREW/bin/cmake $BREW/bin/ninja $O/bin/; mkdir -p $O/share; rsync -a --exc
 for x in cc c++ clang++ bash python ar ranlib nm objdump; do echo 'another name' > $O/bin/$x; chmod 755 $O/bin/$x; done
 cp -L $BREW/bin/glslc $O/bin/glslc 2>/dev/null || true
 clang -w -O1 -target arm64-apple-ios17.0 -isysroot $S $HERE/sh.c -o $O/bin/sh # bash, clang++, python and cc are found as these (tl_tool.h)
+cp $HERE/devtools.py $O/bin/; python3 $HERE/devtools.py --names > $O/bin/devtools.names
 cp $HERE/henge.cmake $O/; cp $HERE/CLAUDE.md $O/CLAUDE.md 2>/dev/null || true
 du -sh $O

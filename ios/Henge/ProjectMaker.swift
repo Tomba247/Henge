@@ -109,13 +109,14 @@ enum ProjectMaker {
             var a = ["-frontend", "-c"] + swift.map { "$KIT/" + $0 } + ["-module-name", module, "-target", target, "-sdk", sdk, "-swift-version", "5",
                      "-resource-dir", t + "/lib/swift", "-enable-objc-interop", "-no-color-diagnostics", "-in-process-plugin-server-path",
                      t + "/lib/swift/host/libSwiftInProcPluginServer.dylib", "-plugin-path", t + "/lib/swift/host/plugins",
-                     "-module-cache-path", t + "/module-cache", "-Onone"]
+                     "-module-cache-path", t + "/module-cache"]
             // A lone main.swift runs from its top; anything else has an @main.
             if !swift.contains(where: { ($0 as NSString).lastPathComponent == "main.swift" }) { a.append("-parse-as-library") }
             var deps = swift
             if let b = o["bridging_header"] as? String { a += ["-import-objc-header", "$KIT/" + b]; deps.append(b) }
             a += try strings("include").flatMap { ["-Xcc", "-I" + ($0.hasPrefix("/") ? $0 : root.path + "/" + $0)] }
-            a += try strings("swift_flags")
+            let own = try strings("swift_flags")
+            a += own.contains { $0.hasPrefix("-O") } ? own : ["-O"] + own
             made = .init(tool: t + "/bin/swift-frontend", args: a, obj: "build/obj/\(module).swift.o", deps: deps)
             objects.append("$KIT/build/obj/\(module).swift.o")
         }
@@ -146,7 +147,9 @@ enum ProjectMaker {
     static func bundle(_ root: URL, _ plan: ProjectBuilder.Plan) throws {
         let o = try load(root), fm = FileManager.default, app = root.appendingPathComponent(plan.app)
         try fm.createDirectory(at: app, withIntermediateDirectories: true)
-        for r in o["resources"] as? [String] ?? [] {
+        // Shaders, compiled on the device by the app.
+        let shaders = (o["sources"] as? [String] ?? []).flatMap { glob($0, in: root) }.filter { $0.hasSuffix(".metal") }
+        for r in (o["resources"] as? [String] ?? []) + Set(shaders) {
             let p = r.components(separatedBy: ":")
             let from = root.appendingPathComponent(p[0]), to = app.appendingPathComponent(p.count > 1 ? p[1] : (p[0] as NSString).lastPathComponent)
             guard fm.fileExists(atPath: from.path) else { throw Failure("\"resources\": \(p[0]) is not there.") }
