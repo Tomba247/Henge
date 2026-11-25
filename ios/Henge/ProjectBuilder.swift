@@ -218,7 +218,10 @@ final class ProjectBuilder {
         }
         func took() -> String { String(format: "%.1f s", Date().timeIntervalSince(began)) }
         if failed > 0 { return (false, "BUILD FAILED: \(failed) file(s) did not compile (\(took()))\n" + Self.clip(log)) }
-        let program = full(plan.program), linkKey = key(plan.link)
+        let program = full(plan.program), linkKey = key(plan.link + plan.link.filter { $0.hasSuffix(".a") }.map { a in // those the commands made may be new
+            let x = try? FileManager.default.attributesOfItem(atPath: expand(a))
+            return "\(x?[.size] ?? 0) \((x?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+        })
         if let made = plan.made {
             guard FileManager.default.fileExists(atPath: full(made)) else { return (false, "BUILD FAILED: the commands did not make \(made)\n" + Self.clip(log)) }
             try? FileManager.default.createDirectory(atPath: (program as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
