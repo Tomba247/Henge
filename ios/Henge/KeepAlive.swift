@@ -12,8 +12,8 @@ import UIKit
 ///
 /// A running Mac does not run on in the background: it waits, paused (InstantResume.rest), so a phone in a pocket
 /// stays cool and the GPU, which is not Henge's there, is left alone. An install cannot be paused and goes on, and so
-/// does the terminal (Claude Code): suspended
-/// it would lose its connections mid-answer. (A game it runs there gets no GPU until Henge is back.)
+/// does the terminal (Claude Code): suspended it would lose its connections mid-answer. Not while it runs an app's
+/// program, which may draw: without a GPU that dies, so iOS pauses all of it, as before.
 @MainActor
 enum KeepAlive {
     static let key = "henge.keepAlive"

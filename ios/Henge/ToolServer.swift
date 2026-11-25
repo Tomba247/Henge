@@ -328,8 +328,10 @@ enum ProjectTools {
 
 /// The built program running in Henge, without its window.
 final class ProgramRunner {
-    /// Henge is in the background, where iOS gives an app no GPU: said beside what the program wrote.
+    /// Henge is in the background, where iOS gives an app no GPU: a program that draws dies there.
     nonisolated(unsafe) static var away = false
+    /// One runs: Henge is not kept awake in the background then (KeepAlive), so iOS pauses it with the rest.
+    nonisolated(unsafe) static var active = false
     typealias Start = (_ path: String, _ argv0: String, _ entry: String, _ env: [String], _ output: @escaping (Data) -> Void) -> Int32
     private let start: Start, stop: () -> Void
     private let lock = NSLock()
@@ -344,11 +346,11 @@ final class ProgramRunner {
     private func locked<T>(_ f: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return f() }
     private var isRunning: Bool { locked { running } }
     func tail() -> String {
-        (Self.away ? "(Henge is in the background now: iOS gives it no GPU there, so a program that draws may fail. Try again when the user has Henge open.)\n" : "") +
         locked { (ended.isEmpty ? "" : ended + "\n") + String(decoding: lines.suffix(4000), as: UTF8.self) }
     }
 
     func begin(_ root: URL) -> (ok: Bool, text: String) {
+        if Self.away { return (false, "Not started: Henge is in the background, where iOS gives no GPU and a program that draws would die. Do other work, or ask the user to open Henge and keep it open, then try again.") }
         if !end() { return (false, "The program that runs does not end. Quit Henge and open it again.") }
         let fm = FileManager.default
         guard let plan = try? ProjectBuilder.anyPlan(in: root, tools: tools), let r = plan.run else { return (false, "The project does not say how to run it (\"run\", see project_help).") }
@@ -369,6 +371,7 @@ final class ProgramRunner {
         do { try fm.copyItem(at: b(plan.program), to: copy) } catch { return (false, "The program could not be copied: \(error.localizedDescription)") }
         let out = home.appendingPathComponent("output.txt")
         fm.createFile(atPath: out.path, contents: nil)
+        Self.active = true
         locked { running = true; ended = ""; lines = Data(); port = r.port; file = FileHandle(forWritingAtPath: out.path) }
         let env = ["HOME=\(home.path)"] + r.env
         Thread.detachNewThread { [self] in
@@ -379,6 +382,7 @@ final class ProgramRunner {
                     try? file?.write(contentsOf: d)
                 }
             }
+            Self.active = false
             locked { running = false; ended = "The program ended with \(code)."; try? file?.close(); file = nil }
         }
         for i in 0..<300 {

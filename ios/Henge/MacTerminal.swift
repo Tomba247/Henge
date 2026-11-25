@@ -42,7 +42,7 @@ final class TerminalSession: ObservableObject {
         lock.lock()
         let recent = ProcessInfo.processInfo.systemUptime - lastOutput < 45, over = ended
         lock.unlock()
-        return started && !over && (recent || server?.busy == true)
+        return started && !over && !ProgramRunner.active && (recent || server?.busy == true)
     }
 
     private let typing = DispatchQueue(label: "terminal input")

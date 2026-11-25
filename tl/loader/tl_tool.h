@@ -268,10 +268,8 @@ static void tool_terminate(void) {
     if (n >= (int)sizeof why) n = sizeof why - 1;
     tl_log("%s: %.*s", r->exe->path, n - 1, why);
     tool_text_to(r, 2, why, (size_t)n);
-    if (pthread_equal(pthread_self(), r->thread)) {
-        r->code = 134;
-        pthread_exit(NULL);
-    }
+    /* The thread stays where it is, for good: it may hold the system's locks (one whose owner is gone ends the app),
+       and what it asked of the GPU may still call back. So this copy's memory is not used again either. */
     tool_done(r, 134, 1);
     for (;;) pause();
 }
